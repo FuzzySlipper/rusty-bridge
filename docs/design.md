@@ -8,8 +8,11 @@ Dark Messiah of Might and Magic.
 > Bootstrap from the donor. Hand over by channel. Tune against the stream.
 
 This document covers the structure, the authority model, the handover order,
-and what Rusty Engine has to add upstream. It is a design, not a record of
-what exists: as of 2026-10-17 nothing here has been built.
+and what Rusty Engine has to add upstream. It's a design: it says what
+should be built and why. What already exists is described in
+[wire.md](wire.md), [recording.md](recording.md) and the HANDOFF. The design
+was revised on 2026-10-17 after the first Tap, Wire and combat stepper had
+run against the game. Where a claim rests on a measurement, it says so.
 
 ## Why a bridge, not a conversion
 
@@ -33,14 +36,35 @@ on as a compatibility oracle for that ruleset.
 | Piece | Owner | Lives where | Responsibility |
 | --- | --- | --- | --- |
 | Import | Per donor | Offline tool, writes to gitignored `local/` | Donor formats to GLB and descriptors: maps, models, rigs, clips, textures, sounds. Keys each asset by its donor path. |
-| Tap | Per donor | Inside the donor process (32-bit C++) | Reads simulation and presentation state every tick and applies input and write-backs from Rusty. |
-| Wire | Generic | Shared memory between processes ([wire.md](wire.md)) | Versioned snapshots, events, input and write-back messages, timestamped by donor tick. |
+| Tap | Per donor | Inside the donor process (32-bit C++ server plugin) | Reads simulation state every tick, and catches decisions where the donor makes them (hooks on damage, defense and parry outcomes). Later applies input and write-backs from Rusty. |
+| Wire | Generic | A file-backed shared-memory ring next to the Tap ([wire.md](wire.md)) | Per-tick snapshots plus the events of that tick, timestamped by donor tick. Later: input and write-back messages. |
 | Frontend | Generic core, per-donor mapping | C# Rusty Engine product | Takes snapshots in, maps donor IDs to admitted assets, presents them, and owns whichever channels have been handed over. |
-| Recorder | Generic | Frontend side | Saves Wire traffic to disk for scrubbing, stepping and offline tuning. |
+| Recorder | Generic | A separate C# tool reading the Wire (`rbwire record`) | Saves Wire traffic to disk for scrubbing, stepping and offline tuning. It doesn't need the Frontend running. |
 
 Generic means "has no donor names in it". Everything starts in the Dark
 Messiah tree. Code moves into a generic layer only once a second donor needs
 it.
+
+### Snapshots and events
+
+Both kinds of data are first-class on the Wire, and the difference matters:
+
+- **Snapshots are for state:** where things are, their health, what they're
+  animating.
+- **Events are for decisions:** a hit, a block, a parry.
+
+Inferring events from snapshot differences turned out to be wrong in ways
+that matter for combat:
+
+- Dark Messiah removes an NPC in the tick it dies, so the killing blow never
+  shows as a health change.
+- A blocked blow changes nothing in any snapshot.
+- Several hits can land in one tick.
+
+So the Tap hooks the donor where it decides, and streams the decision with
+its inputs: attacker, weapon, struck entity, trace, damage type, verdict.
+Every snapshot-derived event in the viewer is a fallback for older
+recordings.
 
 ### The asset join
 
@@ -50,8 +74,23 @@ Import records for the GLB. That path is the join key between Wire and the
 asset catalog. Brush entities (doors, breakables, movers) refer to sub-models
 of the map (`*N`). The Import exports each one as its own mesh under that key.
 
-Animations join the same way: by the Source sequence name, which the Import
-keeps as the GLB clip name.
+Animations join by Source sequence name, which the Import keeps as the GLB
+clip name. The Wire carries the sequence index (`m_nSequence`). That index
+counts the model's own sequences, then each `$includemodel`'s, depth first,
+skipping names already seen. The Import and the reader must build that same
+list. `StudioModel.SequenceNames` does it from the VPKs; the orc model has
+333 sequences, mostly from `npc_orc_animations_combat.mdl`.
+
+**Entity identity.** An edict index can be reused by a new entity within a
+level. The Wire should carry the edict's serial number with the index, so
+the Frontend and the Recorder don't have to guess a reuse from a change of
+class or model.
+
+**Weapons and armour are entities of their own.** On the server they follow
+their holder's hand: each orc cleaver travelled about 6,000 units in 40 s of
+fighting. The Frontend should draw them as joint attachments driven by the
+holder's pose. The streamed weapon transform is then the reference for
+measuring divergence, not the thing that places the model.
 
 ## Authority model
 
@@ -69,7 +108,8 @@ turns into an engineering loop:
 
 1. Run a Rusty system in shadow from the inputs the donor saw.
 2. Measure how far it drifts from the donor: joint angle error, impulse
-   magnitude and direction, time to rest, hit timing, damage values.
+   magnitude and direction, time to rest, hit timing, damage values, and
+   for combat decisions the verdict itself.
 3. Change the Rusty implementation or its tuning until the drift is
    acceptable. Divergence is a test metric that can sit in CI against
    recorded segments.
@@ -84,6 +124,20 @@ swing timings are all candidates.
 A channel can drop back from Rusty to Shadow or Donor at any time. That's
 how regressions get diagnosed.
 
+### Decisions hand over through their hooks
+
+Where the Tap catches a decision with a detour, the same detour is the
+handover point:
+
+- **Shadow:** Rusty computes its own verdict from the captured inputs, and
+  the mismatch is the divergence. Each blow gives one exact comparison.
+- **Rusty:** the detour returns Rusty's verdict, or rewrites the damage
+  record, instead of the donor's.
+
+That makes write-back for decisions a return value, not a state correction.
+This is far cheaper than forcing physics state, and it's why combat
+decisions move earlier in the handover order below.
+
 ## Channels
 
 "Donor reads it" asks whether the donor's own simulation depends on the
@@ -94,49 +148,63 @@ answer drives the order in the next section.
 | --- | --- | --- | --- | --- | --- |
 | Static world (map geometry, lighting, collision) | Assets | n/a | None | GLB import, bound world collision | 0 |
 | Entity transforms | Server | Yes | Per moved entity (only once Rusty moves them) | Object placement, set every update | 0 (Donor) |
-| Character animation pose | Server (sequence, cycle, pose params, layers) | Mostly no; hitboxes follow it on the server | None while the donor keeps hit detection | `AnimationPlaybackRequest` with `NormalizedTime`/`Speed`/`Weight`; `JointOverride` | 1 |
+| Character animation pose | Server: main sequence, cycle, playback rate; overlay layers (gestures, parries) not yet streamed | Yes: melee traces start from the weapons, which follow the hands | None while the donor keeps its own animation for hit detection | `AnimationPlaybackRequest` with a `Sample` command (normalized point in one clip); `JointOverride` | 1 |
+| Held weapons and armour | Server entities following the holder's hand | Yes (they are what a swing traces, and what a block strikes) | None while the donor keeps hit detection | Joint attachments, `HandRig` | 1 |
 | First-person weapon model and camera | Client | No | None | Viewmodel fitting, camera control | 1 |
-| Effects, decals, sound, screen feedback | Client (some server events) | No | None | Presentation services, recorded audio | 1 |
-| Death ragdolls | Client in stock Source (verify for Dark Messiah) | No | None | Ragdoll layer with blend; `ReadRagdoll` | 2 |
+| Effects, decals, sound, screen feedback, hit slow-motion | Client (some server events; slow-mo parameters arrive with each damage record) | No | None | Presentation services, recorded audio | 1 |
+| Combat decisions: damage, defense verdicts, player parry outcomes | Server, at hooked decision points ([wire.md](wire.md)) | Yes | The verdict or damage, returned from the existing detours | Product code | 2 |
+| Kick, adrenaline, other combat rules | Server | Yes | Effects on entities (kicks also push physics) | Product code | 2–3 |
+| Death ragdolls | **Server** in Dark Messiah: `prop_ragdoll` with `phys_bone_follower`s, replacing the NPC the tick it dies | Yes: they're physics objects that collide and can be kicked | Bone transforms every tick | Ragdoll layer with blend; `ReadRagdoll`; needs bodies that follow external targets | 3 |
 | Physics props (kickable, breakable) | Server (Havok) | Yes (AI, triggers, damage) | Prop transforms and velocities every tick | Dynamics worlds | 3 |
 | Player movement | Client prediction plus server | Yes | Player position, velocity and stance every tick | Character controller | 3 |
-| Melee hit detection and damage | Server | Yes | Hit and damage events | Collision queries | 4 |
-| Kick, adrenaline, combat rules | Server | Yes | Effects on entities | Product code | 4 |
 | AI decisions and navigation | Server | Yes | Become Rusty actors; the donor's copies are suppressed | Pathfinding | 5 |
 | Scripts, quests, inventory, saves | Server | Yes | Whole-world state | Persistence | 5 |
 
 ## Handover order
 
-The order follows dependencies, not difficulty: hand over first what the
-donor doesn't read.
+The order follows the cost of write-back, not difficulty. Hand over first
+what the donor doesn't read, then what can be written back as a single
+value, and last what needs state forced every tick.
 
 **Phase 0: Mirror.** Every channel is in Donor mode. The Import produces GLBs,
-the Tap streams entity transforms and model keys, and the Frontend places
-static meshes where the donor says. The combat stepper is built here:
-Recorder plus a timeline viewer over Wire traffic. This phase alone answers
-the "what makes the combat good" question, because everything about a swing
-can be watched frame by frame.
+the Tap streams snapshots and events, and the Frontend places static meshes
+where the donor says. The combat stepper belongs here: the Recorder plus a
+timeline viewer over Wire traffic. It already shows every swing, hit, block
+and parry tick by tick ([recording.md](recording.md)). What's left is the
+Import and the Frontend mirror.
 
-**Phase 1: Presentation.** Character animation is driven from the stream
-(clip by sequence name, time from cycle). Then the first-person weapon,
-camera, effects and sound move to Rusty, because the donor's simulation never
+**Phase 1: Presentation.** Character animation is driven from the stream:
+the main clip by sequence name, sampled at the streamed cycle, and the
+overlay layers once the Wire carries them. Held weapons hang from the
+holder's hand joints. Then the first-person weapon, camera, effects, sound
+and the hit slow-motion move to Rusty, because the donor's simulation never
 reads them. This is where the combat feel gets rebuilt, measured against
 recorded donor presentation.
 
-**Phase 2: Ragdolls.** If Dark Messiah keeps death ragdolls on the client as
-stock Source does, the server never reads them. That makes them the first
-physics channel that can go to Rusty with no write-back. Shadow mode works
-with today's API: run a Rusty ragdoll at blend 0 while the donor's pose is
-applied as overrides, and compare. Then raise the blend.
+**Phase 2: Combat decisions.** Damage amounts, NPC defense verdicts and
+player parry outcomes run in Shadow first, from the inputs the hooks
+already capture, and then hand over through those hooks. The donor keeps
+physics, animation and AI, and reacts to verdicts Rusty decided. Recorded
+fights make this testable offline: every blow in a recording is a test
+case.
 
-**Phase 3: Write-back channels.** Physics props and player movement. From
-here on the donor still reads things Rusty owns, so the Tap has to force
-donor state from Rusty every tick: teleport props, set velocities, override
-the player's position. This is the first phase where the Tap writes into the
-simulation and doesn't just read it.
+What the decisions turned out to be, so far:
 
-**Phase 4: Combat rules.** Hit detection, damage, kicks and adrenaline move
-to Rusty. The donor keeps AI, which now reacts to hits Rusty decided.
+- A player parry is broken by any attack whose weapon flags have bit 0x10
+  (every bash), and holds against any other.
+- An NPC parries when the blow strikes its weapon.
+- An NPC shield-blocks when the blow strikes its off-hand item, or when its
+  shield is up and the attack comes from the front.
+
+**Phase 3: Physics write-back.** Physics props, server-side death ragdolls,
+kick impulses and player movement. From here on the donor still reads
+physics state Rusty owns, so the Tap has to force donor state from Rusty
+every tick: teleport props and ragdoll bones, set velocities, override the
+player's position. This is the first phase where the Tap writes simulation
+state, not just return values.
+
+**Phase 4: The rest of the rules.** Adrenaline, the remaining combat rules,
+and whatever Phase 2 left in donor hands.
 
 **Phase 5: The rest.** AI, scripts, quests and saves. Expect the hardest
 part here. With most of the world owned by Rusty, keeping a mostly-overridden
@@ -146,14 +214,23 @@ the live path. It stays as an oracle for recorded segments.
 
 ## Time
 
-- Snapshots carry the donor tick number. Read the tick interval from the
-  donor; don't assume Source's defaults.
-- The Frontend keeps a short buffer of snapshots and interpolates between
-  them. Don't copy the stock client's 100 ms interpolation delay; one tick
-  plus transport is enough on shared memory. *Measured 2026-10-17:* NPC
-  transforms only change every 8 ticks (120 ms think interval) and the
-  player's every 2, so NPCs need interpolation across their own update
-  cadence, not across one tick.
+- Snapshots carry the donor tick number and curtime. Read the tick interval
+  from the donor; don't assume Source's defaults. On l01_a it is 15 ms.
+- **Each entity has its own update cadence.** Measured: NPC state changes
+  only every 8 ticks (their 120 ms think interval). That covers
+  transform, health, sequence and cycle alike. The player's state changes
+  every 2 ticks.
+  - The Frontend interpolates each entity across its own last two updates,
+    not across one tick.
+  - Velocities measured from the stream need a window at least that long.
+- **Donor time is not wall time.** During the game's hit slow-motion the
+  donor runs fewer ticks per wall second (about 44 instead of 66 in a
+  recorded fight). The Frontend's presentation clock follows donor
+  curtime, so slow-motion arrives for free in Donor mode. In Rusty mode it
+  becomes something Rusty produces.
+- Events carry the tick they happened in and are delivered with the next
+  snapshot. Don't copy the stock client's 100 ms interpolation delay. One
+  NPC update interval plus transport is the floor on shared memory.
 - The local player is the exception. Take the donor client's predicted state
   for the player, not the server's, or every input lags by a tick or more.
 - Stepping in the stepper means fixing the donor's frame rate and holding its
@@ -162,19 +239,22 @@ the live path. It stays as an oracle for recorded segments.
 
 ## Upstream asks for Rusty Engine
 
-These are based on reading the current SDK and docs (`skeleton-poses.md`,
-`ragdolls.md`, `multiplayer-sessions.md`, and the generated contracts).
+These were checked against the installed SDK pair (0.1.0-dev.f0e905c8749b)
+and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
+`multiplayer-sessions.md`, `csharp-lifecycle.md`) on 2026-10-17.
 
 ### Already enough
 
-- **Clip playback at a given time.** `AnimationPlaybackRequest` takes
-  `NormalizedTime`, `Speed`, `Weight` and `Restart`. Speed 0 plus the donor's
-  cycle every update pins a clip to the stream.
+- **Clip playback at a given time.** `AnimationPlaybackRequest` has a
+  `Sample` command that holds a normalized point in a clip. Sending the
+  streamed `m_flCycle` each update pins the main clip to the donor.
 - **Absolute pose correction.** `JointOverride` in `Local`, `Model` or
   `World` space with its own weight places joints wherever the donor says,
   over or instead of clips.
 - **Reading back the drawn pose.** `ReportJoints` with `ReadJointPose` gives
   Rusty's actual pose, for comparing against the donor.
+- **Held items.** Joint attachments and `HandRig` can hang weapons and
+  shields from the hands.
 - **A ragdoll authority dial.** The ragdoll layer's blend mixes the
   simulated bodies over the pose below them, and blend 0 leaves the pose
   unchanged while the bodies keep simulating. That's Shadow mode for
@@ -186,49 +266,68 @@ These are based on reading the current SDK and docs (`skeleton-poses.md`,
 
 1. **Externally driven transforms with interpolation (Phase 0).** The engine
    adds no entity replication (`multiplayer-sessions.md`). The bridge needs a
-   timestamped snapshot buffer: transforms sampled at a render time between
-   two ticks, with optional smoothing when a correction arrives. This is the
-   main ask, and multiplayer could use it too. It belongs upstream, not in
-   every product.
-2. **Layered or full-pose input (Phase 1).** Source blends several sequences
-   at once: base, gesture layers, and aim blends driven by pose parameters.
-   That needs either several clips sampled at explicit times and weights in
-   one instance, or a single call that sets a whole local pose array. Doing it
-   with one `JointOverride` per joint every update works, but costs too much
-   per character.
-3. **Bodies that follow external targets (Phase 2–3).** A Dynamics body
-   (and a ragdoll bone) that tracks a target transform from outside, the way
-   a kinematic body would, and reports how far its own simulation would have
-   gone. Props and ragdolls need this to run in Shadow mode and to switch
-   authority without a pop.
-4. **Switching authority without a pop (Phase 2 onward).** Moving a channel
+   timestamped snapshot buffer that samples transforms at a render time
+   between updates. Each entity keeps its own update cadence (every 8 ticks
+   for NPCs, every 2 for the player), and the presentation clock follows a
+   source time that can slow down (the donor's hit slow-motion). Optional
+   smoothing applies when a correction arrives. This is the main ask, and
+   multiplayer could use it too. It belongs upstream, not in every product.
+2. **Layered pose input (Phase 1).** Playback is one clip per instance.
+   Source blends a main sequence with overlay layers. Dark Messiah plays its
+   parries and attack gestures on overlays (`layer_parry_A` to `_E`,
+   `layer_attack_right`, `layer_block`). This needs either several clips
+   sampled at explicit times and weights in one instance, or one call that
+   sets a whole local pose array. One `JointOverride` per joint every update
+   works, but costs too much per character.
+3. **Bodies that follow external targets (Phase 3).** A Dynamics body (and a
+   ragdoll bone) that tracks a target transform from outside, the way a
+   kinematic body would, and reports how far its own simulation would have
+   gone. Props need this, and so do Dark Messiah's server-side death
+   ragdolls, to run in Shadow mode and to switch authority without a pop.
+4. **Switching authority without a pop (Phase 1 onward).** Moving a channel
    between modes should blend over a few updates, not snap. The ragdoll layer
    already works this way. The same blend-in, blend-out treatment is wanted
-   for object transforms and dynamics bodies.
+   for object transforms and dynamics bodies. It's also needed when an NPC
+   is replaced by its ragdoll in a single tick.
 
 What stays out of the engine: donor names, the Wire format, divergence
-metrics and the Recorder. Those belong to the bridge.
+metrics, the Recorder and the stepper. Those belong to the bridge.
 
 ## Risks and open questions
 
-- **Server plugins.** Source supports loading server plugins, and the game
-  ships `serverplugin_empty.dll`. Whether Arkane's build still loads them is
-  the first thing to test. If it doesn't, the Tap needs DLL injection.
+- **Hooks are tied to one binary.** The damage, defense and parry hooks
+  patch fixed addresses in the current Steam build of `server.dll`.
+  Each checks its bytes before patching and stays off if they differ. A
+  different build needs the addresses found again: the routes to them
+  (strings, RTTI, datadesc tables) are written down in
+  [wire.md](wire.md).
 - **Client-side state.** Source 2006 has no supported client plugin
-  interface. Reading predicted player state, the weapon model and client
-  ragdolls means hooking `client.dll`, which is the most fragile part of the
-  Tap.
-- **Format variants.** Arkane modified Source's map and model formats. Stock
-  Source parsers will need patches, and the size of that job is unknown
-  until the first files are parsed.
+  interface. Server-side covers more than expected: damage, defense, parry
+  outcomes and slow-motion parameters are all server-side. What remains on
+  the client is the predicted player, the camera and view angles, and the
+  viewmodel. Reading them means hooking `client.dll`, still the most fragile
+  part of the Tap. Input can't fill the gap either: relative mouse motion
+  through the playtest agent doesn't turn the view.
+- **Overlay layers.** The parry and gesture layers aren't on the Wire yet.
+  Until they are, Phase 1 animation and any study of parry timing are
+  incomplete.
+- **Format variants.** Arkane modified Source's formats, but the parts read
+  so far are stock: MDL headers are version 44 with Episode One offsets,
+  sequence descriptors are 212 bytes, and VPKs are versions 1 and 2. The
+  runtime differs more than the files: the networkable vtable order, float
+  health (`m_fHealth`), a `DPT_VectorXY` send-prop type, and an extended
+  `CTakeDamageInfo`. Expect map (BSP) and model-geometry surprises when the
+  Import starts.
 - **Hidden donor.** `shaderapiempty.dll` ships with the game, which suggests
-  it can run without rendering. Unverified.
+  it can run without rendering. Unverified. For now the donor needs the
+  shared Windows box's console session, and it changes the desktop
+  resolution.
 - **The last 20%.** Phase 3 onward requires a donor kept consistent with
   Rusty-owned state every tick. The cost grows with every channel handed
   over. Plan for Phase 5 to be a re-implementation, not a handover.
 - **Distribution.** Donor assets stay in `local/`, as in the sibling
-  products. The bridge needs the user's own installed copy and never ships
-  donor content.
+  products, and so do recordings, which are derived from the donor. The
+  bridge needs the user's own installed copy and never ships donor content.
 
 ## First steps
 
@@ -236,7 +335,11 @@ metrics and the Recorder. Those belong to the bridge.
    their model paths (done).
 2. Stream transforms and model keys over shared memory to a C# reader
    (done: [wire.md](wire.md)).
-3. Record a fight and build a scrubbable timeline (the combat stepper)
-   (first version done: [recording.md](recording.md)).
-4. Import one map and the characters in that fight to GLB, and mirror the
+3. Record a fight and build a scrubbable timeline, the combat stepper. Done,
+   with health, sequences, damage, blocks and parries
+   ([recording.md](recording.md)).
+4. Stream the overlay animation layers and the edict serial number.
+5. Import one map and the characters in that fight to GLB, and mirror the
    recording in a Frontend product with placeholder lighting.
+6. Run the combat decisions in Shadow against recorded fights: a C#
+   verdict and damage model, scored blow by blow against the donor.

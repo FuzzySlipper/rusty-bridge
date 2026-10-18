@@ -195,7 +195,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 5) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 5).`);
+  if (version < 1 || version > 6) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 6).`);
   // Record sizes by version; v5 adds EHANDLE serials.
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : 56;
   const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
@@ -210,6 +210,7 @@ function parseRecording(buf) {
   const events = [];          // {fi, kind: "action"|"hit"|"death", track, text, amount, damage?}
   const damage = [];          // v3 damage records, resolved to tracks
   const defenses = [];        // v4 melee defense checks
+  const layers = [];          // v6: per frame, the active overlay layers [{track, slot, seq, cycle, weight, order, rate, flags}]
   const activity = [];
   let o = 16;
   while (o + 5 <= buf.byteLength) {
@@ -294,6 +295,17 @@ function parseRecording(buf) {
                           dir: [v.getFloat32(p + 16, true), v.getFloat32(p + 20, true), v.getFloat32(p + 24, true)] });
         }
       }
+      if (version >= 6) {
+        p += 4;  // layers dropped since the previous frame
+        const n = v.getInt32(p, true); p += 4;
+        const list = [];
+        for (let i = 0; i < n; i++, p += 20) {
+          const t = live.get(v.getUint16(p, true));
+          if (t) list.push({ track: t, slot: v.getUint8(p + 2), flags: v.getUint8(p + 3), seq: v.getInt16(p + 4, true), order: v.getInt16(p + 6, true),
+                             cycle: v.getFloat32(p + 8, true), weight: v.getFloat32(p + 12, true), rate: v.getFloat32(p + 16, true) });
+        }
+        layers[fi] = list;
+      }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
       activity.push(moving);
@@ -355,7 +367,7 @@ function parseRecording(buf) {
                                         : `${label(d.victim)} ${how} ${d.attacker ? `${label(d.attacker)}'s${weapon || " blow"}` : "a blow"}` });
   }
   events.sort((a, b) => a.fi - b.fi);
-  return { frames, tracks: [...tracks.values()], map, interval, activity, events, damage, defenses, version };
+  return { frames, tracks: [...tracks.values()], map, interval, activity, events, damage, defenses, layers, version };
 }
 
 const DEFENSE = { 1: "parried", 8: "shield-blocked", 4: "shrugged off", 17: "parried", 18: "had the parry broken by" };
@@ -483,6 +495,8 @@ function buildList() {
 
 // Show about this many units across the map's short side.
 function zoomTo(units) { const r = mapCanvas.getBoundingClientRect(); view.scale = Math.min(r.width, r.height) / units; render(); }
+function layersAt(t, fi) { return (rec.layers?.[fi] ?? []).filter((l) => l.track === t); }
+function layerName(t, l) { return t.seqNames?.[l.seq] ?? `sequence ${l.seq}`; }
 function seqName(t, k) { const s2 = t.seq[k]; return s2 < 0 ? "" : (t.seqNames?.[s2] ?? `sequence ${s2}`); }
 function label(t) { return `${t.cls.replace(/^npc_/, "")} #${t.index}`; }
 
@@ -622,6 +636,14 @@ function drawMap() {
       if (actor && (kind === "attack" || kind === "hit" || kind === "guard" || kind === "death")) {
         g.fillStyle = colors[`act-${kind}`]; g.fillText(`${name} ${Math.round(t.cycle[k] * 100)}%`, sx + 8, sy + 5);
       }
+      // The heaviest overlay that is an action (a parry, block or attack gesture), under the main sequence.
+      const layer = actor ? layersAt(t, cur).filter((l) => l.weight > 0.2 && actionKind(layerName(t, l).replace(/^layer_/, "")) !== "idle")
+                                             .sort((a, b) => b.weight - a.weight)[0] : null;
+      if (layer) {
+        const lname = layerName(t, layer), lkind = actionKind(lname.replace(/^layer_/, ""));
+        g.fillStyle = colors[`act-${lkind}`] ?? colors.muted;
+        g.fillText(`+ ${lname} ${Math.round(layer.cycle * 100)}% ×${layer.weight.toFixed(2)}`, sx + 8, sy + 17);
+      }
     }
   }
 }
@@ -720,6 +742,7 @@ function drawDetail() {
     ["updates, last 1 s", `${updates}`],
     ...(t.maxhp[k] > 0 ? [["health", `${fmtHp(t.hp[k])} / ${fmtHp(t.maxhp[k])}${t.life[k] ? (t.life[k] === 1 ? " · dying" : " · dead") : ""}`]] : []),
     ...(t.seq[k] >= 0 ? [["sequence", `${seqName(t, k)} (#${t.seq[k]})`], ["cycle", `${(t.cycle[k] * 100).toFixed(1)} % at ${fmt(t.rate[k], 2)}×`], ["in sequence since", `${seqStartTicks(t, k)} ticks`]] : []),
+    ...layersAt(t, cur).sort((a, b) => a.order - b.order).map((l) => [`layer ${l.slot}`, `${layerName(t, l)} ${(l.cycle * 100).toFixed(0)}% ×${l.weight.toFixed(2)}`]),
     ...lastHits(t),
     ["last change", `tick ${rec.frames[t.f[k]].tick}`],
     ["travelled", `${Math.round(t.dist)} u total`],

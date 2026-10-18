@@ -1,4 +1,4 @@
-# Wire v5
+# Wire v6
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -12,16 +12,18 @@ and playback rate. Since v3, each tick also carries every
 `CBaseEntity::TakeDamage` call made since the previous one, and since v4
 every melee defense verdict (block, parry or hit). Since v5 every entity,
 and every entity named in a damage or defense record, carries its EHANDLE
-serial, so a reused edict index is a different entity. There's no input or
-write-back yet.
+serial, so a reused edict index is a different entity. Since v6 each tick
+also carries every active animation overlay layer: the gestures, parries,
+blocks and hit reactions that play over an entity's main sequence. There's
+no input or write-back yet.
 
-v2–v5 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v6 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 16,718,080 bytes and maps it read-write; readers open
+creates it, sizes it to 17,374,464 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -38,20 +40,22 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 126,000 | Ring of slots |
+| 590,080 | 128 × 131,128 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
 `tick_interval` (seconds, from the donor), `map[64]`, and `frames_written`
 (u64, at offset 136).
 
-Slot: a 48-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
+Slot: a 56-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 `level_serial` u32, `entity_count` u32, `damage_count` u32,
-`damage_dropped` u32, `defense_count` u32, `defense_dropped` u32), then:
+`damage_dropped` u32, `defense_count` u32, `defense_dropped` u32,
+`layer_count` u32, `layer_dropped` u32), then:
 
 - up to 2048 entities of 56 bytes
-- at slot offset 114,736, up to 64 damage records of 152 bytes
-- at 124,464, up to 32 defense records of 48 bytes
+- at slot offset 114,744, up to 64 damage records of 152 bytes
+- at 124,472, up to 32 defense records of 48 bytes
+- at 126,008, up to 256 overlay layer records of 20 bytes
 
 Entities:
 
@@ -125,6 +129,50 @@ player's parry state:
 | 16 | `direction` 3×f32 | the vector passed with the check (zero for player records) |
 | 28 | `source` u32 | player records: `server.dll` RVA of the code that set the state |
 | 32 | `victim_serial`, `attacker_serial`, `weapon_serial`, `struck_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
+
+Overlay layers, one record per active layer (flag 1 set, weight above 0):
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `index` u16 | the entity it plays on (with that frame's serial) |
+| 2 | `slot` u8 | position in the entity's layer vector |
+| 3 | `flags` u8 | `m_fFlags`: 1 active, 2 autokill, 4 kill me, 32 dying |
+| 4 | `sequence` i16 | `m_nSequence`, in the entity's model's sequence list |
+| 6 | `order` i16 | `m_nOrder`, blend order among the layers |
+| 8 | `cycle` f32 | `m_flCycle` |
+| 12 | `weight` f32 | `m_flWeight` |
+| 16 | `playback_rate` f32 | `m_flPlaybackRate` |
+
+### Finding the layers
+
+Layers live in `CBaseAnimatingOverlay::m_AnimOverlay`, a
+`CUtlVector<CAnimationLayer>`: the element pointer at +0, the count at +12
+(`CBaseAnimatingOverlay`'s constructor zeroes five words there). The
+vector's offset and element size come from the send table, read when the
+tap first walks a class that has them:
+
+- `DT_OverlayVars` networks the vector through a `SendPropUtlVector`
+  (`_ST_m_AnimOverlay_15`, 15 elements). Each element is a data-table prop
+  into `DT_Animationlayer`.
+- Each element prop's extra data (`SendProp` +72) is a
+  `CSendPropExtra_UtlVector`: element stride at +12, vector offset at +16,
+  maximum at +20. Here it reads +0xF78, stride 0x40, max 15. The offset
+  matches `CBaseCombatCharacter`'s datadesc entry for `m_AnimOverlay`, an
+  independent check.
+- The element fields come from `CAnimationLayer`'s datadesc (flags +0x0,
+  sequence +0x8, cycle +0xC, playback rate +0x14, weight +0x18) and from
+  `DT_Animationlayer` (order +0x34).
+
+At 64 bytes the element has no room for Episode One's `m_pOwnerEntity`, so
+the tap can't check a layer's owner. Instead it rejects an active layer
+whose weight or cycle is out of range, and counts the rejects in the log.
+The vectors are empty until a gesture first plays.
+
+Layers aren't only gestures. In a recorded bot fight they include NPC attack
+gestures (`layer_attack_left/right/top`), NPC parries (`layer_parry_A`, `_B`,
+`_E`), hit reactions played as layers (`Hit_Body_Front_small`), and the
+player's first-person viewmodel layers (`layer_parry_sword_noshield_in`,
+`_idle`, `_out`).
 
 ## The damage hook
 

@@ -2,12 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace RustyBridge.Wire;
 
-// Mirror of tap/darkmessiah/src/wire.h (Wire v5). Layout and protocol:
+// Mirror of tap/darkmessiah/src/wire.h (Wire v6). Layout and protocol:
 // docs/wire.md. Keep the two in step.
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 5;
+    public const uint Version = 6;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -17,6 +17,7 @@ public static class WireLayout
     public const int ModelPathBytes = 128;
     public const int MaxDamage = 64;
     public const int MaxDefense = 32;
+    public const int MaxLayers = 256;
     public const ushort NoEntity = 0xFFFF;
 
     public const int ClassesOffset = 256;
@@ -24,7 +25,8 @@ public static class WireLayout
     public const int SlotsOffset = ModelsOffset + MaxModels * ModelPathBytes;
     public static readonly int DamageOffset = Marshal.SizeOf<WireSlotHeader>() + MaxEntities * Marshal.SizeOf<WireEntity>();
     public static readonly int DefenseOffset = DamageOffset + MaxDamage * Marshal.SizeOf<WireDamage>();
-    public static readonly int SlotBytes = DefenseOffset + MaxDefense * Marshal.SizeOf<WireDefense>();
+    public static readonly int LayersOffset = DefenseOffset + MaxDefense * Marshal.SizeOf<WireDefense>();
+    public static readonly int SlotBytes = LayersOffset + MaxLayers * Marshal.SizeOf<WireLayer>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -66,6 +68,9 @@ public struct WireSlotHeader
     public uint DamageDropped;
     public uint DefenseCount;
     public uint DefenseDropped;
+    public uint LayerCount;
+    /// <summary>Active layers that didn't fit in the slot (over MaxLayers).</summary>
+    public uint LayerDropped;
 }
 
 [Flags]
@@ -171,4 +176,27 @@ public struct WireDefense
     public uint Source;
     /// <summary>EHANDLE serials of the entities above (0 with <see cref="WireLayout.NoEntity"/>).</summary>
     public uint VictimSerial, AttackerSerial, WeaponSerial, StruckSerial;
+}
+
+/// <summary>
+/// One active animation overlay layer (a gesture, parry or block playing over an
+/// entity's main sequence), from CBaseAnimatingOverlay::m_AnimOverlay. Only layers
+/// that are active with a weight above zero are sent.
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireLayer
+{
+    /// <summary>Edict index of the entity it plays on.</summary>
+    public ushort Index;
+    /// <summary>Position in the entity's overlay vector.</summary>
+    public byte Slot;
+    /// <summary>m_fFlags: 1 active, 2 autokill, 4 kill me, 32 dying.</summary>
+    public byte Flags;
+    /// <summary>Index into the entity's model's sequence list.</summary>
+    public short Sequence;
+    /// <summary>Blend order among the entity's layers.</summary>
+    public short Order;
+    public float Cycle;
+    public float Weight;
+    public float PlaybackRate;
 }

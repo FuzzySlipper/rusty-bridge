@@ -16,11 +16,12 @@ public sealed unsafe class WireReaderTests : IDisposable
         // The sizes wire.h static_asserts on the 32-bit tap build.
         Assert.Equal(144, Marshal.SizeOf<WireHeader>());
         Assert.Equal(136, (int)Marshal.OffsetOf<WireHeader>(nameof(WireHeader.FramesWritten)));
-        Assert.Equal(48, Marshal.SizeOf<WireSlotHeader>());
+        Assert.Equal(56, Marshal.SizeOf<WireSlotHeader>());
+        Assert.Equal(20, Marshal.SizeOf<WireLayer>());
         Assert.Equal(48, Marshal.SizeOf<WireDefense>());
         Assert.Equal(152, Marshal.SizeOf<WireDamage>());
         Assert.Equal(56, Marshal.SizeOf<WireEntity>());
-        Assert.Equal(16_718_080, WireLayout.FileBytes);
+        Assert.Equal(17_374_464, WireLayout.FileBytes);
     }
 
     [Fact]

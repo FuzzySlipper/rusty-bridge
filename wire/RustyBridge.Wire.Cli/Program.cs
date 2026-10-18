@@ -96,12 +96,21 @@ int Dump()
     using var reader = OpenLive();
     var snap = new WireSnapshot();
     while (!reader.TryReadLatest(snap)) Thread.Sleep(1);
-    Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} entities {snap.Count}");
+    Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} entities {snap.Count} layers {snap.LayerCount}");
+    var layersOf = snap.LayerSpan.ToArray().ToLookup(l => l.Index);
+    var resolve = SequenceResolver();
     foreach (ref readonly var e in snap.Span)
         Console.WriteLine($"  #{e.Index,4} {reader.ClassName(snap, e.ClassId),-32} " +
             $"({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) ({e.Pitch:F1} {e.Yaw:F1} {e.Roll:F1}) {reader.ModelPath(snap, e.ModelIndex)}" +
             (e.Flags.HasFlag(WireEntityFlags.HasHealth) && e.MaxHealth > 0 ? $" hp {e.Health:F1}/{e.MaxHealth:F1} life {e.LifeState}" : "") +
             (e.Flags.HasFlag(WireEntityFlags.HasAnimation) && e.ModelIndex > 0 ? $" seq {e.Sequence} cycle {e.Cycle:F3} rate {e.PlaybackRate:F2}" : ""));
+    foreach (var l in layersOf.SelectMany(g => g))
+    {
+        var owner = snap.Span.ToArray().FirstOrDefault(e => e.Index == l.Index);
+        var names = resolve?.Invoke(reader.ModelPath(snap, owner.ModelIndex));
+        string name = names is not null && l.Sequence >= 0 && l.Sequence < names.Count ? names[l.Sequence] : $"#{l.Sequence}";
+        Console.WriteLine($"  layer #{l.Index,4}[{l.Slot}] {name,-28} cycle {l.Cycle:F3} weight {l.Weight:F2} order {l.Order} rate {l.PlaybackRate:F2} flags {l.Flags}");
+    }
     return 0;
 }
 
@@ -115,7 +124,7 @@ int Follow(string? recordPath)
     var snap = new WireSnapshot();
     var clock = Stopwatch.StartNew();
     ulong next = reader.FramesWritten - 1;
-    long read = 0, lost = 0, retries = 0, hits = 0, dropped = 0, defended = 0;
+    long read = 0, lost = 0, retries = 0, hits = 0, dropped = 0, defended = 0, layerPeak = 0;
     int firstTick = 0, lastTick = 0;
     double reportAt = 1;
     while (!stop && clock.Elapsed.TotalSeconds < seconds)
@@ -133,6 +142,7 @@ int Follow(string? recordPath)
                 if (read++ == 0) firstTick = snap.Tick;
                 lastTick = snap.Tick;
                 hits += snap.DamageCount;
+                layerPeak = Math.Max(layerPeak, snap.LayerCount);
                 foreach (var d in snap.DefenseSpan) if (d.Result is not (DefenseResult.Hit or DefenseResult.None)) defended++;
                 dropped += snap.DamageDropped;
                 recorder?.Write(snap, reader.Map, reader.Header.TickInterval, reader);
@@ -151,7 +161,7 @@ int Follow(string? recordPath)
                     player = $" player ({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) yaw {e.Yaw:F1} hp {e.Health:F0}/{e.MaxHealth:F0}";
             string saved = recorder is null ? "" : $" saved {recorder.Bytes / 1024} KiB";
             Console.WriteLine($"{t,5:F1}s frame {snap.Frame} tick {snap.Tick} ({(lastTick - firstTick) / t:F1} ticks/s) " +
-                $"entities {snap.Count} read {read} lost {lost} retries {retries} damage {hits}{(dropped > 0 ? $" ({dropped} dropped)" : "")} defended {defended}{saved}{player}");
+                $"entities {snap.Count} read {read} lost {lost} retries {retries} damage {hits}{(dropped > 0 ? $" ({dropped} dropped)" : "")} defended {defended} layers {snap.LayerCount} (peak {layerPeak}){saved}{player}");
         }
         Thread.Sleep(1);
     }

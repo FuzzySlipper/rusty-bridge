@@ -1,4 +1,4 @@
-// Wire v5: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v6: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 5;
+const uint32_t kVersion = 6;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -17,6 +17,7 @@ const uint32_t kMaxModels = 4096;
 const uint32_t kModelPathBytes = 128;
 const uint32_t kMaxDamage = 64;      // damage records per slot
 const uint32_t kMaxDefense = 32;     // defense records per slot
+const uint32_t kMaxLayers = 256;     // overlay layer records per slot
 
 #pragma pack(push, 4)
 
@@ -53,6 +54,8 @@ struct SlotHeader {
     uint32_t damage_dropped;    // records lost since the previous frame (over kMaxDamage)
     uint32_t defense_count;     // defense records after the damage array
     uint32_t defense_dropped;
+    uint32_t layer_count;       // overlay layer records after the defense array
+    uint32_t layer_dropped;     // active layers that didn't fit (over kMaxLayers)
 };
 
 const uint8_t kHasHealth = 1;       // health, max_health and life_state are valid
@@ -141,10 +144,26 @@ struct Defense {
     uint32_t struck_serial;
 };
 
+// One active animation overlay layer (CAnimationLayer in
+// CBaseAnimatingOverlay::m_AnimOverlay): a gesture, parry or block playing
+// over the entity's main sequence. Only layers that are active with a
+// weight above zero are sent.
+struct Layer {
+    uint16_t index;             // edict index of the entity it plays on
+    uint8_t slot;               // position in the entity's overlay vector
+    uint8_t flags;              // m_fFlags: 1 active, 2 autokill, 4 kill me, 32 dying
+    int16_t sequence;           // m_nSequence, in the entity's model's sequence list
+    int16_t order;              // m_nOrder: blend order among the layers
+    float cycle;                // m_flCycle, 0..1
+    float weight;               // m_flWeight, 0..1
+    float playback_rate;        // m_flPlaybackRate
+};
+
 #pragma pack(pop)
 
 static_assert(sizeof(Header) == 144, "Header layout");
-static_assert(sizeof(SlotHeader) == 48, "SlotHeader layout");
+static_assert(sizeof(SlotHeader) == 56, "SlotHeader layout");
+static_assert(sizeof(Layer) == 20, "Layer layout");
 static_assert(sizeof(Defense) == 48, "Defense layout");
 static_assert(sizeof(Damage) == 152, "Damage layout");
 static_assert(sizeof(Entity) == 56, "Entity layout");
@@ -154,7 +173,8 @@ const uint32_t kModelsOffset = kClassesOffset + kMaxClasses * kClassNameBytes;
 const uint32_t kSlotsOffset = kModelsOffset + kMaxModels * kModelPathBytes;
 const uint32_t kDamageOffset = sizeof(SlotHeader) + kMaxEntities * sizeof(Entity);  // within a slot
 const uint32_t kDefenseOffset = kDamageOffset + kMaxDamage * sizeof(Damage);
-const uint32_t kSlotBytes = kDefenseOffset + kMaxDefense * sizeof(Defense);
+const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
+const uint32_t kSlotBytes = kLayersOffset + kMaxLayers * sizeof(Layer);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 } // namespace wire

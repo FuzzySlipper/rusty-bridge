@@ -3,12 +3,12 @@ using System.Text;
 
 namespace RustyBridge.Wire;
 
-// Recording v5 (.rbrec): Wire frames saved to disk for the stepper.
+// Recording v6 (.rbrec): Wire frames saved to disk for the stepper.
 // Format: docs/recording.md. Parsed by RecordingReader and viewer/timeline.html.
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 5;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials
+    public const uint Version = 6;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, _ => Marshal.SizeOf<WireEntity>() };
@@ -137,6 +137,10 @@ public sealed class Recorder : IDisposable
             w.Write(snap.DefenseDropped);
             w.Write(snap.DefenseCount);
             w.Write(MemoryMarshal.AsBytes(snap.DefenseSpan));
+            // Layers change every tick (their cycles advance), so each frame carries all of them.
+            w.Write(snap.LayerDropped);
+            w.Write(snap.LayerCount);
+            w.Write(MemoryMarshal.AsBytes(snap.LayerSpan));
         });
         FramesWritten++;
     }
@@ -182,6 +186,9 @@ public sealed class RecordedFrame
     /// <summary>Melee defense checks since the previous frame (v4 recordings).</summary>
     public readonly List<WireDefense> Defense = new();
     public uint DefenseDropped;
+    /// <summary>Every active overlay layer this frame (v6 recordings).</summary>
+    public readonly List<WireLayer> Layers = new();
+    public uint LayerDropped;
     public readonly Dictionary<ushort, string> Classes = new();
     public readonly Dictionary<int, string> Models = new();
     /// <summary>Sequence names by model index, in m_nSequence order.</summary>
@@ -265,6 +272,14 @@ public static class RecordingReader
                         int defense = r.ReadInt32();
                         var records = r.ReadBytes(defense * defenseBytes);
                         for (int i = 0; i < defense; i++) state.Defense.Add(Widen<WireDefense>(records.AsSpan(i * defenseBytes, defenseBytes), default));
+                    }
+                    state.Layers.Clear();
+                    state.LayerDropped = 0;
+                    if (version >= 6)
+                    {
+                        state.LayerDropped = r.ReadUInt32();
+                        int layers = r.ReadInt32();
+                        state.Layers.AddRange(MemoryMarshal.Cast<byte, WireLayer>(r.ReadBytes(layers * Marshal.SizeOf<WireLayer>())).ToArray());
                     }
                     yield return state;
                     break;

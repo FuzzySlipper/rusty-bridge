@@ -50,6 +50,11 @@ sealed unsafe class TestWriter : IDisposable
 
     WireDefense[] _defense = Array.Empty<WireDefense>();
 
+    WireLayer[] _layers = Array.Empty<WireLayer>();
+
+    /// <summary>Overlay layers for the next frame written by <see cref="FrameEntities"/>.</summary>
+    public void Layer(params WireLayer[] layers) => _layers = layers;
+
     /// <summary>Writes a frame from whole entity records.</summary>
     public void FrameEntities(int tick, params WireEntity[] entities)
     {
@@ -63,6 +68,9 @@ sealed unsafe class TestWriter : IDisposable
         s->EntityCount = (uint)entities.Length;
         s->DamageCount = 0;
         s->DefenseCount = 0;
+        _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
+        s->LayerCount = (uint)_layers.Length;
+        _layers = Array.Empty<WireLayer>();
         Volatile.Write(ref s->Seq, 2 * f + 2);
         Volatile.Write(ref H->FramesWritten, f + 1);
     }

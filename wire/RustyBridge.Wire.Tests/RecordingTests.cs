@@ -92,8 +92,8 @@ public sealed class RecordingTests : IDisposable
         recorder.Write(snap, reader.Map, 0.015f, reader);
 
         // Record header (5) + frame fields (21) + one changed entity (56) + removed count (4)
-        // + damage dropped and count (8) + defense dropped and count (8).
-        Assert.Equal(102, recorder.Bytes - afterKey);
+        // + damage, defense and layer dropped-and-count pairs (8 each).
+        Assert.Equal(110, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -225,6 +225,35 @@ public sealed class RecordingTests : IDisposable
         }
         var recorded = Assert.Single(RecordingReader.Frames(buffer).Single().Defense);
         Assert.Equal((5, 1, 7, DefenseResult.Shield, 1f), (recorded.Victim, recorded.Attacker, recorded.Weapon, recorded.Result, recorded.DirectionX));
+    }
+
+    [Fact]
+    public void LayersTravelThroughWireAndRecording()
+    {
+        using var writer = new TestWriter(_wire, "l01_a");
+        writer.Layer(new WireLayer { Index = 7, Slot = 1, Flags = 1, Sequence = 37, Order = 2, Cycle = 0.25f, Weight = 0.8f, PlaybackRate = 1 });
+        writer.FrameEntities(10, new WireEntity { Index = 7, Serial = 1 });
+        writer.FrameEntities(11, new WireEntity { Index = 7, Serial = 1 });
+        using var reader = new WireReader(_wire);
+        var snap = new WireSnapshot();
+        Assert.True(reader.TryReadFrame(0, snap));
+        Assert.Equal((short)37, Assert.Single(snap.LayerSpan.ToArray()).Sequence);
+
+        var buffer = new MemoryStream();
+        using (var recorder = new Recorder(buffer))
+        {
+            foreach (ulong f in new ulong[] { 0, 1 })
+            {
+                Assert.True(reader.TryReadFrame(f, snap));
+                recorder.Write(snap, reader.Map, 0.015f, reader);
+            }
+            recorder.Flush();
+            buffer = new MemoryStream(buffer.ToArray());
+        }
+        var frames = RecordingReader.Frames(buffer).Select(f => f.Layers.ToArray()).ToList();
+        var layer = Assert.Single(frames[0]);
+        Assert.Equal((7, 1, 0.25f, 0.8f, (short)2), (layer.Index, layer.Slot, layer.Cycle, layer.Weight, layer.Order));
+        Assert.Empty(frames[1]);
     }
 
     [Fact]

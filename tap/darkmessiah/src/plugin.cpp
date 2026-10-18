@@ -347,7 +347,7 @@ const int kPropStride = 76, kPropType = 8, kPropName = 44, kPropFlags = 52, kPro
 const int kDptDataTable = 6;
 const int kSpropExclude = 1 << 6;
 
-struct NetProps { int sequence = -1, cycle = -1, rate = -1; };
+struct NetProps { int sequence = -1, cycle = -1, rate = -1; bool overlay = false; };
 static int g_sendLayout;              // 0 unchecked, 1 ok, -1 wrong
 // Arkane made CBaseEntity's health a float pair, m_fHealth/m_fMaxHealth, next
 // to m_lifeState. Only some classes network them (shields do), but as
@@ -370,6 +370,8 @@ static bool CheckSendLayout(SendTable* t) {
     return sawTable;
 }
 
+static void NoteLayerVector(unsigned char* elementProp);  // overlay layers, below
+
 static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
     if (!t || depth > 16) return;
     for (int i = 0; i < t->count; ++i) {
@@ -377,7 +379,10 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         if (*(int*)(sp + kPropFlags) & kSpropExclude) continue;
         int off = base + *(int*)(sp + kPropOffset);
         if (*(int*)(sp + kPropType) == kDptDataTable) {
-            WalkSendTable(*(SendTable**)(sp + kPropTable), off, p, depth + 1);
+            SendTable* dt = *(SendTable**)(sp + kPropTable);
+            if (dt && IsText(dt->name) && !strcmp(dt->name, "DT_OverlayVars")) p.overlay = true;
+            if (dt && IsText(dt->name) && !strcmp(dt->name, "DT_Animationlayer")) NoteLayerVector(sp);
+            WalkSendTable(dt, off, p, depth + 1);
             continue;
         }
         const char* name = *(const char**)(sp + kPropName);
@@ -508,6 +513,59 @@ static void NoteModel(int index) {
     strncpy_s(row, wire::kModelPathBytes, m ? SafeStr(g_modelInfo->GetModelName(m)) : "", _TRUNCATE);
 }
 
+// --- Overlay layers ------------------------------------------------------------------
+// CBaseAnimatingOverlay::m_AnimOverlay is a CUtlVector<CAnimationLayer>:
+// element pointer at +0, count at +12. Its offset (0xF78 in
+// CBaseCombatCharacter's datadesc) and element stride come from the send
+// table: DT_OverlayVars networks it through a SendPropUtlVector, whose
+// per-element data-table props carry a CSendPropExtra_UtlVector as extra data
+// (+72): proxy, var proxy, ensure-capacity, element stride (+12), vector
+// offset (+16), max elements (+20). Element fields from CAnimationLayer's
+// datadesc and DT_Animationlayer: flags +0x0, sequence +0x8, cycle +0xC,
+// playback rate +0x14, weight +0x18, order +0x34.
+const int kPropExtra = 72;
+const int kMaxOverlays = 15;   // DT_OverlayVars' utlvector holds 15
+static int g_layerVector = -1, g_layerStride;
+static uint32_t g_layerRejects;  // active layers whose fields were out of range (layout doubt)
+
+static void NoteLayerVector(unsigned char* elementProp) {
+    if (g_layerStride) return;
+    __try {
+        const int* extra = *(const int**)(elementProp + kPropExtra);
+        if (!extra) return;
+        int stride = extra[3], offset = extra[4], max = extra[5];
+        Log("layers: CUtlVector<CAnimationLayer> at +0x%X, element stride 0x%X, max %d", offset, stride, max);
+        if (stride >= 0x38 && stride <= 0x200 && offset > 0 && max > 0 && max <= 64) { g_layerVector = offset; g_layerStride = stride; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("layers: exception reading the utlvector extra data");
+    }
+}
+
+// Appends this entity's active layers to the frame's layer array.
+static void WriteLayers(unsigned char* entity, uint16_t index, wire::Layer* out, uint32_t& count, uint32_t& dropped) {
+    if (!g_layerStride) return;
+    unsigned char* mem = *(unsigned char**)(entity + g_layerVector);
+    int size = *(int*)(entity + g_layerVector + 12);
+    if (!mem || size <= 0 || size > kMaxOverlays) return;
+    for (int k = 0; k < size; ++k) {
+        unsigned char* l = mem + k * g_layerStride;
+        int flags = *(int*)l;
+        float weight = *(float*)(l + 0x18), cycle = *(float*)(l + 0xC);
+        if (!(flags & 1) || !(weight > 0.0f)) continue;
+        if (!(weight <= 1.001f) || !(cycle >= -0.001f && cycle <= 1.001f)) { ++g_layerRejects; continue; }
+        if (count == wire::kMaxLayers) { ++dropped; continue; }
+        wire::Layer& w = out[count++];
+        w.index = index;
+        w.slot = (uint8_t)k;
+        w.flags = (uint8_t)flags;
+        w.sequence = (int16_t)*(int*)(l + 0x8);
+        w.order = (int16_t)*(int*)(l + 0x34);
+        w.cycle = *(float*)(l + 0xC);
+        w.weight = weight;
+        w.playback_rate = *(float*)(l + 0x14);
+    }
+}
+
 // The per-tick walk trusts the layout DumpEntities confirmed at
 // ServerActivate, so it skips the VirtualQuery checks; one SEH frame per
 // entity still turns a bad pointer into a counted fault.
@@ -517,6 +575,8 @@ static void WireWrite() {
     unsigned char* slotBase = g_wire + wire::kSlotsOffset + (f % wire::kSlotCount) * wire::kSlotBytes;
     wire::SlotHeader* s = (wire::SlotHeader*)slotBase;
     wire::Entity* out = (wire::Entity*)(slotBase + sizeof(wire::SlotHeader));
+    wire::Layer* layers = (wire::Layer*)(slotBase + wire::kLayersOffset);
+    uint32_t layerCount = 0, layerDropped = 0;
 
     InterlockedExchange64((volatile LONG64*)&s->seq, (LONG64)(2 * f + 1));
     uint32_t count = 0;
@@ -560,6 +620,8 @@ static void WireWrite() {
                 w.flags |= wire::kHasAnimation;
             }
             ++count;
+            // After the entity is counted: a fault here loses only its layers.
+            if (cls.props.overlay) WriteLayers((unsigned char*)ent, (uint16_t)i, layers, layerCount, layerDropped);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             ++g_faults;
         }
@@ -573,6 +635,8 @@ static void WireWrite() {
     memcpy(slotBase + wire::kDefenseOffset, g_pendingDefense, g_defenseCount * sizeof(wire::Defense));
     s->defense_count = g_defenseCount;
     s->defense_dropped = g_defenseDropped;
+    s->layer_count = layerCount;
+    s->layer_dropped = layerDropped;
     g_defenseCount = 0;
     g_defenseDropped = 0;
     s->frame = f;
@@ -1037,8 +1101,8 @@ public:
                 wire::Header* h = WireHeader();
                 const wire::SlotHeader* last = (const wire::SlotHeader*)(g_wire + wire::kSlotsOffset +
                     ((h->frames_written - 1) % wire::kSlotCount) * wire::kSlotBytes);
-                Log("wire: %llu frames, tick %d, %u entities, %u classes, %u damage calls, %u defense checks, avg write %.1f us, %u faults",
-                    h->frames_written, last->tick, last->entity_count, g_classCount, g_damageTotal, g_defenseTotal,
+                Log("wire: %llu frames, tick %d, %u entities, %u layers, %u classes, %u damage calls, %u defense checks, %u layer rejects, avg write %.1f us, %u faults",
+                    h->frames_written, last->tick, last->entity_count, last->layer_count, g_classCount, g_damageTotal, g_defenseTotal, g_layerRejects,
                     1e6 * m_writeTicks / freq.QuadPart / 660, g_faults);
                 m_writeTicks = 0;
             }

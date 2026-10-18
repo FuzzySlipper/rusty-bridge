@@ -5,22 +5,23 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v5
+## Recording v6
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 5, reserved u32), then records until the end of the file. Each older
+= 6, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 5 | 56 bytes | 152 bytes | 48 bytes | |
+| 6 | 56 bytes | 152 bytes | 48 bytes | |
+| 5 | 56 | 152 | 48 | overlay layers |
 | 4 | 52 (no serial) | 128 (no serials) | 32 (no serials) | |
 | 3 | 52 | 128 | none | |
 | 2 | 52 | none | none | |
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-five. Each record is
+six. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -29,13 +30,15 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × 128-byte Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × 32-byte Wire defense records |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
 state), 2 = gap (frames before this one were missed; it's also a keyframe).
 
-- A frame stores only the entities whose 32-byte Wire record changed since
+- Overlay layers are stored whole in every frame (their cycles advance
+  every tick), not delta-coded.
+- A frame stores only the entities whose Wire record changed since
   the previous frame, plus the indices that disappeared. Static entities cost
   nothing after their first appearance.
 - A keyframe is written at the start, after a level change or a gap, and
@@ -96,7 +99,9 @@ OUT.html` writes a copy that opens with the recording already loaded.
 - ← and → step one donor tick, Shift steps 10, Space plays at 0.1× to 2×.
 - The detail panel shows position, angles, ground and vertical speed, yaw
   rate, update rate, health, and the current sequence by name with its cycle,
-  playback rate and how long it has run.
+  playback rate and how long it has run. From v6 it also lists the entity's
+  active overlay layers (name, cycle, weight). The map shows the heaviest
+  action layer, such as a `layer_parry_B`, under the actor's main sequence.
 - With v2 recordings, actors on the map show their current action
   (`attack_right 42%`), get a red ring for 10 ticks after losing health and a
   hollow marker once dead. The timeline adds the selected entity's health and

@@ -24,6 +24,11 @@ public sealed class WireSnapshot
     public uint DefenseDropped;
     public readonly WireDefense[] Defense = new WireDefense[WireLayout.MaxDefense];
     public ReadOnlySpan<WireDefense> DefenseSpan => Defense.AsSpan(0, DefenseCount);
+    /// <summary>Active overlay layers of every entity this frame.</summary>
+    public int LayerCount;
+    public uint LayerDropped;
+    public readonly WireLayer[] Layers = new WireLayer[WireLayout.MaxLayers];
+    public ReadOnlySpan<WireLayer> LayerSpan => Layers.AsSpan(0, LayerCount);
 }
 
 /// <summary>
@@ -99,12 +104,16 @@ public sealed unsafe class WireReader : IDisposable
         int defense = (int)Math.Min(header->DefenseCount, (uint)WireLayout.MaxDefense);
         snapshot.DefenseDropped = header->DefenseDropped;
         new ReadOnlySpan<WireDefense>(slot + WireLayout.DefenseOffset, defense).CopyTo(snapshot.Defense);
+        int layers = (int)Math.Min(header->LayerCount, (uint)WireLayout.MaxLayers);
+        snapshot.LayerDropped = header->LayerDropped;
+        new ReadOnlySpan<WireLayer>(slot + WireLayout.LayersOffset, layers).CopyTo(snapshot.Layers);
 
         Interlocked.MemoryBarrier();
         if (Volatile.Read(ref header->Seq) != seq) return false;
         snapshot.Count = count;
         snapshot.DamageCount = damage;
         snapshot.DefenseCount = defense;
+        snapshot.LayerCount = layers;
         return true;
     }
 

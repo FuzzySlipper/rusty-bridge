@@ -171,6 +171,8 @@ public sealed class Recorder : IDisposable
 /// <summary>One frame of a recording with the full state rebuilt.</summary>
 public sealed class RecordedFrame
 {
+    /// <summary>The recording's format version; v5 and later carry EHANDLE serials.</summary>
+    public uint Version;
     public ulong Frame;
     public int Tick;
     public float Curtime;
@@ -208,7 +210,7 @@ public static class RecordingReader
         int damageBytes = RecordingFormat.DamageBytes(version), defenseBytes = RecordingFormat.DefenseBytes(version);
         r.ReadUInt32();
 
-        var state = new RecordedFrame();
+        var state = new RecordedFrame { Version = version };
         while (stream.Position < stream.Length)
         {
             byte kind = r.ReadByte();
@@ -295,5 +297,35 @@ public static class RecordingReader
     {
         record.CopyTo(MemoryMarshal.AsBytes(new Span<T>(ref value)));
         return value;
+    }
+}
+
+/// <summary>
+/// Names the entities an event record refers to. From v5 an event names an
+/// entity by index and serial, and only that entity will do: one seen
+/// earlier in the level keeps its class after its index is reused, and one
+/// the recording never captured is reported as such instead of borrowing
+/// the name of whatever holds the index now. Older recordings name by index
+/// in the current frame.
+/// </summary>
+public sealed class EventNames
+{
+    readonly Dictionary<(ushort Index, uint Serial), string> _seen = new();
+    uint _level;
+
+    /// <summary>Remembers this frame's entities; call before naming the frame's events.</summary>
+    public void Observe(RecordedFrame frame)
+    {
+        if (frame.LevelSerial != _level) { _seen.Clear(); _level = frame.LevelSerial; }
+        if (frame.Version < 5) return;
+        foreach (var (index, e) in frame.Entities) _seen[(index, e.Serial)] = frame.Classes.GetValueOrDefault(e.ClassId, "?");
+    }
+
+    public string Name(RecordedFrame frame, ushort index, uint serial)
+    {
+        if (index == WireLayout.NoEntity) return "-";
+        if (frame.Version >= 5)
+            return _seen.TryGetValue((index, serial), out var name) ? name : $"#{index}.{serial:x} (not captured)";
+        return frame.Entities.TryGetValue(index, out var e) ? frame.Classes.GetValueOrDefault(e.ClassId, "?") : $"#{index}";
     }
 }

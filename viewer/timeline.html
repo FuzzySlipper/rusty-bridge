@@ -316,8 +316,10 @@ function parseRecording(buf) {
   // over), so its life state never changes and the killing blow never shows
   // as damage. The removal is the death.
   // Resolves an edict index in an event record to a track. With v5 serials
-  // (at serialBase, one u32 per index field in order) the index must match
-  // that entity, which still finds an entity whose index was reused since.
+  // (at serialBase, one u32 per index field in order) only the entity with
+  // that index and serial will do: it can be one whose index was reused
+  // since, but never the entity that reused it. An identity the recording
+  // never captured resolves to null. Older recordings match by index.
   function resolver(v, p, serialBase, fields = [4, 6, 8, 10, 30]) {
     return (o) => {
       const i = v.getUint16(p + o, true);
@@ -325,7 +327,7 @@ function parseRecording(buf) {
       if (serialBase < 0) return live.get(i) ?? null;
       const serial = v.getUint32(p + serialBase + 4 * fields.indexOf(o), true);
       const t = live.get(i);
-      return t && t.serial === serial ? t : bySerial.get(`${i}:${serial}`) ?? t ?? null;
+      return t && t.serial === serial ? t : bySerial.get(`${i}:${serial}`) ?? null;
     };
   }
   function close(t, fi) {

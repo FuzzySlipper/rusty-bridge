@@ -83,6 +83,12 @@ handles to that entity carry (`handle >> 12`). The edict's second word
 networked width: 0xA6 against a handle serial of 0x20A6, for example. That
 is why the Wire takes the serial from the handle, not from the edict.
 
+Readers resolve an event's entity by both fields. It can name an entity
+whose index was reused since (a killed NPC whose ragdoll took the index in
+the same tick), and it never names the entity that reused it. An identity
+the reader never saw stays unresolved: `rbwire info` prints
+`#index.serial (not captured)`, and the stepper leaves it out.
+
 `sequence` indexes the model's virtual sequence list: its own sequences,
 then each `$includemodel`'s, depth first, skipping names already seen.
 `StudioModel.SequenceNames` rebuilds that list from the game's VPKs.

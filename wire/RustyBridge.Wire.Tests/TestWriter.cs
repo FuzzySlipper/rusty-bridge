@@ -66,7 +66,9 @@ sealed unsafe class TestWriter : IDisposable
         s->Tick = tick;
         s->LevelSerial = H->LevelSerial;
         s->EntityCount = (uint)entities.Length;
-        s->DamageCount = 0;
+        _damage.CopyTo(new Span<WireDamage>((byte*)s + WireLayout.DamageOffset, _damage.Length));
+        s->DamageCount = (uint)_damage.Length;
+        _damage = Array.Empty<WireDamage>();
         s->DefenseCount = 0;
         _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
         s->LayerCount = (uint)_layers.Length;
@@ -74,6 +76,11 @@ sealed unsafe class TestWriter : IDisposable
         Volatile.Write(ref s->Seq, 2 * f + 2);
         Volatile.Write(ref H->FramesWritten, f + 1);
     }
+
+    /// <summary>Damage records for the next frame written by <see cref="FrameEntities"/>.</summary>
+    public void Damage(params WireDamage[] damage) => _damage = damage;
+
+    WireDamage[] _damage = Array.Empty<WireDamage>();
 
     /// <summary>Defense records for the next frame written.</summary>
     public void Defend(params WireDefense[] defense) => _defense = defense;

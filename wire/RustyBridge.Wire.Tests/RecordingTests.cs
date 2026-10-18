@@ -282,6 +282,44 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
+    public void EventsNameTheEntityTheirSerialNames()
+    {
+        // The player kills the orc at index 7; a ragdoll takes index 7 in the same tick. The killing
+        // blow names (7, 0x123), the orc, not the ragdoll now at 7. A blow naming an identity the
+        // recording never captured stays unresolved.
+        using var writer = new TestWriter(_wire, "l01_a");
+        writer.Class(0, "npc_orc_sword");
+        writer.Class(1, "prop_ragdoll");
+        writer.Class(2, "player");
+        writer.FrameEntities(10, new WireEntity { Index = 1, ClassId = 2, Serial = 1 }, new WireEntity { Index = 7, ClassId = 0, Serial = 0x123 });
+        writer.Damage(
+            new WireDamage { Tick = 11, Attacker = 1, AttackerSerial = 1, Victim = 7, VictimSerial = 0x123, Inflictor = WireLayout.NoEntity, TraceEntity = WireLayout.NoEntity, Weapon = WireLayout.NoEntity },
+            new WireDamage { Tick = 11, Attacker = 1, AttackerSerial = 1, Victim = 8, VictimSerial = 0x55, Inflictor = WireLayout.NoEntity, TraceEntity = WireLayout.NoEntity, Weapon = WireLayout.NoEntity });
+        writer.FrameEntities(11, new WireEntity { Index = 1, ClassId = 2, Serial = 1 }, new WireEntity { Index = 7, ClassId = 1, Serial = 0x9AB });
+        using var reader = new WireReader(_wire);
+        var buffer = new MemoryStream();
+        var snap = new WireSnapshot();
+        using (var recorder = new Recorder(buffer))
+        {
+            foreach (ulong f in new ulong[] { 0, 1 })
+            {
+                Assert.True(reader.TryReadFrame(f, snap));
+                recorder.Write(snap, reader.Map, 0.015f, reader);
+            }
+            recorder.Flush();
+            buffer = new MemoryStream(buffer.ToArray());
+        }
+        var names = new EventNames();
+        var blows = new List<string>();
+        foreach (var f in RecordingReader.Frames(buffer))
+        {
+            names.Observe(f);
+            foreach (var d in f.Damage) blows.Add($"{names.Name(f, d.Attacker, d.AttackerSerial)} -> {names.Name(f, d.Victim, d.VictimSerial)}");
+        }
+        Assert.Equal(new[] { "player -> npc_orc_sword", "player -> #8.55 (not captured)" }, blows);
+    }
+
+    [Fact]
     public void ReadsVersion4DamageAndDefenseWithoutSerials()
     {
         var ms = new MemoryStream();

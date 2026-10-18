@@ -182,15 +182,16 @@ int Info(string path)
     long damageRecords = 0, damageDropped = 0;
     var defenseResults = new Dictionary<DefenseResult, int>();
     var pairs = new Dictionary<string, (int hits, double applied)>();
+    var names = new EventNames();
     foreach (var f in RecordingReader.Frames(stream))
     {
         damageDropped += f.DamageDropped;
+        names.Observe(f);
         foreach (var d in f.Defense) defenseResults[d.Result] = defenseResults.GetValueOrDefault(d.Result) + 1;
         foreach (var d in f.Damage)
         {
             damageRecords++;
-            string Name(ushort i) => i != WireLayout.NoEntity && f.Entities.TryGetValue(i, out var e) ? f.Classes.GetValueOrDefault(e.ClassId, "?") : i == WireLayout.NoEntity ? "-" : $"#{i}";
-            string key = $"{Name(d.Attacker)} -> {Name(d.Victim)}";
+            string key = $"{names.Name(f, d.Attacker, d.AttackerSerial)} -> {names.Name(f, d.Victim, d.VictimSerial)}";
             var p = pairs.GetValueOrDefault(key);
             pairs[key] = (p.hits + 1, p.applied + Math.Max(0, d.HealthBefore - d.HealthAfter));
         }

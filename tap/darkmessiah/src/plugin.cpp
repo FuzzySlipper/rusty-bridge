@@ -534,6 +534,7 @@ static void WireWrite() {
             const unsigned char* ent = (const unsigned char*)u;
             wire::Entity& w = out[count];
             w.index = (uint16_t)i;
+            w.serial = *(const uint32_t*)u->GetRefEHandle() >> 12;
             w.class_id = cls.id;
             w.model_index = u->GetModelIndex();
             NoteModel(w.model_index);
@@ -633,20 +634,36 @@ static uint16_t HandleIndex(uint32_t h) {
     return i < (uint32_t)kMaxEdicts ? (uint16_t)i : wire::kNoEntity;
 }
 
+static uint32_t HandleSerial(uint32_t h) { return HandleIndex(h) == wire::kNoEntity ? 0 : h >> 12; }
+
+// An entity's own EHANDLE serial (IServerEntity::GetRefEHandle), the same
+// serial the game's handles to it carry. The edict's second word holds only
+// its low 10 bits (the networked width).
+static uint32_t SerialOf(void* entity) {
+    __try { return entity ? *(const uint32_t*)((IServerEntity*)entity)->GetRefEHandle() >> 12 : 0; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+static uint32_t SerialAt(uint16_t index) {
+    if (index == wire::kNoEntity || !g_edicts) return 0;
+    unsigned char* e = g_edicts + index * g_stride;
+    return (*(int*)e & kEdictFree) ? 0 : SerialOf(*(void**)(e + g_unkOff));
+}
+
 // Dark Messiah names the weapon, not its wielder, as the attacker of a melee
 // hit. A weapon's m_hOwnerEntity is the character holding it. Only weapon_*
 // entities count: NPCs have owners too (the npc_template_maker that spawned
-// them), and those stay the attacker.
-static uint16_t WielderOf(uint16_t index) {
-    if (index == wire::kNoEntity || g_ownerOff < 0 || !g_edicts) return wire::kNoEntity;
+// them), and those stay the attacker. Returns the wielder's EHANDLE.
+static uint32_t WielderOf(uint16_t index) {
+    if (index == wire::kNoEntity || g_ownerOff < 0 || !g_edicts) return 0xFFFFFFFF;
     unsigned char* e = g_edicts + index * g_stride;
-    if (*(int*)e & kEdictFree) return wire::kNoEntity;
+    if (*(int*)e & kEdictFree) return 0xFFFFFFFF;
     IServerNetworkable* n = NetworkableAt(e, g_netOff);
     unsigned char* entity = *(unsigned char**)(e + g_unkOff);
-    if (!n || !entity || strncmp(n->GetClassName(), "weapon_", 7) != 0) return wire::kNoEntity;
+    if (!n || !entity || strncmp(n->GetClassName(), "weapon_", 7) != 0) return 0xFFFFFFFF;
     // NPC weapons carry their wielder in m_hOwnerEntity; the player's in m_hOwner.
-    uint16_t owner = HandleIndex(*(uint32_t*)(entity + g_ownerOff));
-    if (owner == wire::kNoEntity && g_weaponOwnerOff >= 0) owner = HandleIndex(*(uint32_t*)(entity + g_weaponOwnerOff));
+    uint32_t owner = *(uint32_t*)(entity + g_ownerOff);
+    if (HandleIndex(owner) == wire::kNoEntity && g_weaponOwnerOff >= 0) owner = *(uint32_t*)(entity + g_weaponOwnerOff);
     return owner;
 }
 
@@ -664,12 +681,20 @@ static void OnDamage(void* victim, const void* info, float before, float after) 
         int v = EdictIndexOf(victim);
         d.tick = g_globals->tickcount;
         d.victim = v < 0 ? wire::kNoEntity : (uint16_t)v;
-        d.attacker = HandleIndex((uint32_t)I(dmg::Attacker));
-        d.weapon = wire::kNoEntity;
-        uint16_t owner = WielderOf(d.attacker);
-        if (owner != wire::kNoEntity) { d.weapon = d.attacker; d.attacker = owner; }
-        d.inflictor = HandleIndex((uint32_t)I(dmg::Inflictor));
-        d.trace_entity = HandleIndex((uint32_t)I(dmg::TraceEntity));
+        uint32_t attacker = (uint32_t)I(dmg::Attacker), weapon = 0xFFFFFFFF;
+        uint32_t owner = WielderOf(HandleIndex(attacker));
+        if (HandleIndex(owner) != wire::kNoEntity) { weapon = attacker; attacker = owner; }
+        uint32_t inflictor = (uint32_t)I(dmg::Inflictor), traced = (uint32_t)I(dmg::TraceEntity);
+        d.attacker = HandleIndex(attacker);
+        d.weapon = HandleIndex(weapon);
+        d.inflictor = HandleIndex(inflictor);
+        d.trace_entity = HandleIndex(traced);
+        d.victim_serial = SerialOf(victim);
+        d.attacker_serial = HandleSerial(attacker);
+        d.weapon_serial = HandleSerial(weapon);
+        d.inflictor_serial = HandleSerial(inflictor);
+        d.trace_entity_serial = HandleSerial(traced);
+        d.reserved2 = 0;
         d.damage = F(dmg::Damage);
         d.health_before = before;
         d.health_after = after;
@@ -769,6 +794,10 @@ static int __fastcall DefenseHook(void* victim, void* /*edx*/, void* dir, void* 
         d.attacker = IndexOrNone(attacker);
         d.weapon = IndexOrNone(weapon);
         d.struck = IndexOrNone(struck);
+        d.victim_serial = d.victim == wire::kNoEntity ? 0 : SerialOf(victim);
+        d.attacker_serial = d.attacker == wire::kNoEntity ? 0 : SerialOf(attacker);
+        d.weapon_serial = d.weapon == wire::kNoEntity ? 0 : SerialOf(weapon);
+        d.struck_serial = d.struck == wire::kNoEntity ? 0 : SerialOf(struck);
         d.result = result;
         if (dir) memcpy(d.direction, dir, sizeof d.direction);
         else memset(d.direction, 0, sizeof d.direction);
@@ -854,6 +883,10 @@ static void __stdcall OnParryState(void* player, int state, void* edi, unsigned 
         d.attacker = attacker;
         d.weapon = wire::kNoEntity;
         d.struck = wire::kNoEntity;
+        d.victim_serial = SerialOf(player);
+        d.attacker_serial = SerialAt(attacker);
+        d.weapon_serial = 0;
+        d.struck_serial = 0;
         d.result = state == 1 ? wire::kPlayerParried : wire::kPlayerParryBroken;
         memset(d.direction, 0, sizeof d.direction);
         d.source = source;

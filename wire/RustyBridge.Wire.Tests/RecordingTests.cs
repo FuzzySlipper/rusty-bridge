@@ -91,9 +91,9 @@ public sealed class RecordingTests : IDisposable
         Assert.True(reader.TryReadFrame(1, snap));
         recorder.Write(snap, reader.Map, 0.015f, reader);
 
-        // Record header (5) + frame fields (21) + one changed entity (52) + removed count (4)
+        // Record header (5) + frame fields (21) + one changed entity (56) + removed count (4)
         // + damage dropped and count (8) + defense dropped and count (8).
-        Assert.Equal(98, recorder.Bytes - afterKey);
+        Assert.Equal(102, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -225,6 +225,51 @@ public sealed class RecordingTests : IDisposable
         }
         var recorded = Assert.Single(RecordingReader.Frames(buffer).Single().Defense);
         Assert.Equal((5, 1, 7, DefenseResult.Shield, 1f), (recorded.Victim, recorded.Attacker, recorded.Weapon, recorded.Result, recorded.DirectionX));
+    }
+
+    [Fact]
+    public void AReusedIndexKeepsEachEntitysSerial()
+    {
+        // An orc dies at index 7 and another orc takes the index: same class and
+        // model, so only the serial tells them apart.
+        using var writer = new TestWriter(_wire, "l01_a");
+        writer.Class(0, "npc_orc_sword");
+        writer.FrameEntities(10, new WireEntity { Index = 7, Serial = 0x123, OriginX = 1 });
+        writer.FrameEntities(11, new WireEntity { Index = 7, Serial = 0x9AB, OriginX = 1 });
+        using var reader = new WireReader(_wire);
+        var buffer = new MemoryStream();
+        var snap = new WireSnapshot();
+        using (var recorder = new Recorder(buffer))
+        {
+            foreach (ulong f in new ulong[] { 0, 1 })
+            {
+                Assert.True(reader.TryReadFrame(f, snap));
+                recorder.Write(snap, reader.Map, 0.015f, reader);
+            }
+            recorder.Flush();
+            buffer = new MemoryStream(buffer.ToArray());
+        }
+        Assert.Equal(new uint[] { 0x123, 0x9AB }, RecordingReader.Frames(buffer).Select(f => f.Entities[7].Serial).ToArray());
+    }
+
+    [Fact]
+    public void ReadsVersion4DamageAndDefenseWithoutSerials()
+    {
+        var ms = new MemoryStream();
+        var w = new BinaryWriter(ms);
+        w.Write(RecordingFormat.Magic); w.Write(4u); w.Write(0u);
+        void Rec(byte kind, byte[] body) { w.Write(kind); w.Write((uint)body.Length); w.Write(body); }
+        var frame = new MemoryStream(); var fw = new BinaryWriter(frame);
+        fw.Write(0ul); fw.Write(5); fw.Write(0f); fw.Write(RecordingFormat.KeyFlag); fw.Write(0); fw.Write(0);
+        fw.Write(0u); fw.Write(1); var dmg = new byte[128]; BitConverter.GetBytes(5).CopyTo(dmg, 0); BitConverter.GetBytes(12f).CopyTo(dmg, 12); fw.Write(dmg);
+        fw.Write(0u); fw.Write(1); var def = new byte[32]; BitConverter.GetBytes(8).CopyTo(def, 12); fw.Write(def);
+        Rec(RecordingFormat.FrameRecord, frame.ToArray());
+        ms.Position = 0;
+
+        var only = Assert.Single(RecordingReader.Frames(ms));
+        var hit = Assert.Single(only.Damage);
+        Assert.Equal((5, 12f, 0u), (hit.Tick, hit.Damage, hit.VictimSerial));
+        Assert.Equal(DefenseResult.Shield, Assert.Single(only.Defense).Result);
     }
 
     public void Dispose() => File.Delete(_wire);

@@ -167,7 +167,7 @@ int Info(string path)
     int firstTick = 0, lastTick = 0;
     string map = "";
     float interval = 0;
-    var travelled = new Dictionary<ushort, (double distance, WireEntity last, string cls, string model)>();
+    var travelled = new Dictionary<(ushort index, uint serial), (double distance, WireEntity last, string cls, string model)>();
     RecordedFrame? last = null;
     long damageRecords = 0, damageDropped = 0;
     var defenseResults = new Dictionary<DefenseResult, int>();
@@ -191,14 +191,15 @@ int Info(string path)
         interval = f.TickInterval;
         foreach (var (index, e) in f.Entities)
         {
-            if (travelled.TryGetValue(index, out var t))
+            var key = (index, e.Serial);
+            if (travelled.TryGetValue(key, out var t))
             {
                 double dx = e.OriginX - t.last.OriginX, dy = e.OriginY - t.last.OriginY, dz = e.OriginZ - t.last.OriginZ;
-                travelled[index] = (t.distance + Math.Sqrt(dx * dx + dy * dy + dz * dz), e, t.cls, t.model);
+                travelled[key] = (t.distance + Math.Sqrt(dx * dx + dy * dy + dz * dz), e, t.cls, t.model);
             }
             else
             {
-                travelled[index] = (0, e, f.Classes.GetValueOrDefault(e.ClassId, "?"), f.Models.GetValueOrDefault(e.ModelIndex, ""));
+                travelled[key] = (0, e, f.Classes.GetValueOrDefault(e.ClassId, "?"), f.Models.GetValueOrDefault(e.ModelIndex, ""));
             }
         }
         last = f;
@@ -211,7 +212,7 @@ int Info(string path)
         Console.WriteLine($"  {key,-52} {p.hits,5} {p.applied,8:F1}");
     Console.WriteLine("defense checks: " + (defenseResults.Count == 0 ? "none" : string.Join(", ", defenseResults.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}"))));
     Console.WriteLine("most travelled:");
-    foreach (var (index, t) in travelled.OrderByDescending(kv => kv.Value.distance).Take(15))
+    foreach (var ((index, _), t) in travelled.OrderByDescending(kv => kv.Value.distance).Take(15))
         Console.WriteLine($"  #{index,4} {t.cls,-28} {t.distance,9:F1} units  {t.model}");
     return 0;
 }

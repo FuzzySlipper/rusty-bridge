@@ -50,6 +50,23 @@ sealed unsafe class TestWriter : IDisposable
 
     WireDefense[] _defense = Array.Empty<WireDefense>();
 
+    /// <summary>Writes a frame from whole entity records.</summary>
+    public void FrameEntities(int tick, params WireEntity[] entities)
+    {
+        ulong f = H->FramesWritten;
+        var s = Slot(f);
+        BeginFrame(f);
+        entities.CopyTo(new Span<WireEntity>((byte*)s + sizeof(WireSlotHeader), entities.Length));
+        s->Frame = f;
+        s->Tick = tick;
+        s->LevelSerial = H->LevelSerial;
+        s->EntityCount = (uint)entities.Length;
+        s->DamageCount = 0;
+        s->DefenseCount = 0;
+        Volatile.Write(ref s->Seq, 2 * f + 2);
+        Volatile.Write(ref H->FramesWritten, f + 1);
+    }
+
     /// <summary>Defense records for the next frame written.</summary>
     public void Defend(params WireDefense[] defense) => _defense = defense;
 

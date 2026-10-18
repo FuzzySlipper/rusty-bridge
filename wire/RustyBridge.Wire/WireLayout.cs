@@ -2,12 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace RustyBridge.Wire;
 
-// Mirror of tap/darkmessiah/src/wire.h (Wire v4). Layout and protocol:
+// Mirror of tap/darkmessiah/src/wire.h (Wire v5). Layout and protocol:
 // docs/wire.md. Keep the two in step.
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 4;
+    public const uint Version = 5;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -97,6 +97,9 @@ public struct WireEntity
     /// <summary>0..1 through the current sequence.</summary>
     public float Cycle;
     public float PlaybackRate;
+    /// <summary>The entity's EHANDLE serial (handle >> 12). With <c>Index</c> it identifies the
+    /// entity: an index reused by a new entity gets a new serial.</summary>
+    public uint Serial;
 }
 
 /// <summary>
@@ -127,6 +130,9 @@ public struct WireDamage
     public int PushForce, WeaponFlags, MMDamageFlag, MMSpell;
     public float SlowTimeDelay, SlowTimeDuration, SlowTimeFactor;
     public float MMDirectionX, MMDirectionY, MMDirectionZ;
+    /// <summary>EHANDLE serials of the entities above (0 with <see cref="WireLayout.NoEntity"/>).</summary>
+    public uint VictimSerial, AttackerSerial, InflictorSerial, TraceEntitySerial, WeaponSerial;
+    public uint Reserved2;
 }
 
 /// <summary>An Arkane NPC's verdict on a melee blow (CNPC_BaseArx's defense virtual).</summary>
@@ -163,4 +169,6 @@ public struct WireDefense
     public float DirectionX, DirectionY, DirectionZ;
     /// <summary>Player records: server.dll RVA of the code that set the parry state.</summary>
     public uint Source;
+    /// <summary>EHANDLE serials of the entities above (0 with <see cref="WireLayout.NoEntity"/>).</summary>
+    public uint VictimSerial, AttackerSerial, WeaponSerial, StruckSerial;
 }

@@ -5,13 +5,22 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v4
+## Recording v5
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 4, reserved u32), then records until the end of the file. Version 3 has
-no defense records in its frames, version 2 no damage either, and version 1
-also has 32-byte entities (no combat fields) and no Sequences records.
-Readers accept all four. Each record is
+= 5, reserved u32), then records until the end of the file. Each older
+version is the newer one with less in it:
+
+| Version | Entity | Damage | Defense | Also missing |
+| --- | --- | --- | --- | --- |
+| 5 | 56 bytes | 152 bytes | 48 bytes | |
+| 4 | 52 (no serial) | 128 (no serials) | 32 (no serials) | |
+| 3 | 52 | 128 | none | |
+| 2 | 52 | none | none | |
+| 1 | 32 (no combat fields) | none | none | Sequences records |
+
+Each older record is a prefix of the current one, and readers accept all
+five. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -36,8 +45,10 @@ state), 2 = gap (frames before this one were missed; it's also a keyframe).
 - `rbwire record` gets sequence names from the model files in the game's
   VPKs (`--game`, by default the game folder the Wire file sits in).
   `rbwire sequences MODEL.mdl` prints one model's list.
-- An edict index can be reused by a new entity within a level. The viewer
-  starts a new track when an index's class or model changes.
+- An edict index can be reused by a new entity within a level. From v5 an
+  entity is its (index, serial), and event records name entities the same
+  way. For older recordings the viewer guesses a reuse from a change of
+  class or model.
 
 The first real recording (`local/recordings/l01_a-orcs-vs-guards.rbrec`, v1,
 115 s) is 1.7 MB, about 220 bytes per tick. With combat fields, cycles change

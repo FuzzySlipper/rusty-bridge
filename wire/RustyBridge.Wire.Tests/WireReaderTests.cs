@@ -17,10 +17,10 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(144, Marshal.SizeOf<WireHeader>());
         Assert.Equal(136, (int)Marshal.OffsetOf<WireHeader>(nameof(WireHeader.FramesWritten)));
         Assert.Equal(48, Marshal.SizeOf<WireSlotHeader>());
-        Assert.Equal(32, Marshal.SizeOf<WireDefense>());
-        Assert.Equal(128, Marshal.SizeOf<WireDamage>());
-        Assert.Equal(52, Marshal.SizeOf<WireEntity>());
-        Assert.Equal(15_407_360, WireLayout.FileBytes);
+        Assert.Equal(48, Marshal.SizeOf<WireDefense>());
+        Assert.Equal(152, Marshal.SizeOf<WireDamage>());
+        Assert.Equal(56, Marshal.SizeOf<WireEntity>());
+        Assert.Equal(16_718_080, WireLayout.FileBytes);
     }
 
     [Fact]

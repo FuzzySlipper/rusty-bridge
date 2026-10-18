@@ -3,13 +3,17 @@ using System.Text;
 
 namespace RustyBridge.Wire;
 
-// Recording v4 (.rbrec): Wire frames saved to disk for the stepper.
+// Recording v5 (.rbrec): Wire frames saved to disk for the stepper.
 // Format: docs/recording.md. Parsed by RecordingReader and viewer/timeline.html.
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 4;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense
-    public const int V1EntityBytes = 32;
+    public const uint Version = 5;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials
+
+    // Record sizes by version; older records are a prefix of the current ones.
+    public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, _ => Marshal.SizeOf<WireEntity>() };
+    public static int DamageBytes(uint version) => version < 5 ? 128 : Marshal.SizeOf<WireDamage>();
+    public static int DefenseBytes(uint version) => version < 5 ? 32 : Marshal.SizeOf<WireDefense>();
     public const int KeyframeInterval = 330;  // 5 s at 66 ticks/s
 
     public const byte LevelRecord = 1;
@@ -193,7 +197,8 @@ public static class RecordingReader
         if (r.ReadUInt64() != RecordingFormat.Magic) throw new InvalidDataException("not a Rusty Bridge recording");
         uint version = r.ReadUInt32();
         if (version is < 1 or > RecordingFormat.Version) throw new InvalidDataException($"recording v{version}, reader knows v1..v{RecordingFormat.Version}");
-        int entityBytes = version == 1 ? RecordingFormat.V1EntityBytes : Marshal.SizeOf<WireEntity>();
+        int entityBytes = RecordingFormat.EntityBytes(version);
+        int damageBytes = RecordingFormat.DamageBytes(version), defenseBytes = RecordingFormat.DefenseBytes(version);
         r.ReadUInt32();
 
         var state = new RecordedFrame();
@@ -238,9 +243,7 @@ public static class RecordingReader
                     var bytes = r.ReadBytes(changed * entityBytes);
                     for (int i = 0; i < changed; i++)
                     {
-                        // A v1 entity is the first 32 bytes of a v2 one; the rest stay zero.
-                        var e = new WireEntity { Sequence = -1 };
-                        bytes.AsSpan(i * entityBytes, entityBytes).CopyTo(MemoryMarshal.AsBytes(new Span<WireEntity>(ref e)));
+                        var e = Widen<WireEntity>(bytes.AsSpan(i * entityBytes, entityBytes), new WireEntity { Sequence = -1 });
                         state.Entities[e.Index] = e;
                     }
                     int removed = r.ReadInt32();
@@ -251,7 +254,8 @@ public static class RecordingReader
                     {
                         state.DamageDropped = r.ReadUInt32();
                         int damage = r.ReadInt32();
-                        state.Damage.AddRange(MemoryMarshal.Cast<byte, WireDamage>(r.ReadBytes(damage * Marshal.SizeOf<WireDamage>())).ToArray());
+                        var records = r.ReadBytes(damage * damageBytes);
+                        for (int i = 0; i < damage; i++) state.Damage.Add(Widen<WireDamage>(records.AsSpan(i * damageBytes, damageBytes), default));
                     }
                     state.Defense.Clear();
                     state.DefenseDropped = 0;
@@ -259,7 +263,8 @@ public static class RecordingReader
                     {
                         state.DefenseDropped = r.ReadUInt32();
                         int defense = r.ReadInt32();
-                        state.Defense.AddRange(MemoryMarshal.Cast<byte, WireDefense>(r.ReadBytes(defense * Marshal.SizeOf<WireDefense>())).ToArray());
+                        var records = r.ReadBytes(defense * defenseBytes);
+                        for (int i = 0; i < defense; i++) state.Defense.Add(Widen<WireDefense>(records.AsSpan(i * defenseBytes, defenseBytes), default));
                     }
                     yield return state;
                     break;
@@ -269,4 +274,11 @@ public static class RecordingReader
     }
 
     static string Str(BinaryReader r) => Encoding.ASCII.GetString(r.ReadBytes(r.ReadUInt16()));
+
+    // An older record is a prefix of the current struct; fields it lacks keep their defaults.
+    static T Widen<T>(ReadOnlySpan<byte> record, T value) where T : struct
+    {
+        record.CopyTo(MemoryMarshal.AsBytes(new Span<T>(ref value)));
+        return value;
+    }
 }

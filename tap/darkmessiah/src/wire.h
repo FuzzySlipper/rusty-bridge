@@ -1,4 +1,4 @@
-// Wire v4: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v5: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 4;
+const uint32_t kVersion = 5;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -71,6 +71,7 @@ struct Entity {
     uint8_t life_state;         // CBaseEntity::m_lifeState: 0 alive, 1 dying, 2 dead
     float cycle;                // CBaseAnimating::m_flCycle, 0..1 through the sequence
     float playback_rate;        // CBaseAnimating::m_flPlaybackRate
+    uint32_t serial;            // the entity's EHANDLE serial (handle >> 12); with index, its identity
 };
 
 const uint16_t kNoEntity = 0xFFFF;
@@ -106,6 +107,12 @@ struct Damage {
     float slow_time_duration;   // m_fSlowTimeDuration
     float slow_time_factor;     // m_fSlowTimeFactor
     float mm_direction[3];      // m_vecMMDirection
+    uint32_t victim_serial;     // EHANDLE serials of the entities above, so a record
+    uint32_t attacker_serial;   //   resolves to the right entity even after its index
+    uint32_t inflictor_serial;  //   is reused; 0 with kNoEntity
+    uint32_t trace_entity_serial;
+    uint32_t weapon_serial;
+    uint32_t reserved2;
 };
 
 // One melee defense outcome: an Arkane NPC's verdict on a blow that reached
@@ -128,15 +135,19 @@ struct Defense {
     int32_t result;             // kDefense*
     float direction[3];         // the vector the check was given (the blow's direction); zero for player records
     uint32_t source;            // player records: server.dll RVA of the code that set the state
+    uint32_t victim_serial;     // EHANDLE serials of the entities above; 0 with kNoEntity
+    uint32_t attacker_serial;
+    uint32_t weapon_serial;
+    uint32_t struck_serial;
 };
 
 #pragma pack(pop)
 
 static_assert(sizeof(Header) == 144, "Header layout");
 static_assert(sizeof(SlotHeader) == 48, "SlotHeader layout");
-static_assert(sizeof(Defense) == 32, "Defense layout");
-static_assert(sizeof(Damage) == 128, "Damage layout");
-static_assert(sizeof(Entity) == 52, "Entity layout");
+static_assert(sizeof(Defense) == 48, "Defense layout");
+static_assert(sizeof(Damage) == 152, "Damage layout");
+static_assert(sizeof(Entity) == 56, "Entity layout");
 
 const uint32_t kClassesOffset = 256;
 const uint32_t kModelsOffset = kClassesOffset + kMaxClasses * kClassNameBytes;

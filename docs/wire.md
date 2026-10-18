@@ -1,4 +1,4 @@
-# Wire v4
+# Wire v5
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -10,16 +10,18 @@ Every donor tick: every live edict's index, class, model and abs
 transform, and (since v2) its health, life state, animation sequence, cycle
 and playback rate. Since v3, each tick also carries every
 `CBaseEntity::TakeDamage` call made since the previous one, and since v4
-every melee defense verdict (block, parry or hit). There's no input or
+every melee defense verdict (block, parry or hit). Since v5 every entity,
+and every entity named in a damage or defense record, carries its EHANDLE
+serial, so a reused edict index is a different entity. There's no input or
 write-back yet.
 
-v2–v4 replaced v1 on 2026-10-17. Readers check `version`; the tap writes
+v2–v5 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 15,407,360 bytes and maps it read-write; readers open
+creates it, sizes it to 16,718,080 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -36,7 +38,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 115,760 | Ring of slots |
+| 590,080 | 128 × 126,000 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -47,9 +49,9 @@ Slot: a 48-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 `level_serial` u32, `entity_count` u32, `damage_count` u32,
 `damage_dropped` u32, `defense_count` u32, `defense_dropped` u32), then:
 
-- up to 2048 entities of 52 bytes
-- at slot offset 106,544, up to 64 damage records of 128 bytes
-- at 114,736, up to 32 defense records of 32 bytes
+- up to 2048 entities of 56 bytes
+- at slot offset 114,736, up to 64 damage records of 152 bytes
+- at 124,464, up to 32 defense records of 48 bytes
 
 Entities:
 
@@ -67,6 +69,15 @@ Entities:
 | 43 | `life_state` u8 | `CBaseEntity::m_lifeState` (+0x300) |
 | 44 | `cycle` f32 | `CBaseAnimating::m_flCycle` (+0xEBC), 0..1 |
 | 48 | `playback_rate` f32 | `CBaseAnimating::m_flPlaybackRate` (+0xE70) |
+| 52 | `serial` u32 | the entity's EHANDLE serial (`IServerEntity::GetRefEHandle() >> 12`) |
+
+**Identity is (index, serial).** Edict indices are reused within a level,
+often by an entity of the same class. Each entity's own handle carries a
+20-bit serial that changes on reuse, and it's the same serial the game's
+handles to that entity carry (`handle >> 12`). The edict's second word
+(`m_NetworkSerialNumber` in Episode One) holds only its low 10 bits, the
+networked width: 0xA6 against a handle serial of 0x20A6, for example. That
+is why the Wire takes the serial from the handle, not from the edict.
 
 `sequence` indexes the model's virtual sequence list: its own sequences,
 then each `$includemodel`'s, depth first, skipping names already seen.
@@ -96,6 +107,8 @@ fields are edict indices, 0xFFFF for none.
 | 88 | `push_force`, `weapon_flags`, `mm_damage_flag`, `mm_spell` i32 | `m_iPushForce`, `m_iWeaponFlags`, `m_iMMDamageFlag`, `m_iMMDamageSpell` |
 | 104 | `slow_time_delay`, `_duration`, `_factor` f32 | `m_fSlowTime*` |
 | 116 | `mm_direction` 3×f32 | `m_vecMMDirection` |
+| 128 | `victim_serial`, `attacker_serial`, `inflictor_serial`, `trace_entity_serial`, `weapon_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
+| 148 | reserved u32 | |
 
 Defense records. There are two sources: each verdict from
 `CNPC_BaseArx`'s defense virtual, and each parried or broken change of the
@@ -111,6 +124,7 @@ player's parry state:
 | 12 | `result` i32 | NPC verdicts: 2 hit, 1 parry (struck its weapon, or parry/block state), 8 shield (struck its off-hand item, or shield up and attack from the front), 4 no effect. Player: 17 parried, 18 parry broken |
 | 16 | `direction` 3×f32 | the vector passed with the check (zero for player records) |
 | 28 | `source` u32 | player records: `server.dll` RVA of the code that set the state |
+| 32 | `victim_serial`, `attacker_serial`, `weapon_serial`, `struck_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
 
 ## The damage hook
 

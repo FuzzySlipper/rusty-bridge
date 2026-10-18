@@ -195,8 +195,11 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 4) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 4).`);
-  const ENTITY_BYTES = version === 1 ? 32 : 52;
+  if (version < 1 || version > 5) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 5).`);
+  // Record sizes by version; v5 adds EHANDLE serials.
+  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : 56;
+  const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
+  const bySerial = new Map();   // v5: `${index}:${serial}` -> track, for resolving event records
   const dec = new TextDecoder("ascii");
   const str = (o) => { const n = v.getUint16(o, true); return [dec.decode(new Uint8Array(buf, o + 2, n)), o + 2 + n]; };
 
@@ -244,14 +247,17 @@ function parseRecording(buf) {
           if (flags & 1) { hp = v.getFloat32(p + 32, true); maxhp = v.getFloat32(p + 36, true); life = v.getUint8(p + 43); }
           if (flags & 2) { seq = v.getInt16(p + 40, true); cycle = v.getFloat32(p + 44, true); rate = v.getFloat32(p + 48, true); }
         }
+        const serial = version >= 5 ? v.getUint32(p + 52, true) : 0;
         seen?.add(index);
         let t = live.get(index);
-        if (t && (t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
+        // v5 tells a reused index by its serial; older recordings fall back to a change of class or model.
+        if (t && (version >= 5 ? t.serial !== serial : t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
         if (!t) {
-          t = { key: `${level}:${index}:${fi}`, index, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
+          t = { key: `${level}:${index}:${fi}`, index, serial, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
                 f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [],
                 born: fi, died: Infinity, moves: false, fights: false, dist: 0 };
           tracks.set(t.key, t); live.set(index, t);
+          if (version >= 5) bySerial.set(`${index}:${serial}`, t);
         }
         const k = t.f.length - 1;
         if (k >= 0 && t.x[k] === x && t.y[k] === y && t.z[k] === z && t.pitch[k] === pitch && t.yaw[k] === yaw && t.roll[k] === roll
@@ -276,13 +282,14 @@ function parseRecording(buf) {
       if (version >= 3) {
         p += 4;  // records dropped since the previous frame
         const n = v.getInt32(p, true); p += 4;
-        for (let i = 0; i < n; i++, p += 128) damage.push(readDamage(v, p, fi, live));
+        for (let i = 0; i < n; i++, p += DAMAGE_BYTES) damage.push(readDamage(v, p, fi, resolver(v, p, version >= 5 ? 128 : -1)));
       }
       if (version >= 4) {
         p += 4;
         const n = v.getInt32(p, true); p += 4;
-        for (let i = 0; i < n; i++, p += 32) {
-          const ent = (o) => { const i2 = v.getUint16(p + o, true); return i2 === 0xFFFF ? null : live.get(i2) ?? null; };
+        for (let i = 0; i < n; i++, p += DEFENSE_BYTES) {
+          // v5 serials: victim, attacker, weapon, struck at +32..+44, in the order of their indices at +4..+10.
+          const ent = resolver(v, p, version >= 5 ? 32 : -1, [4, 6, 8, 10]);
           defenses.push({ fi, tick: v.getInt32(p, true), victim: ent(4), attacker: ent(6), weapon: ent(8), struck: ent(10), result: v.getInt32(p + 12, true), source: v.getUint32(p + 28, true),
                           dir: [v.getFloat32(p + 16, true), v.getFloat32(p + 20, true), v.getFloat32(p + 24, true)] });
         }
@@ -296,6 +303,19 @@ function parseRecording(buf) {
   // Dark Messiah removes an NPC in the tick it is killed (a ragdoll takes
   // over), so its life state never changes and the killing blow never shows
   // as damage. The removal is the death.
+  // Resolves an edict index in an event record to a track. With v5 serials
+  // (at serialBase, one u32 per index field in order) the index must match
+  // that entity, which still finds an entity whose index was reused since.
+  function resolver(v, p, serialBase, fields = [4, 6, 8, 10, 30]) {
+    return (o) => {
+      const i = v.getUint16(p + o, true);
+      if (i === 0xFFFF) return null;
+      if (serialBase < 0) return live.get(i) ?? null;
+      const serial = v.getUint32(p + serialBase + 4 * fields.indexOf(o), true);
+      const t = live.get(i);
+      return t && t.serial === serial ? t : bySerial.get(`${i}:${serial}`) ?? t ?? null;
+    };
+  }
   function close(t, fi) {
     if (t.died !== Infinity) return;
     t.died = fi;
@@ -350,8 +370,9 @@ function damageTypes(bits) {
   if (rest) names.push(`0x${rest.toString(16)}`);
   return names.length ? names.join("+") : "generic";
 }
-function readDamage(v, p, fi, live) {
-  const ent = (o) => { const i = v.getUint16(p + o, true); return i === 0xFFFF ? null : live.get(i) ?? null; };
+// Damage index fields at +4 victim, +6 attacker, +8 inflictor, +10 traced, +30 weapon;
+// v5 serials follow at +128 in that order.
+function readDamage(v, p, fi, ent) {
   const f = (o) => v.getFloat32(p + o, true), vec = (o) => [f(o), f(o + 4), f(o + 8)];
   return {
     fi, tick: v.getInt32(p, true), victim: ent(4), attacker: ent(6), inflictor: ent(8), traceEntity: ent(10),

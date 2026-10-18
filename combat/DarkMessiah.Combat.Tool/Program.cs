@@ -1,7 +1,8 @@
 // dm-combat: score the Shadow combat model (DarkMessiah.Combat) against recorded fights.
 //
-//   dm-combat score IN.rbrec [IN.rbrec ...] [--vpks DIR]
-//       per-decision agreement and every mismatch with its reason
+//   dm-combat score IN.rbrec [IN.rbrec ...] [--vpks DIR] [--brief]
+//       per-decision agreement and every mismatch with its reason, blow by blow
+//       (--brief: the first eight of each kind of mismatch)
 //
 // The model's numbers are the game's own, from the .qct files in its VPKs (--vpks, default
 // local/donor/vpks, then the Steam install). Recordings and VPKs are derived from the game and
@@ -9,12 +10,17 @@
 using DarkMessiah.Combat;
 
 string? vpks = null;
+bool brief = false;
 var recordings = new List<string>();
 for (int i = 1; i < args.Length; i++)
-    if (args[i] == "--vpks") vpks = args[++i]; else recordings.Add(args[i]);
+{
+    if (args[i] == "--vpks") vpks = args[++i];
+    else if (args[i] == "--brief") brief = true;
+    else recordings.Add(args[i]);
+}
 if (args.Length < 2 || args[0] != "score" || recordings.Count == 0)
 {
-    Console.Error.WriteLine("usage: dm-combat score IN.rbrec [IN.rbrec ...] [--vpks DIR]");
+    Console.Error.WriteLine("usage: dm-combat score IN.rbrec [IN.rbrec ...] [--vpks DIR] [--brief]");
     return 2;
 }
 vpks ??= new[]
@@ -29,7 +35,7 @@ foreach (var path in recordings)
 {
     using var stream = File.OpenRead(path);
     var report = Scorer.Score(Blows.Read(Path.GetFileName(path), stream), model);
-    Console.Write(report.Format());
+    Console.Write(report.Format(brief));
     unexplained += report.Mismatches.Count(m => m.Reason.StartsWith("unexplained", StringComparison.Ordinal));
 }
 Console.WriteLine(unexplained == 0 ? "every mismatch has a known reason" : $"{unexplained} unexplained mismatches");

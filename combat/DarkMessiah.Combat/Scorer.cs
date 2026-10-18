@@ -18,7 +18,8 @@ public sealed record DecisionScore(string Decision, int Cases, int Agree, int Un
 public sealed record ScoreReport(string Fight, uint Version, IReadOnlyList<DecisionScore> Scores, IReadOnlyList<Mismatch> Mismatches,
     IReadOnlyList<string> Untested, IReadOnlyList<string> Excluded, IReadOnlyList<string> Reached)
 {
-    public string Format()
+    /// <summary>The report: every mismatch, blow by blow, or with <paramref name="brief"/> the first eight of each group.</summary>
+    public string Format(bool brief = false)
     {
         var s = new StringBuilder();
         s.AppendLine($"{Fight} (recording v{Version})");
@@ -30,8 +31,8 @@ public sealed record ScoreReport(string Fight, uint Version, IReadOnlyList<Decis
         foreach (var group in Mismatches.GroupBy(m => (m.Decision, m.Reason)))
         {
             s.AppendLine($"  {group.Key.Decision} mismatches, {group.Key.Reason}: {group.Count()}");
-            foreach (var m in group.Take(8)) s.AppendLine($"    {m.Case}: donor {m.Donor}, model {m.Model}");
-            if (group.Count() > 8) s.AppendLine($"    … {group.Count() - 8} more");
+            foreach (var m in brief ? group.Take(8) : group) s.AppendLine($"    {m.Case}: donor {m.Donor}, model {m.Model}");
+            if (brief && group.Count() > 8) s.AppendLine($"    … {group.Count() - 8} more");
         }
         return s.ToString();
     }

@@ -16,8 +16,8 @@ dotnet run --project combat/DarkMessiah.Combat.Tool -- score local/recordings/l0
 `--vpks` defaults to `local/donor/vpks` (docs/import.md says how to copy
 them), then the Steam install.
 
-It prints per-decision agreement, then every mismatch grouped by its
-reason. It exits 1 when any mismatch is "unexplained", so a new gap stands
+It prints per-decision agreement, then every mismatch blow by blow, grouped
+by its reason (`--brief` keeps the first eight of each group). It exits 1 when any mismatch is "unexplained", so a new gap stands
 out. `dotnet test combat/DarkMessiah.Combat.slnx` covers:
 - the rules;
 - the case reader, on in-memory frames;

@@ -256,6 +256,26 @@ public sealed class BlowsTests
     }
 }
 
+public sealed class ReportTests
+{
+    [Fact]
+    public void TheReportListsEveryMismatchUnlessBrief()
+    {
+        // Ten parries on the body with no stance: one group of ten mismatches.
+        var victim = new Party("npc_orc_sword", "Combatmove_left_small", [], 0, "#7", "models/npc/orc/npc_orc.mdl");
+        var attacker = new Party("player", "idle", [], 0, "#1");
+        var cases = Enumerable.Range(0, 10).Select(i => new DefenseCase(100 + i, victim, attacker, "weapon_arx_short_sword", Struck.Body, 1, DefenseResult.Parry)).ToList();
+        var report = Scorer.Score(new FightCases("synthetic", 6, cases, [], []), GameData.Model());
+        Assert.Equal(10, report.Mismatches.Count);
+        string full = report.Format();
+        Assert.All(Enumerable.Range(0, 10), i => Assert.Contains($"tick {100 + i}:", full));
+        Assert.DoesNotContain("more", full);
+        string brief = report.Format(brief: true);
+        Assert.Contains("… 2 more", brief);
+        Assert.DoesNotContain("tick 109:", brief);
+    }
+}
+
 /// <summary>
 /// The recorded fights, when local/recordings has them (derived from the
 /// game, never committed: docs/recording.md says how to record one).

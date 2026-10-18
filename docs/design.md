@@ -14,6 +14,25 @@ should be built and why. What already exists is described in
 was revised on 2026-10-17 after the first Tap, Wire and combat stepper had
 run against the game. Where a claim rests on a measurement, it says so.
 
+## Scope: one repository for every donor
+
+Rusty Bridge is meant to bridge more than one old game eventually. Each
+donor would get its own Tap, Import and per-donor mapping in this
+repository, not a repository of its own. Dark Messiah is the only target
+today, and nothing is built for a second donor ahead of time.
+
+The expectation is that shared tooling emerges from use. Some pieces are
+already mostly donor-neutral:
+
+- the Wire's ring and seqlock;
+- the Recorder and the combat stepper;
+- divergence measurement;
+- the Source-format readers (VPK, MDL sequences), for other Source-engine
+  donors.
+
+When a second donor needs one of them, it moves into a generic layer then,
+shaped by two real consumers. A speculative framework now would have one.
+
 ## Why a bridge, not a conversion
 
 The sibling products (`rusty-dagger`, `rusty-crawler`, `rusty-underworld`,

@@ -1,0 +1,787 @@
+<title>Combat Stepper</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one-screen instrument. Map fills the left, entity panel on the right,
+   tick timeline across the bottom; stacks to one column on phones. */
+:root {
+  --bg: #e9ecef;
+  --panel: #f7f8f9;
+  --ink: #1d2329;
+  --muted: #5d6873;
+  --line: #c9d0d6;
+  --grid: #d9dee3;
+  --accent: #9a6a12;         /* forged brass: playhead, selection */
+  --accent-soft: #9a6a1233;
+  --player: #2f6fb3;
+  --human: #5b7f99;
+  --greenskin: #b2402f;      /* orcs */
+  --goblin: #5f7d22;
+  --beast: #8a5bb0;
+  --gear: #23857c;           /* weapons, shields, helmets */
+  --act-attack: #c0392b;     /* action bands: swings */
+  --act-hit: #d68910;        /* hit reactions */
+  --act-guard: #2e78b7;      /* block, parry, dodge */
+  --act-move: #7f9a6a;
+  --act-idle: #c3cad1;
+  --act-death: #3b3f45;
+  --health: #2e9e5b;
+  --prop: #8b939b;
+  --other: #a7adb3;
+  --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151a; --panel: #1a1e24; --ink: #dfe3e7; --muted: #8d97a1; --line: #2c333b; --grid: #20262d;
+    --accent: #e0b04f; --accent-soft: #e0b04f33;
+    --player: #6aa8ec; --human: #8fb1c9; --greenskin: #e06a52; --goblin: #9bc24a; --beast: #b994dc; --gear: #5cc4b9;
+    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --health: #57c98a;
+    --prop: #6c757e; --other: #555d66;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151a; --panel: #1a1e24; --ink: #dfe3e7; --muted: #8d97a1; --line: #2c333b; --grid: #20262d;
+  --accent: #e0b04f; --accent-soft: #e0b04f33;
+  --player: #6aa8ec; --human: #8fb1c9; --greenskin: #e06a52; --goblin: #9bc24a; --beast: #b994dc; --gear: #5cc4b9;
+    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --health: #57c98a;
+  --prop: #6c757e; --other: #555d66;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.4 var(--font-body);
+  display: grid; grid-template-rows: auto 1fr auto; gap: 10px;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+h1 { font: 600 20px/1 var(--font-display); letter-spacing: .06em; margin: 0; }
+.meta { font: 12px var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+.load { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+button, .file {
+  font: 600 13px var(--font-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: 5px 10px; cursor: pointer;
+}
+button:hover, .file:hover { border-color: var(--accent); }
+button:focus-visible, .file:focus-within, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; min-height: 0; }
+#map-wrap { position: relative; min-height: 260px; border: 1px solid var(--line); background: var(--panel); border-radius: 4px; overflow: hidden; }
+#map { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.legend, .hint { background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 2px 6px; border-radius: 3px; }
+.legend { position: absolute; left: 8px; bottom: 8px; right: 200px; display: flex; flex-wrap: wrap; gap: 4px 10px; font: 11px var(--font-data); color: var(--muted); pointer-events: none; }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.hint { position: absolute; right: 8px; bottom: 8px; white-space: nowrap; font: 11px var(--font-data); color: var(--muted); pointer-events: none; }
+aside { display: grid; grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); gap: 10px; min-height: 0; }
+#events { overflow: auto; }
+#event-list { list-style: none; margin: 0; padding: 0; font: 12px var(--font-data); font-variant-numeric: tabular-nums; }
+#event-list li { display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 2px 4px; border-radius: 3px; cursor: pointer; }
+#event-list li:hover, #event-list li.near { background: var(--accent-soft); }
+#event-list li .chip { width: 8px; height: 8px; border-radius: 2px; align-self: center; }
+#event-list li span:last-child { overflow-wrap: anywhere; }
+#event-list .empty { color: var(--muted); cursor: default; display: block; }
+.bar { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin: 2px 0 8px; }
+.bar > i { display: block; height: 100%; background: var(--health); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; min-width: 0; }
+.card h2 { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
+#detail .name { font: 600 16px var(--font-body); overflow-wrap: anywhere; }
+#detail .model { font: 11px var(--font-data); color: var(--muted); overflow-wrap: anywhere; margin-bottom: 6px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font: 12px var(--font-data); font-variant-numeric: tabular-nums; }
+dt { color: var(--muted); } dd { margin: 0; text-align: right; }
+#movers { overflow: auto; }
+#mover-list { list-style: none; margin: 0; padding: 0; font: 12px var(--font-data); }
+#mover-list li { display: grid; grid-template-columns: 10px 1fr auto; gap: 6px; align-items: center; padding: 3px 4px; border-radius: 3px; cursor: pointer; }
+#mover-list li:hover { background: var(--accent-soft); }
+#mover-list li[aria-selected="true"] { background: var(--accent-soft); outline: 1px solid var(--accent); }
+#mover-list li span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mover-list li .dot { width: 8px; height: 8px; border-radius: 50%; }
+#mover-list li .gone { opacity: .45; }
+footer { display: grid; gap: 6px; }
+.transport { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.transport .clock { font: 600 13px var(--font-data); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.transport label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+select { font: 12px var(--font-data); background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px; }
+#track { width: 100%; height: 96px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: ew-resize; touch-action: none; }
+.keys { font: 11px var(--font-data); color: var(--muted); }
+#empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--muted); padding: 16px; }
+#empty strong { color: var(--ink); font: 600 16px var(--font-body); }
+#drop { position: fixed; inset: 0; background: var(--accent-soft); border: 3px dashed var(--accent); pointer-events: none; }
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  body { grid-template-rows: auto auto auto; }
+  main { display: flex; flex-direction: column; min-height: auto; }
+  #map-wrap { height: 55vh; flex: none; }
+  aside { display: flex; flex-direction: column; }
+  #movers, #events { max-height: 240px; }
+  .legend { right: 8px; } .hint { display: none; }
+  .load { margin-left: 0; }
+}
+</style>
+
+<header>
+  <h1>Combat Stepper</h1>
+  <div class="meta" id="meta">No recording loaded</div>
+  <div class="load">
+    <label class="file" for="file-input">Open .rbrec<input type="file" id="file-input" accept=".rbrec"></label>
+  </div>
+</header>
+
+<main>
+  <div id="map-wrap">
+    <canvas id="map" aria-label="Top-down view of the recording"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="hint">wheel zoom · drag pan · click select</div>
+    <div id="empty">
+      <strong>Open a recording to start</strong>
+      <span>Record one with <code>rbwire record fight.rbrec</code> while the tap is running, then open it here or drop it on the page.</span>
+    </div>
+  </div>
+  <aside>
+    <section class="card" id="detail" aria-live="polite">
+      <h2>Selected</h2>
+      <div class="name" id="d-name">Nothing selected</div>
+      <div class="model" id="d-model">Click an entity on the map or in the list.</div>
+      <dl id="d-values"></dl>
+    </section>
+    <section class="card" id="events">
+      <h2>Swings, hits and blocks <span id="event-count"></span></h2>
+      <ul id="event-list" aria-label="Attack starts and health drops; click one to jump there"></ul>
+    </section>
+    <section class="card" id="movers">
+      <h2>Moving entities <span id="mover-count"></span></h2>
+      <ul id="mover-list" role="listbox" aria-label="Entities that move during the recording"></ul>
+    </section>
+  </aside>
+</main>
+
+<footer>
+  <div class="transport">
+    <button id="b-back10" title="Back 10 ticks (Shift+←)">−10</button>
+    <button id="b-back" title="Back one tick (←)">−1</button>
+    <button id="b-play" title="Play or pause (Space)">Play</button>
+    <button id="b-fwd" title="Forward one tick (→)">+1</button>
+    <button id="b-fwd10" title="Forward 10 ticks (Shift+→)">+10</button>
+    <label for="speed">Speed
+      <select id="speed">
+        <option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
+      </select>
+    </label>
+    <label for="trail">Trail
+      <select id="trail">
+        <option value="0">off</option><option value="33">0.5 s</option><option value="100" selected>1.5 s</option><option value="330">5 s</option>
+      </select>
+    </label>
+    <label for="follow"><input type="checkbox" id="follow" checked> Follow selection</label>
+    <label for="statics"><input type="checkbox" id="statics"> Static props</label>
+    <span class="clock" id="clock">tick –</span>
+  </div>
+  <canvas id="track" aria-label="Timeline; click or drag to move the playhead"></canvas>
+  <div class="keys">← → step one tick · Shift ×10 · Space play · Home/End · Esc clear selection. The curve is the selected entity's ground speed over 8 ticks, or the number of moving entities when nothing is selected.</div>
+</footer>
+<div id="drop" hidden></div>
+
+<script id="recording" type="application/octet-stream" data-name=""></script>
+<script>
+"use strict";
+// ---- Recording v1 parser (docs/recording.md) ---------------------------------
+const MAGIC_LO = 0x45524252, MAGIC_HI = 0x31303043; // "RBREC001"
+
+function parseRecording(buf) {
+  const v = new DataView(buf);
+  if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
+  const version = v.getUint32(8, true);
+  if (version < 1 || version > 4) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 4).`);
+  const ENTITY_BYTES = version === 1 ? 32 : 52;
+  const dec = new TextDecoder("ascii");
+  const str = (o) => { const n = v.getUint16(o, true); return [dec.decode(new Uint8Array(buf, o + 2, n)), o + 2 + n]; };
+
+  const frames = [];          // {frame, tick, curtime, gap}
+  const tracks = new Map();   // key -> track
+  const live = new Map();     // edict index -> track currently using it
+  let classes = new Map(), models = new Map(), sequences = new Map(), map = "", interval = 0.015, level = 0;
+  const events = [];          // {fi, kind: "action"|"hit"|"death", track, text, amount, damage?}
+  const damage = [];          // v3 damage records, resolved to tracks
+  const defenses = [];        // v4 melee defense checks
+  const activity = [];
+  let o = 16;
+  while (o + 5 <= buf.byteLength) {
+    const kind = v.getUint8(o), len = v.getUint32(o + 1, true);
+    let p = o + 5; const end = p + len;
+    if (kind === 1) {
+      level = v.getUint32(p, true); interval = v.getFloat32(p + 4, true); [map] = str(p + 8);
+      classes = new Map(); models = new Map(); sequences = new Map();
+      for (const t of live.values()) close(t, frames.length);
+      live.clear();
+    } else if (kind === 2) {
+      const id = v.getUint16(p, true); classes.set(id, str(p + 2)[0]);
+    } else if (kind === 3) {
+      const idx = v.getInt32(p, true); models.set(idx, str(p + 4)[0]);
+    } else if (kind === 5) {
+      const idx = v.getInt32(p, true), n = v.getUint16(p + 4, true), names = [];
+      let q = p + 6;
+      for (let i = 0; i < n; i++) { const [s2, next] = str(q); names.push(s2); q = next; }
+      sequences.set(idx, names);
+    } else if (kind === 4) {
+      const fi = frames.length;
+      const frame = Number(v.getBigUint64(p, true)), tick = v.getInt32(p + 8, true), curtime = v.getFloat32(p + 12, true), flags = v.getUint8(p + 16);
+      frames.push({ frame, tick, curtime, gap: !!(flags & 2) });
+      const key = !!(flags & 1);
+      let n = v.getInt32(p + 17, true); p += 21;
+      const seen = key ? new Set() : null;
+      let moving = 0;
+      for (let i = 0; i < n; i++, p += ENTITY_BYTES) {
+        const index = v.getUint16(p, true), cls = classes.get(v.getUint16(p + 2, true)) ?? "?", model = models.get(v.getInt32(p + 4, true)) ?? "";
+        const x = v.getFloat32(p + 8, true), y = v.getFloat32(p + 12, true), z = v.getFloat32(p + 16, true);
+        const pitch = v.getFloat32(p + 20, true), yaw = v.getFloat32(p + 24, true), roll = v.getFloat32(p + 28, true);
+        let hp = NaN, maxhp = NaN, seq = -1, life = 0, cycle = 0, rate = 0;
+        if (version >= 2) {
+          const flags = v.getUint8(p + 42);
+          if (flags & 1) { hp = v.getFloat32(p + 32, true); maxhp = v.getFloat32(p + 36, true); life = v.getUint8(p + 43); }
+          if (flags & 2) { seq = v.getInt16(p + 40, true); cycle = v.getFloat32(p + 44, true); rate = v.getFloat32(p + 48, true); }
+        }
+        seen?.add(index);
+        let t = live.get(index);
+        if (t && (t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
+        if (!t) {
+          t = { key: `${level}:${index}:${fi}`, index, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
+                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [],
+                born: fi, died: Infinity, moves: false, fights: false, dist: 0 };
+          tracks.set(t.key, t); live.set(index, t);
+        }
+        const k = t.f.length - 1;
+        if (k >= 0 && t.x[k] === x && t.y[k] === y && t.z[k] === z && t.pitch[k] === pitch && t.yaw[k] === yaw && t.roll[k] === roll
+            && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate) continue;
+        if (k >= 0) {
+          const d = Math.hypot(x - t.x[k], y - t.y[k], z - t.z[k]);
+          if (d > 0) { t.moves = true; t.dist += d; moving++; }
+          if (version < 3 && hp < t.hp[k]) { t.fights = true; events.push({ fi, kind: "hit", track: t, amount: t.hp[k] - hp, text: `${fmtHp(t.hp[k] - hp)} damage, ${fmtHp(hp)} left` }); }
+          if (life !== 0 && t.life[k] === 0) events.push({ fi, kind: "death", track: t, text: life === 1 ? "dying" : "dead" });
+          const restarted = seq === t.seq[k] && cycle < t.cycle[k] - 0.5;
+          if (seq >= 0 && (seq !== t.seq[k] || restarted)) {
+            const name = t.seqNames?.[seq] ?? `sequence ${seq}`;
+            if (actionKind(name) === "attack") { t.fights = true; events.push({ fi, kind: "action", track: t, text: name }); }
+          }
+        }
+        t.f.push(fi); t.x.push(x); t.y.push(y); t.z.push(z); t.pitch.push(pitch); t.yaw.push(yaw); t.roll.push(roll);
+        t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate);
+      }
+      const removed = v.getInt32(p, true); p += 4;
+      const gone = [];
+      for (let i = 0; i < removed; i++, p += 2) gone.push(v.getUint16(p, true));
+      if (version >= 3) {
+        p += 4;  // records dropped since the previous frame
+        const n = v.getInt32(p, true); p += 4;
+        for (let i = 0; i < n; i++, p += 128) damage.push(readDamage(v, p, fi, live));
+      }
+      if (version >= 4) {
+        p += 4;
+        const n = v.getInt32(p, true); p += 4;
+        for (let i = 0; i < n; i++, p += 32) {
+          const ent = (o) => { const i2 = v.getUint16(p + o, true); return i2 === 0xFFFF ? null : live.get(i2) ?? null; };
+          defenses.push({ fi, tick: v.getInt32(p, true), victim: ent(4), attacker: ent(6), weapon: ent(8), struck: ent(10), result: v.getInt32(p + 12, true), source: v.getUint32(p + 28, true),
+                          dir: [v.getFloat32(p + 16, true), v.getFloat32(p + 20, true), v.getFloat32(p + 24, true)] });
+        }
+      }
+      for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
+      if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
+      activity.push(moving);
+    }
+    o = end;
+  }
+  // Dark Messiah removes an NPC in the tick it is killed (a ragdoll takes
+  // over), so its life state never changes and the killing blow never shows
+  // as damage. The removal is the death.
+  function close(t, fi) {
+    if (t.died !== Infinity) return;
+    t.died = fi;
+    const k = t.f.length - 1;
+    if (version < 3 && k >= 0 && /^npc_/.test(t.cls) && t.maxhp[k] > 0 && t.hp[k] < t.maxhp[k] && t.life[k] === 0)
+      events.push({ fi, kind: "death", track: t, text: `removed at ${fmtHp(t.hp[k])} / ${fmtHp(t.maxhp[k])} hp` });
+  }
+  // v3: hits come from the tap's TakeDamage hook. Burn ticks between props
+  // and the like are kept in rec.damage but only actor fights become events.
+  for (const d of damage) {
+    // Taps before 2026-10-17 17:10 swapped in any owner, so an NPC spawned by
+    // an npc_template_maker showed the maker as attacker. Undo that here.
+    if (d.weapon && !/^weapon_/.test(d.weapon.cls)) { d.attacker = d.weapon; d.weapon = null; }
+    if (!(d.victim && isActor(d.victim.cls)) && !(d.attacker && isActor(d.attacker.cls))) continue;
+    const applied = d.before - d.after, kill = d.after <= 0 && d.before > 0;
+    // Scripted-invulnerable targets take hits that change nothing; keep those in rec.damage only.
+    if (applied <= 0 && !kill && !d.push) continue;
+    if (d.victim) d.victim.fights = true;
+    if (d.attacker) d.attacker.fights = true;
+    const who = d.attacker ? label(d.attacker) : "world";
+    const where = HITGROUPS[d.hitgroup] ?? `hitgroup ${d.hitgroup}`;
+    const weapon = d.weapon ? ` with ${d.weapon.cls.replace(/^weapon_(arx|mm_)?/, "")}` : "";
+    const text = `${who} → ${d.victim ? label(d.victim) : "?"}${weapon}: ${fmtHp(+applied.toFixed(2))} ${damageTypes(d.type)}${d.traceValid ? ` to ${where}` : ""}` +
+      `${kill ? ", kill" : ""}${d.push ? ` (push ${d.push})` : ""}`;
+    if (d.victim) events.push({ fi: d.fi, kind: kill ? "death" : "hit", track: d.victim, other: d.attacker, damage: d, text });
+  }
+  // v4: defended blows. Results 1 (parry / block state), 8 (shield) and 4
+  // (no effect) stopped a blow; 2 means checked and hit, 0 no defense logic.
+  for (const d of defenses) {
+    const how = DEFENSE[d.result];
+    if (!how || !d.victim) continue;
+    d.victim.fights = true;
+    if (d.attacker) d.attacker.fights = true;
+    const weapon = d.weapon ? ` ${d.weapon.cls.replace(/^weapon_(arx|mm_)?/, "")}` : "";
+    events.push({ fi: d.fi, kind: "guard", track: d.victim, other: d.attacker, defense: d,
+                  text: d.result === 18 ? `${label(d.victim)} ${how} ${d.attacker ? label(d.attacker) : "a blow"}`
+                                        : `${label(d.victim)} ${how} ${d.attacker ? `${label(d.attacker)}'s${weapon || " blow"}` : "a blow"}` });
+  }
+  events.sort((a, b) => a.fi - b.fi);
+  return { frames, tracks: [...tracks.values()], map, interval, activity, events, damage, defenses, version };
+}
+
+const DEFENSE = { 1: "parried", 8: "shield-blocked", 4: "shrugged off", 17: "parried", 18: "had the parry broken by" };
+const HITGROUPS = { 0: "body", 1: "head", 2: "chest", 3: "stomach", 4: "left arm", 5: "right arm", 6: "left leg", 7: "right leg", 10: "gear" };
+// Source's DMG_* bits (2006). Arkane keeps the base set; unknown bits print in hex.
+const DMG_BITS = [[1, "crush"], [2, "bullet"], [4, "slash"], [8, "burn"], [16, "vehicle"], [32, "fall"], [64, "blast"], [128, "club"],
+  [256, "shock"], [512, "sonic"], [1024, "energy"], [16384, "drown"], [32768, "paralyze"], [131072, "poison"], [1 << 20, "acid"],
+  [1 << 21, "slowburn"], [1 << 23, "physics"], [1 << 26, "dissolve"]];
+function damageTypes(bits) {
+  const names = DMG_BITS.filter(([b]) => bits & b).map(([, n]) => n);
+  const known = DMG_BITS.reduce((m, [b]) => m | b, 0), rest = bits & ~known & 0x7FFFFFFF;
+  if (rest) names.push(`0x${rest.toString(16)}`);
+  return names.length ? names.join("+") : "generic";
+}
+function readDamage(v, p, fi, live) {
+  const ent = (o) => { const i = v.getUint16(p + o, true); return i === 0xFFFF ? null : live.get(i) ?? null; };
+  const f = (o) => v.getFloat32(p + o, true), vec = (o) => [f(o), f(o + 4), f(o + 8)];
+  return {
+    fi, tick: v.getInt32(p, true), victim: ent(4), attacker: ent(6), inflictor: ent(8), traceEntity: ent(10),
+    amount: f(12), before: f(16), after: f(20), type: v.getUint32(p + 24, true), custom: v.getInt16(p + 28, true), weapon: ent(30),
+    hitbox: v.getInt16(p + 32, true), hitgroup: v.getInt16(p + 34, true), bone: v.getInt16(p + 36, true), traceValid: v.getUint8(p + 38),
+    pos: vec(40), force: vec(52), traceStart: vec(64), traceEnd: vec(76),
+    push: v.getInt32(p + 88, true), weaponFlags: v.getInt32(p + 92, true), mmFlag: v.getInt32(p + 96, true), spell: v.getInt32(p + 100, true),
+    slowDelay: f(104), slowDuration: f(108), slowFactor: f(112), mmDirection: vec(116),
+  };
+}
+
+// What a sequence name says the character is doing. Dark Messiah names its
+// melee sequences attack_*, Dodgestrike_*, Block_attack, Hit_*_Front_small...
+function actionKind(name) {
+  if (/death|^die|dying/i.test(name)) return "death";
+  if (/^hit_|^push_|flinch|stagger|stun|knock|pain|fall_back|stand_?up/i.test(name)) return "hit";
+  if (/attack|strike|kick|bash|swing|slash|stab|uppercut|grab|throw/i.test(name) && !/^layer_|nostrike/i.test(name)) return "attack";
+  if (/block|parry|dodge/i.test(name)) return "guard";
+  if (/run|walk|move|turn|strafe|jump/i.test(name)) return "move";
+  return "idle";
+}
+function fmtHp(h) { return Number.isInteger(h) ? String(h) : h.toFixed(1); }
+
+// ---- State ---------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const mapCanvas = $("map"), trackCanvas = $("track");
+let rec = null, movers = [], statics = [], cur = 0, selected = null, playing = false, playAcc = 0, lastT = 0;
+let view = { cx: 0, cy: 0, scale: 1 };
+let colors = {};
+
+const CATEGORIES = [
+  ["player", /^player$/], ["human", /^npc_(human|villager|guard|monk|leanna|menelag|necro_civ)/], ["greenskin", /^npc_orc/],
+  ["goblin", /^npc_goblin/], ["beast", /^npc_(spider|cyclope|dog|pig|crow|seagull|pigeon|horse|ghoul|bonedragon)/],
+  ["gear", /^weapon_|^item_/], ["prop", /^prop_|^func_physbox|^func_breakable/],
+];
+const LEGEND = [["player", "Player"], ["human", "Humans"], ["greenskin", "Orcs"], ["goblin", "Goblins"], ["beast", "Beasts"], ["gear", "Weapons and armour"], ["prop", "Props"], ["other", "Other"]];
+function category(cls) { for (const [c, re] of CATEGORIES) if (re.test(cls)) return c; return "other"; }
+function isActor(cls) { return /^(player$|npc_)/.test(cls); }
+function readColors() {
+  const s = getComputedStyle(document.documentElement);
+  for (const k of ["bg", "panel", "ink", "muted", "line", "grid", "accent", "accent-soft", "player", "human", "greenskin", "goblin", "beast", "gear", "prop", "other", "act-attack", "act-hit", "act-guard", "act-move", "act-idle", "act-death", "health"]) colors[k] = s.getPropertyValue(`--${k}`).trim();
+}
+
+// Latest sample index of track t at or before frame fi, or -1.
+function sampleAt(t, fi) {
+  if (fi < t.born || fi >= t.died) return -1;
+  let lo = 0, hi = t.f.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (t.f[m] <= fi) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+function dtSeconds(a, b) { return (rec.frames[b].tick - rec.frames[a].tick) * rec.interval; }
+// NPC positions only change every 8 ticks (their 120 ms think interval) and
+// the player's every 2, so per-tick speed alternates between 0 and spikes.
+// Velocities are taken over an 8-tick window instead.
+const SPEED_WINDOW = 8;
+function velocityAt(t, fi) {
+  const f0 = Math.max(t.born, fi - SPEED_WINDOW);
+  const a = sampleAt(t, f0), b = sampleAt(t, fi);
+  if (a < 0 || b < 0 || f0 === fi) return [0, 0, 0];
+  const dt = dtSeconds(f0, fi) || rec.interval;
+  return [(t.x[b] - t.x[a]) / dt, (t.y[b] - t.y[a]) / dt, (t.z[b] - t.z[a]) / dt];
+}
+function speedAt(t, fi) { const [vx, vy] = velocityAt(t, fi); return Math.hypot(vx, vy); }
+
+function load(buf, name) {
+  try { rec = parseRecording(buf); }
+  catch (e) { $("meta").textContent = e.message; return; }
+  movers = rec.tracks.filter((t) => (t.moves || t.fights) && !/viewmodel/.test(t.cls)).sort((a, b) => isActor(b.cls) - isActor(a.cls) || b.dist - a.dist);
+  statics = rec.tracks.filter((t) => !t.moves && t.model.endsWith(".mdl") && category(t.cls) === "prop");
+  const f = rec.frames, secs = f.length ? (f[f.length - 1].tick - f[0].tick) * rec.interval : 0;
+  const gaps = f.filter((x) => x.gap).length;
+  $("meta").textContent = `${name || "recording"} · ${rec.map} · ${f.length} ticks · ${secs.toFixed(1)} s · ${(rec.interval * 1000).toFixed(1)} ms/tick${gaps ? ` · ${gaps} gaps` : ""}`;
+  $("empty").hidden = f.length > 0;
+  selected = null; cur = 0;
+  for (const t of rec.tracks) {
+    t.hits = rec.events.filter((e) => (e.kind === "hit" || (e.kind === "death" && e.damage)) && e.track === t).map((e) => e.fi);
+    t.guards = rec.events.filter((e) => e.kind === "guard" && e.defense && e.track === t).map((e) => e.fi);
+  }
+  fitView(); buildList(); buildEvents(); render();
+}
+
+function fitView() {
+  // Middle 90% of actor positions, so one far-off NPC doesn't shrink the fight.
+  const actors = movers.filter((t) => isActor(t.cls)), xs = [], ys = [];
+  for (const t of actors.length ? actors : movers) for (let i = 0; i < t.x.length; i++) { xs.push(t.x[i]); ys.push(t.y[i]); }
+  xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+  const q = (a, f) => a[Math.min(a.length - 1, Math.floor(f * a.length))];
+  let [x0, x1, y0, y1] = xs.length ? [q(xs, .05), q(xs, .95), q(ys, .05), q(ys, .95)] : [-500, 500, -500, 500];
+  const r = mapCanvas.getBoundingClientRect();
+  view.cx = (x0 + x1) / 2; view.cy = (y0 + y1) / 2;
+  view.scale = Math.min(r.width / Math.max(200, x1 - x0), r.height / Math.max(200, y1 - y0)) * 0.85;
+}
+
+function buildList() {
+  const ul = $("mover-list"); ul.textContent = "";
+  $("mover-count").textContent = `(${movers.length})`;
+  for (const t of movers) {
+    const li = document.createElement("li");
+    li.setAttribute("role", "option"); li.dataset.key = t.key; li.tabIndex = -1;
+    li.innerHTML = `<span class="dot" style="background:var(--${category(t.cls)})"></span><span></span><span></span>`;
+    li.children[1].textContent = `#${t.index} ${t.cls}`;
+    li.children[2].textContent = `${Math.round(t.dist)} u`;
+    li.addEventListener("click", () => { select(t, true); if ($("follow").checked) zoomTo(600); });
+    ul.appendChild(li);
+  }
+  $("legend").innerHTML = LEGEND.map(([c, label]) => `<span><i style="background:var(--${c})"></i>${label}</span>`).join("");
+}
+
+// Show about this many units across the map's short side.
+function zoomTo(units) { const r = mapCanvas.getBoundingClientRect(); view.scale = Math.min(r.width, r.height) / units; render(); }
+function seqName(t, k) { const s2 = t.seq[k]; return s2 < 0 ? "" : (t.seqNames?.[s2] ?? `sequence ${s2}`); }
+function label(t) { return `${t.cls.replace(/^npc_/, "")} #${t.index}`; }
+
+function buildEvents() {
+  const ul = $("event-list"); ul.textContent = "";
+  const list = rec.events.filter((e) => !selected || e.track === selected || e.other === selected);
+  $("event-count").textContent = rec.version < 2 ? "" : `(${list.length})`;
+  if (rec.version < 2) { ul.innerHTML = `<li class="empty">This recording predates combat data (version 1).</li>`; return; }
+  if (!list.length) { ul.innerHTML = `<li class="empty">${selected ? "No swings or hits for this entity." : "No swings or hits in this recording."}</li>`; return; }
+  const t0 = rec.frames[0].tick;
+  for (const e of list) {
+    const li = document.createElement("li");
+    li.dataset.fi = e.fi;
+    li.innerHTML = `<span></span><span class="chip" style="background:var(--act-${e.kind === "action" ? "attack" : e.kind})"></span><span></span>`;
+    li.children[0].textContent = `${((rec.frames[e.fi].tick - t0) * rec.interval).toFixed(2)}s`;
+    li.children[2].textContent = e.damage || selected ? e.text : `${label(e.track)}: ${e.kind === "action" ? "swings " : ""}${e.text}`;
+    li.addEventListener("click", () => { if (!selected) select(e.track); seek(e.fi); });
+    if (e.damage) li.title = damageDetail(e.damage);
+    if (e.defense) li.title = `defense check result ${e.defense.result}${e.defense.struck && e.defense.struck !== e.defense.victim ? `, blow struck ${label(e.defense.struck)}` : ""}, direction ${e.defense.dir.map((x) => x.toFixed(2)).join(" ")}`;
+    ul.appendChild(li);
+  }
+}
+
+function damageDetail(d) {
+  return [`requested ${fmtHp(+d.amount.toFixed(2))}, health ${fmtHp(+d.before.toFixed(2))} → ${fmtHp(+d.after.toFixed(2))}`,
+    `type ${damageTypes(d.type)} (0x${d.type.toString(16)})`, d.traceValid ? `hit group ${HITGROUPS[d.hitgroup] ?? d.hitgroup}, hitbox ${d.hitbox}, bone ${d.bone}` : "no trace",
+    d.weapon ? `weapon ${label(d.weapon)}` : "", d.inflictor && d.inflictor !== d.attacker && d.inflictor !== d.weapon ? `inflictor ${label(d.inflictor)}` : "",
+    d.traceEntity ? `traced ${label(d.traceEntity)}` : "",
+    `force ${Math.round(Math.hypot(...d.force))}`, d.push ? `push ${d.push}` : "", d.slowDuration > 0 ? `slow-mo ×${d.slowFactor} for ${d.slowDuration} s after ${d.slowDelay} s` : "",
+    d.weaponFlags ? `weapon flags 0x${d.weaponFlags.toString(16)}` : "", d.spell ? `spell ${d.spell}` : ""].filter(Boolean).join("\n");
+}
+
+function select(t, jumpIfAbsent) {
+  selected = t;
+  if (t && jumpIfAbsent && sampleAt(t, cur) < 0) cur = Math.max(t.born, Math.min(cur, t.died - 1));
+  for (const li of $("mover-list").children) li.setAttribute("aria-selected", String(t !== null && li.dataset.key === t.key));
+  if (rec) buildEvents();
+  render();
+}
+
+// ---- Drawing -------------------------------------------------------------------
+function sizeCanvas(c) {
+  const r = c.getBoundingClientRect(), d = devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * d) || c.height !== Math.round(r.height * d)) { c.width = Math.round(r.width * d); c.height = Math.round(r.height * d); }
+  const g = c.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); return [g, r.width, r.height];
+}
+const toScreen = (x, y, w, h) => [w / 2 + (x - view.cx) * view.scale, h / 2 - (y - view.cy) * view.scale];
+
+function drawMap() {
+  const [g, w, h] = sizeCanvas(mapCanvas);
+  g.fillStyle = colors.panel; g.fillRect(0, 0, w, h);
+  if (!rec) return;
+  if (selected && $("follow").checked && !drag) { const k = sampleAt(selected, cur); if (k >= 0) { view.cx = selected.x[k]; view.cy = selected.y[k]; } }
+  // 128-unit grid (one Source "meter-ish" block), labelled every 512.
+  const step = 128;
+  g.lineWidth = 1; g.font = `10px ${getComputedStyle(document.body).getPropertyValue("--font-data") || "monospace"}`;
+  const xa = view.cx - w / 2 / view.scale, xb = view.cx + w / 2 / view.scale, ya = view.cy - h / 2 / view.scale, yb = view.cy + h / 2 / view.scale;
+  if (step * view.scale > 6) {
+    for (let x = Math.floor(xa / step) * step; x <= xb; x += step) {
+      const [sx] = toScreen(x, 0, w, h); g.strokeStyle = x % 512 === 0 ? colors.line : colors.grid;
+      g.beginPath(); g.moveTo(sx + .5, 0); g.lineTo(sx + .5, h); g.stroke();
+      if (x % 512 === 0) { g.fillStyle = colors.muted; g.fillText(String(x), sx + 3, 12); }
+    }
+    for (let y = Math.floor(ya / step) * step; y <= yb; y += step) {
+      const [, sy] = toScreen(0, y, w, h); g.strokeStyle = y % 512 === 0 ? colors.line : colors.grid;
+      g.beginPath(); g.moveTo(0, sy + .5); g.lineTo(w, sy + .5); g.stroke();
+      if (y % 512 === 0) { g.fillStyle = colors.muted; g.fillText(String(y), 3, sy - 3); }
+    }
+  }
+  if ($("statics").checked) {
+    g.fillStyle = colors.prop; g.globalAlpha = .5;
+    for (const t of statics) { const k = sampleAt(t, cur); if (k < 0) continue; const [sx, sy] = toScreen(t.x[k], t.y[k], w, h); g.fillRect(sx - 1.5, sy - 1.5, 3, 3); }
+    g.globalAlpha = 1;
+  }
+  const trail = +$("trail").value;
+  for (const t of movers) {
+    const k = sampleAt(t, cur); if (k < 0) continue;
+    const col = colors[category(t.cls)];
+    if (trail) {
+      g.strokeStyle = col; g.lineWidth = t === selected ? 2 : 1.25;
+      let prev = null;
+      for (let j = k; j >= 0 && t.f[j] >= cur - trail; j--) {
+        const p = toScreen(t.x[j], t.y[j], w, h);
+        if (prev) { g.globalAlpha = 0.85 * (1 - (cur - t.f[j]) / trail); g.beginPath(); g.moveTo(prev[0], prev[1]); g.lineTo(p[0], p[1]); g.stroke(); }
+        prev = p;
+      }
+      g.globalAlpha = 1;
+    }
+  }
+  // Hits in the last 20 ticks: swing trace, impact point, attacker to victim.
+  for (const e of rec.events) {
+    const d = e.damage;
+    if (!d || e.fi > cur || e.fi <= cur - 20) continue;
+    const fade = 1 - (cur - e.fi) / 20;
+    g.globalAlpha = fade;
+    if (d.traceValid) {
+      const [ax, ay] = toScreen(d.traceStart[0], d.traceStart[1], w, h), [bx, by] = toScreen(d.traceEnd[0], d.traceEnd[1], w, h);
+      g.strokeStyle = colors.accent; g.lineWidth = 2; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+    }
+    if (d.attacker && d.victim) {
+      const ka = sampleAt(d.attacker, e.fi), kv = sampleAt(d.victim, e.fi);
+      if (ka >= 0 && kv >= 0) {
+        const [ax, ay] = toScreen(d.attacker.x[ka], d.attacker.y[ka], w, h), [vx2, vy2] = toScreen(d.victim.x[kv], d.victim.y[kv], w, h);
+        g.strokeStyle = colors["act-attack"]; g.lineWidth = 1; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(ax, ay); g.lineTo(vx2, vy2); g.stroke(); g.setLineDash([]);
+      }
+    }
+    if (d.pos[0] || d.pos[1]) {
+      const [px, py] = toScreen(d.pos[0], d.pos[1], w, h);
+      g.strokeStyle = colors["act-attack"]; g.lineWidth = 2.5; g.beginPath();
+      g.moveTo(px - 5, py - 5); g.lineTo(px + 5, py + 5); g.moveTo(px + 5, py - 5); g.lineTo(px - 5, py + 5); g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+  for (const t of movers) {
+    const k = sampleAt(t, cur); if (k < 0) continue;
+    const [sx, sy] = toScreen(t.x[k], t.y[k], w, h), col = colors[category(t.cls)];
+    const actor = isActor(t.cls);
+    const r = actor ? 5 : 3, yaw = t.yaw[k] * Math.PI / 180;
+    if (t === selected) { g.fillStyle = colors["accent-soft"]; g.beginPath(); g.arc(sx, sy, 13, 0, 7); g.fill(); g.strokeStyle = colors.accent; g.lineWidth = 2; g.stroke(); }
+    // A hit in the last 10 ticks: an expanding ring.
+    const guard = t.guards?.findLast((h) => h <= cur && h > cur - 15);
+    if (guard !== undefined) {
+      const ev = rec.events.find((e) => e.fi === guard && e.kind === "guard" && e.track === t);
+      g.strokeStyle = colors["act-guard"]; g.lineWidth = 4; g.beginPath(); g.arc(sx, sy, 17, -Math.PI * 0.8, Math.PI * 0.8); g.stroke();
+      const r = ev?.defense?.result;
+      g.fillStyle = colors["act-guard"]; g.fillText(r === 8 ? "shield" : r === 1 || r === 17 ? "parry" : r === 18 ? "parry broken" : "no effect", sx - 18, sy + 28);
+    }
+    const hit = t.hits?.findLast((h) => h <= cur && h > cur - 10);
+    if (hit !== undefined) { g.strokeStyle = colors["act-attack"]; g.lineWidth = 2.5; g.beginPath(); g.arc(sx, sy, 7 + (cur - hit) * 1.6, 0, 7); g.stroke(); }
+    const dead = t.life[k] > 0;
+    g.fillStyle = col; g.strokeStyle = col; g.lineWidth = 2;
+    g.beginPath(); g.arc(sx, sy, r, 0, 7); dead ? g.stroke() : g.fill();
+    if (actor && !dead) { g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + Math.cos(yaw) * 14, sy - Math.sin(yaw) * 14); g.stroke(); }
+    if (actor || t === selected) {
+      g.fillStyle = colors.ink; g.fillText(label(t), sx + 8, sy - 7);
+      const name = seqName(t, k), kind = actionKind(name);
+      if (actor && (kind === "attack" || kind === "hit" || kind === "guard" || kind === "death")) {
+        g.fillStyle = colors[`act-${kind}`]; g.fillText(`${name} ${Math.round(t.cycle[k] * 100)}%`, sx + 8, sy + 5);
+      }
+    }
+  }
+}
+
+function drawTrack() {
+  const [g, w, h] = sizeCanvas(trackCanvas);
+  g.fillStyle = colors.panel; g.fillRect(0, 0, w, h);
+  if (!rec || !rec.frames.length) return;
+  const n = rec.frames.length, pad = 6, band = selected && rec.version >= 2 ? 12 : 0, top = 16 + band, bottom = h - 16;
+  const X = (fi) => pad + (w - 2 * pad) * (n > 1 ? fi / (n - 1) : 0);
+  // Series: selected entity's speed, else count of moving entities.
+  const series = new Float32Array(n);
+  if (selected) for (let i = 0; i < n; i++) series[i] = speedAt(selected, i);
+  else for (let i = 0; i < n; i++) series[i] = rec.activity[i];
+  let max = 0; for (const s of series) max = Math.max(max, s);
+  max = max || 1;
+  const Y = (s) => bottom - (bottom - top) * (s / max);
+  g.strokeStyle = colors.grid; g.lineWidth = 1;
+  for (const q of [0.5, 1]) { g.beginPath(); g.moveTo(pad, Y(max * q) + .5); g.lineTo(w - pad, Y(max * q) + .5); g.stroke(); }
+  const col = selected ? colors[category(selected.cls)] : colors.muted;
+  // Area fill under the curve, max per pixel column.
+  g.beginPath(); g.moveTo(X(0), bottom);
+  const cols = Math.max(1, Math.floor(w - 2 * pad));
+  for (let c = 0; c <= cols; c++) {
+    const a = Math.floor(c / cols * (n - 1)), b = Math.max(a, Math.floor((c + 1) / cols * (n - 1)));
+    let m = 0; for (let i = a; i <= b; i++) m = Math.max(m, series[i]);
+    g.lineTo(pad + c, Y(m));
+  }
+  g.lineTo(X(n - 1), bottom); g.closePath();
+  g.fillStyle = col; g.globalAlpha = .25; g.fill(); g.globalAlpha = 1; g.strokeStyle = col; g.lineWidth = 1.25; g.stroke();
+  if (selected && band) {
+    // Action band: one colour per kind of sequence, so swings and hit reactions read at a glance.
+    const t = selected;
+    for (let j = 0; j < t.f.length; j++) {
+      if (t.seq[j] < 0) continue;
+      const a = t.f[j], b = j + 1 < t.f.length ? t.f[j + 1] : Math.min(t.died, n);
+      g.fillStyle = colors[`act-${actionKind(seqName(t, j))}`];
+      g.fillRect(X(a), 14, Math.max(1, X(b) - X(a)), band - 2);
+    }
+    // Health, stepped, scaled to max health.
+    g.strokeStyle = colors.health; g.lineWidth = 1.5; g.beginPath();
+    let started = false;
+    for (let j = 0; j < t.f.length; j++) {
+      if (!(t.maxhp[j] > 0)) continue;
+      const y = bottom - (bottom - top) * Math.max(0, t.hp[j]) / t.maxhp[j];
+      if (!started) { g.moveTo(X(t.f[j]), y); started = true; } else g.lineTo(X(t.f[j]), y);
+      const next = j + 1 < t.f.length ? t.f[j + 1] : Math.min(t.died, n) - 1;
+      g.lineTo(X(next), y);
+    }
+    g.stroke();
+  }
+  for (let i = 0; i < n; i++) if (rec.frames[i].gap) { g.fillStyle = colors.greenskin; g.fillRect(X(i) - 1, top - 6, 2, 6); }
+  g.fillStyle = colors.muted; g.font = "10px monospace";
+  g.fillText(selected ? `speed (peak ${Math.round(max)} u/s)${band ? " · health · action: attack, hit, guard, move" : ""}` : `moving entities, peak ${max}`, pad + 2, 11);
+  const secs = dtSeconds(0, n - 1), every = secs > 60 ? 10 : secs > 20 ? 5 : 1;
+  for (let s = 0; s <= secs; s += every) { const fi = Math.round(s / secs * (n - 1)); g.fillText(`${s}s`, X(fi) + 2, h - 4); g.fillRect(X(fi), bottom, 1, 4); }
+  const px = X(cur);
+  g.strokeStyle = colors.accent; g.lineWidth = 2; g.beginPath(); g.moveTo(px, 2); g.lineTo(px, h - 2); g.stroke();
+}
+
+function lastHits(t) {
+  const taken = rec.events.findLast((e) => e.damage && e.track === t && e.fi <= cur);
+  const dealt = rec.events.findLast((e) => e.damage && e.other === t && e.fi <= cur);
+  const ago = (e) => `${rec.frames[cur].tick - rec.frames[e.fi].tick} ticks ago`;
+  const out = [];
+  if (taken) out.push(["last hit taken", `${fmtHp(+(taken.damage.before - taken.damage.after).toFixed(2))} from ${taken.other ? label(taken.other) : "world"}, ${ago(taken)}`]);
+  if (dealt) out.push(["last hit dealt", `${fmtHp(+(dealt.damage.before - dealt.damage.after).toFixed(2))} to ${label(dealt.track)}, ${ago(dealt)}`]);
+  return out;
+}
+// Ticks since the current sequence began (a change of sequence, or the cycle wrapping).
+function seqStartTicks(t, k) {
+  let j = k;
+  while (j > 0 && t.seq[j - 1] === t.seq[k] && t.cycle[j - 1] <= t.cycle[j] + 0.5) j--;
+  return rec.frames[t.f[k]].tick - rec.frames[t.f[j]].tick;
+}
+function fmt(n, d = 1) { return (Math.abs(n) < 1e-9 ? 0 : n).toFixed(d); }
+function drawDetail() {
+  const f = rec?.frames[cur];
+  $("clock").textContent = f ? `tick ${f.tick} · ${fmt(dtSeconds(0, cur), 3)} s · frame ${cur + 1}/${rec.frames.length}` : "tick –";
+  const dl = $("d-values");
+  if (!selected || !rec) { $("d-name").textContent = "Nothing selected"; $("d-model").textContent = "Click an entity on the map or in the list."; dl.textContent = ""; return; }
+  const t = selected, k = sampleAt(t, cur);
+  $("d-name").textContent = `${t.cls} #${t.index}`;
+  $("d-model").textContent = t.model || "(no model)";
+  if (k < 0) { dl.innerHTML = `<dt>state</dt><dd>${cur < t.born ? "not spawned yet" : "removed"}</dd>`; return; }
+  const [vx, vy, vz] = velocityAt(t, cur);
+  const f0 = Math.max(t.born, cur - SPEED_WINDOW), a = sampleAt(t, f0), dt = dtSeconds(f0, cur) || rec.interval;
+  let dyaw = a >= 0 ? t.yaw[k] - t.yaw[a] : 0; dyaw = ((dyaw + 540) % 360) - 180;
+  let updates = 0; for (let j = k; j > 0 && t.f[j] > cur - 66; j--) updates++;
+  const rows = [
+    ["x y z", `${fmt(t.x[k])} ${fmt(t.y[k])} ${fmt(t.z[k])}`],
+    ["pitch yaw roll", `${fmt(t.pitch[k])} ${fmt(t.yaw[k])} ${fmt(t.roll[k])}`],
+    ["ground speed", `${fmt(Math.hypot(vx, vy))} u/s`],
+    ["vertical", `${fmt(vz)} u/s`],
+    ["yaw rate", `${fmt(dyaw / dt, 0)} °/s`],
+    ["updates, last 1 s", `${updates}`],
+    ...(t.maxhp[k] > 0 ? [["health", `${fmtHp(t.hp[k])} / ${fmtHp(t.maxhp[k])}${t.life[k] ? (t.life[k] === 1 ? " · dying" : " · dead") : ""}`]] : []),
+    ...(t.seq[k] >= 0 ? [["sequence", `${seqName(t, k)} (#${t.seq[k]})`], ["cycle", `${(t.cycle[k] * 100).toFixed(1)} % at ${fmt(t.rate[k], 2)}×`], ["in sequence since", `${seqStartTicks(t, k)} ticks`]] : []),
+    ...lastHits(t),
+    ["last change", `tick ${rec.frames[t.f[k]].tick}`],
+    ["travelled", `${Math.round(t.dist)} u total`],
+  ];
+  dl.innerHTML = rows.map(([k2, v]) => `<dt>${k2}</dt><dd>${v}</dd>`).join("");
+  $("d-model").innerHTML = "";
+  $("d-model").textContent = t.model || "(no model)";
+  if (t.maxhp[k] > 0) $("d-model").insertAdjacentHTML("beforeend", `<div class="bar" role="img" aria-label="health"><i style="width:${Math.max(0, Math.min(100, 100 * t.hp[k] / t.maxhp[k]))}%"></i></div>`);
+  for (const li of $("event-list").children) li.classList.toggle("near", +li.dataset.fi <= cur && +li.dataset.fi > cur - 33);
+}
+
+function render() { drawMap(); drawTrack(); drawDetail(); }
+
+// ---- Interaction ---------------------------------------------------------------
+function seek(fi) { if (!rec) return; cur = Math.max(0, Math.min(rec.frames.length - 1, fi)); render(); }
+function setPlaying(p) { playing = p && !!rec; $("b-play").textContent = playing ? "Pause" : "Play"; lastT = performance.now(); playAcc = 0; if (playing) requestAnimationFrame(tick); }
+function tick(now) {
+  if (!playing) return;
+  const dt = (now - lastT) / 1000; lastT = now;
+  playAcc += dt * +$("speed").value / rec.interval;
+  const steps = Math.floor(playAcc);
+  if (steps) { playAcc -= steps; if (cur + steps >= rec.frames.length - 1) { seek(rec.frames.length - 1); setPlaying(false); return; } seek(cur + steps); }
+  requestAnimationFrame(tick);
+}
+$("b-play").onclick = () => setPlaying(!playing);
+$("b-back").onclick = () => seek(cur - 1);
+$("b-fwd").onclick = () => seek(cur + 1);
+$("b-back10").onclick = () => seek(cur - 10);
+$("b-fwd10").onclick = () => seek(cur + 10);
+$("trail").onchange = $("statics").onchange = $("follow").onchange = render;
+addEventListener("keydown", (e) => {
+  if (e.target.closest?.("select, input")) return;
+  const s = e.shiftKey ? 10 : 1;
+  if (e.key === "ArrowRight") { seek(cur + s); e.preventDefault(); }
+  else if (e.key === "ArrowLeft") { seek(cur - s); e.preventDefault(); }
+  else if (e.key === " ") { setPlaying(!playing); e.preventDefault(); }
+  else if (e.key === "Home") seek(0);
+  else if (e.key === "End") seek(Infinity);
+  else if (e.key === "Escape") select(null);
+});
+
+let drag = null;
+mapCanvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, cx: view.cx, cy: view.cy, moved: false }; mapCanvas.setPointerCapture(e.pointerId); });
+mapCanvas.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+  view.cx = drag.cx - dx / view.scale; view.cy = drag.cy + dy / view.scale; drawMap();
+});
+mapCanvas.addEventListener("pointerup", (e) => {
+  const d = drag; drag = null; if (!d || d.moved || !rec) return;
+  const r = mapCanvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  let best = null, bd = 14;
+  for (const t of movers) { const k = sampleAt(t, cur); if (k < 0) continue; const [sx, sy] = toScreen(t.x[k], t.y[k], r.width, r.height); const dd = Math.hypot(sx - mx, sy - my); if (dd < bd) { bd = dd; best = t; } }
+  select(best);
+  if (best) $("mover-list").querySelector(`[data-key="${best.key}"]`)?.scrollIntoView({ block: "nearest" });
+});
+mapCanvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = mapCanvas.getBoundingClientRect(), mx = e.clientX - r.left - r.width / 2, my = e.clientY - r.top - r.height / 2;
+  const wx = view.cx + mx / view.scale, wy = view.cy - my / view.scale;
+  view.scale *= Math.exp(-e.deltaY * 0.0015);
+  view.cx = wx - mx / view.scale; view.cy = wy + my / view.scale; drawMap();
+}, { passive: false });
+const scrub = (e) => { const r = trackCanvas.getBoundingClientRect(); seek(Math.round((e.clientX - r.left - 6) / (r.width - 12) * (rec.frames.length - 1))); };
+trackCanvas.addEventListener("pointerdown", (e) => { if (!rec) return; trackCanvas.setPointerCapture(e.pointerId); scrub(e); trackCanvas.onpointermove = scrub; });
+trackCanvas.addEventListener("pointerup", () => { trackCanvas.onpointermove = null; });
+
+$("file-input").addEventListener("change", async (e) => { const f = e.target.files[0]; if (f) load(await f.arrayBuffer(), f.name); });
+addEventListener("dragover", (e) => { e.preventDefault(); $("drop").hidden = false; });
+addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("drop").hidden = true; });
+addEventListener("drop", async (e) => { e.preventDefault(); $("drop").hidden = true; const f = e.dataTransfer.files[0]; if (f) load(await f.arrayBuffer(), f.name); });
+
+readColors();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); render(); });
+new MutationObserver(() => { readColors(); render(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+new ResizeObserver(() => render()).observe(document.body);
+
+// A recording embedded by viewer/embed.py loads on open.
+const embedded = $("recording");
+if (embedded.textContent.trim()) {
+  const bin = atob(embedded.textContent.trim()), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  load(bytes.buffer, embedded.dataset.name);
+} else render();
+</script>

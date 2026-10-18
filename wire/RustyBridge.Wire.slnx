@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RustyBridge.Wire/RustyBridge.Wire.csproj" />
+  <Project Path="RustyBridge.Wire.Cli/RustyBridge.Wire.Cli.csproj" />
+  <Project Path="RustyBridge.Wire.Tests/RustyBridge.Wire.Tests.csproj" />
+</Solution>

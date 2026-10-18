@@ -1,0 +1,4 @@
+tap/*/out/
+local/
+bin/
+obj/

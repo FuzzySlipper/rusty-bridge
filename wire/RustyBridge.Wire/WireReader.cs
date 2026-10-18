@@ -1,0 +1,154 @@
+using System.IO.MemoryMappedFiles;
+using System.Text;
+
+namespace RustyBridge.Wire;
+
+/// <summary>One donor tick copied out of the ring.</summary>
+public sealed class WireSnapshot
+{
+    public ulong Frame;
+    public int Tick;
+    public float Curtime;
+    public uint LevelSerial;
+    public int Count;
+    public readonly WireEntity[] Entities = new WireEntity[WireLayout.MaxEntities];
+    /// <summary>Damage applied since the previous frame, in order.</summary>
+    public int DamageCount;
+    public uint DamageDropped;
+    public readonly WireDamage[] Damage = new WireDamage[WireLayout.MaxDamage];
+
+    public ReadOnlySpan<WireEntity> Span => Entities.AsSpan(0, Count);
+    public ReadOnlySpan<WireDamage> DamageSpan => Damage.AsSpan(0, DamageCount);
+    /// <summary>Melee defense checks since the previous frame, in order.</summary>
+    public int DefenseCount;
+    public uint DefenseDropped;
+    public readonly WireDefense[] Defense = new WireDefense[WireLayout.MaxDefense];
+    public ReadOnlySpan<WireDefense> DefenseSpan => Defense.AsSpan(0, DefenseCount);
+}
+
+/// <summary>
+/// Reads the tap's Wire file. The tap is the only writer; a read copies a
+/// slot out and checks its seqlock afterwards, so the tap never waits on us.
+/// </summary>
+public sealed unsafe class WireReader : IDisposable
+{
+    readonly MemoryMappedFile _file;
+    readonly MemoryMappedViewAccessor _view;
+    readonly byte* _base;
+    readonly Dictionary<int, string> _classes = new();
+    readonly Dictionary<int, string> _models = new();
+    uint _namesSerial;
+
+    public const string DefaultPath =
+        @"C:\Program Files (x86)\Steam\steamapps\common\Dark Messiah Might and Magic Single Player\mm\addons\rustybridge.wire";
+
+    public WireReader(string path)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        _file = MemoryMappedFile.CreateFromFile(stream, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+        _view = _file.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+        byte* p = null;
+        _view.SafeMemoryMappedViewHandle.AcquirePointer(ref p);
+        _base = p + _view.PointerOffset;
+        if (_view.Capacity < WireLayout.FileBytes)
+            throw new InvalidDataException($"{path} is {_view.Capacity} bytes, Wire v1 needs {WireLayout.FileBytes}");
+    }
+
+    public ref readonly WireHeader Header => ref *(WireHeader*)_base;
+
+    /// <summary>The tap has initialised the file with the layout this reader knows.</summary>
+    public bool IsLive => Volatile.Read(ref ((WireHeader*)_base)->Magic) == WireLayout.Magic && Header.Version == WireLayout.Version;
+
+    public ulong FramesWritten => Volatile.Read(ref ((WireHeader*)_base)->FramesWritten);
+
+    public string Map
+    {
+        get
+        {
+            fixed (byte* m = Header.Map) return CString(m, 64);
+        }
+    }
+
+    public bool TryReadLatest(WireSnapshot snapshot)
+    {
+        ulong written = FramesWritten;
+        return written != 0 && TryReadFrame(written - 1, snapshot);
+    }
+
+    /// <summary>
+    /// Copies frame <paramref name="frame"/> if its slot still holds it and no
+    /// write overlapped the copy. False means not written yet, overwritten by
+    /// a newer frame, or torn; the caller decides whether to retry.
+    /// </summary>
+    public bool TryReadFrame(ulong frame, WireSnapshot snapshot)
+    {
+        byte* slot = _base + WireLayout.SlotsOffset + (long)(frame % WireLayout.SlotCount) * WireLayout.SlotBytes;
+        var header = (WireSlotHeader*)slot;
+        ulong seq = Volatile.Read(ref header->Seq);
+        if (seq != 2 * frame + 2) return false;
+
+        int count = (int)Math.Min(header->EntityCount, (uint)WireLayout.MaxEntities);
+        snapshot.Frame = header->Frame;
+        snapshot.Tick = header->Tick;
+        snapshot.Curtime = header->Curtime;
+        snapshot.LevelSerial = header->LevelSerial;
+        new ReadOnlySpan<WireEntity>(slot + sizeof(WireSlotHeader), count).CopyTo(snapshot.Entities);
+        int damage = (int)Math.Min(header->DamageCount, (uint)WireLayout.MaxDamage);
+        snapshot.DamageDropped = header->DamageDropped;
+        new ReadOnlySpan<WireDamage>(slot + WireLayout.DamageOffset, damage).CopyTo(snapshot.Damage);
+        int defense = (int)Math.Min(header->DefenseCount, (uint)WireLayout.MaxDefense);
+        snapshot.DefenseDropped = header->DefenseDropped;
+        new ReadOnlySpan<WireDefense>(slot + WireLayout.DefenseOffset, defense).CopyTo(snapshot.Defense);
+
+        Interlocked.MemoryBarrier();
+        if (Volatile.Read(ref header->Seq) != seq) return false;
+        snapshot.Count = count;
+        snapshot.DamageCount = damage;
+        snapshot.DefenseCount = defense;
+        return true;
+    }
+
+    /// <summary>Class name for a class id from a snapshot of the current level.</summary>
+    public string ClassName(WireSnapshot snapshot, ushort classId)
+    {
+        if (classId >= WireLayout.MaxClasses) return "";
+        return Name(snapshot, _classes, classId, WireLayout.ClassesOffset + classId * WireLayout.ClassNameBytes, WireLayout.ClassNameBytes);
+    }
+
+    /// <summary>Model path (the asset join key) for a model index from a snapshot of the current level.</summary>
+    public string ModelPath(WireSnapshot snapshot, int modelIndex)
+    {
+        if (modelIndex <= 0 || modelIndex >= WireLayout.MaxModels) return "";
+        return Name(snapshot, _models, modelIndex, WireLayout.ModelsOffset + modelIndex * WireLayout.ModelPathBytes, WireLayout.ModelPathBytes);
+    }
+
+    string Name(WireSnapshot snapshot, Dictionary<int, string> cache, int key, int offset, int bytes)
+    {
+        if (snapshot.LevelSerial != _namesSerial)
+        {
+            _classes.Clear();
+            _models.Clear();
+            _namesSerial = snapshot.LevelSerial;
+        }
+        if (!cache.TryGetValue(key, out var name))
+        {
+            name = CString(_base + offset, bytes);
+            if (name.Length > 0) cache[key] = name;
+        }
+        return name;
+    }
+
+    static string CString(byte* p, int max)
+    {
+        int n = 0;
+        while (n < max && p[n] != 0) n++;
+        return Encoding.ASCII.GetString(p, n);
+    }
+
+    public void Dispose()
+    {
+        _view.SafeMemoryMappedViewHandle.ReleasePointer();
+        _view.Dispose();
+        _file.Dispose();
+    }
+}

@@ -1,4 +1,4 @@
-// Wire v8: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v9: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 8;
+const uint32_t kVersion = 9;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -197,6 +197,15 @@ struct SlowTime {
     uint32_t reserved2;
 };
 
+// A client viewmodel overlay layer with weight (v9).
+struct ClientLayer {
+    int16_t sequence;
+    int16_t order;
+    float cycle;
+    float weight;
+};
+const uint32_t kClientLayers = 8;
+
 // The client's view of the local player (v8), read from client.dll and
 // engine.dll in the same process: what the server doesn't know. One per slot,
 // after the slow-time records. Read in the server frame, so it is the client's
@@ -204,18 +213,33 @@ struct SlowTime {
 struct ClientView {
     uint16_t player;            // the client's local player index; kNoEntity when the client isn't read
     uint16_t viewmodel;         // the client entity read as the viewmodel (the server viewmodel's index); kNoEntity if none
-    uint32_t flags;             // 1 view angles, 2 player transform, 4 viewmodel transform, 8 view offset
+    uint32_t flags;             // 1 view angles, 2 player transform, 4 viewmodel transform, 8 view offset,
+                                // 16 camera (v9), 32 viewmodel sequence and cycle (v9), 64 viewmodel layers (v9)
     float view_angles[3];       // the client's view: pitch, yaw, roll (IVEngineClient::GetViewAngles)
     float origin[3];            // the client's local player abs origin (predicted)
     float angles[3];            // its abs angles
     float view_offset[3];       // the server player's m_vecViewOffset; the eye is origin + view_offset
     float viewmodel_origin[3];  // the client viewmodel's abs origin (the server's is stale)
     float viewmodel_angles[3];
+    // v9: the camera the client last drew with (its CViewSetup), and the client viewmodel's own animation.
+    float camera_origin[3];
+    float camera_angles[3];
+    float fov;                  // horizontal, degrees
+    float fov_viewmodel;
+    uint16_t screen_width, screen_height;
+    float z_near, z_far;
+    int16_t viewmodel_sequence; // the client viewmodel's m_nSequence, -1 if not read
+    uint16_t reserved;
+    float viewmodel_cycle;      // its m_flCycle
+    uint8_t layer_count;        // the client viewmodel's overlay layers with weight, in its own order
+    uint8_t reserved2[3];
+    ClientLayer layers[kClientLayers];
 };
 
 #pragma pack(pop)
 
-static_assert(sizeof(ClientView) == 80, "ClientView layout");
+static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
+static_assert(sizeof(ClientView) == 232, "ClientView layout");
 static_assert(sizeof(Header) == 144, "Header layout");
 static_assert(sizeof(SlotHeader) == 96, "SlotHeader layout");
 static_assert(sizeof(SlowTime) == 32, "SlowTime layout");

@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 8;
+    public const uint Version = 9;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -111,6 +111,22 @@ public enum ClientViewFlags : uint
     Player = 2,
     Viewmodel = 4,
     ViewOffset = 8,
+    /// <summary>v9: the camera the client last drew with.</summary>
+    Camera = 16,
+    /// <summary>v9: the client viewmodel's own sequence and cycle.</summary>
+    ViewmodelAnimation = 32,
+    /// <summary>v9: the client viewmodel's overlay layers.</summary>
+    ViewmodelLayers = 64,
+}
+
+/// <summary>A client viewmodel overlay layer with weight (Wire v9).</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireClientLayer
+{
+    public short Sequence;
+    public short Order;
+    public float Cycle;
+    public float Weight;
 }
 
 /// <summary>
@@ -120,7 +136,7 @@ public enum ClientViewFlags : uint
 /// <see cref="ViewAngles"/>. docs/wire.md, "The client's view".
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
-public struct WireClientView
+public unsafe struct WireClientView
 {
     public ushort Player;
     public ushort Viewmodel;
@@ -131,8 +147,46 @@ public struct WireClientView
     public float ViewOffsetX, ViewOffsetY, ViewOffsetZ;
     public float ViewmodelX, ViewmodelY, ViewmodelZ;
     public float ViewmodelPitch, ViewmodelYaw, ViewmodelRoll;
+    // v9: the client's CViewSetup (the effective camera) and the client viewmodel's animation.
+    public float CameraX, CameraY, CameraZ;
+    public float CameraPitch, CameraYaw, CameraRoll;
+    /// <summary>Horizontal, degrees.</summary>
+    public float Fov;
+    public float FovViewmodel;
+    public ushort ScreenWidth, ScreenHeight;
+    public float ZNear, ZFar;
+    public short ViewmodelSequence;
+    public ushort Reserved;
+    public float ViewmodelCycle;
+    public byte LayerCount;
+    public byte Reserved2, Reserved3, Reserved4;
+    fixed byte _layers[MaxLayers * 12];
 
-    public static WireClientView None => new() { Player = WireLayout.NoEntity, Viewmodel = WireLayout.NoEntity };
+    public const int MaxLayers = 8;
+
+    /// <summary>The client viewmodel's overlay layers with weight, in its own order.</summary>
+    public readonly WireClientLayer[] ViewmodelLayers
+    {
+        get
+        {
+            var result = new WireClientLayer[Math.Min((int)LayerCount, MaxLayers)];
+            fixed (byte* p = _layers)
+                new ReadOnlySpan<WireClientLayer>(p, result.Length).CopyTo(result);
+            return result;
+        }
+    }
+
+    public void SetViewmodelLayers(ReadOnlySpan<WireClientLayer> layers)
+    {
+        LayerCount = (byte)Math.Min(layers.Length, MaxLayers);
+        fixed (byte* p = _layers)
+            layers[..LayerCount].CopyTo(new Span<WireClientLayer>(p, MaxLayers));
+    }
+
+    /// <summary>The v8 record: everything up to the viewmodel's angles.</summary>
+    public const int V8Bytes = 80;
+
+    public static WireClientView None => new() { Player = WireLayout.NoEntity, Viewmodel = WireLayout.NoEntity, ViewmodelSequence = -1 };
 }
 
 /// <summary>Which bullet-time function a <see cref="WireSlowTime"/> record caught.</summary>

@@ -1,4 +1,4 @@
-# Wire v8
+# Wire v9
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -19,17 +19,19 @@ each tick carries the tap's wall clock, the player's slow-motion and
 adrenaline state and every bullet-time call, and every entity its link: a
 knocked-down NPC's ragdoll and back. Since v8 each tick carries the client's
 view of the local player: its view angles, predicted transform, eye offset
-and first-person viewmodel. A control file beside the Wire holds the donor
+and first-person viewmodel. Since v9 it also carries the camera the client
+drew with and the client viewmodel's own sequence, cycle and overlay layers.
+A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v8 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v9 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 19,552,512 bytes and maps it read-write; readers open
+creates it, sizes it to 19,571,968 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -46,7 +48,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 148,144 | Ring of slots |
+| 590,080 | 128 × 148,296 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -65,7 +67,7 @@ at 72), then:
 - at 140,896, up to 32 defense records of 48 bytes
 - at 142,432, up to 256 overlay layer records of 20 bytes
 - at 147,552, up to 16 slow-time records of 32 bytes
-- at 148,064, the 80-byte client view (v8)
+- at 148,064, the 232-byte client view (80 bytes in v8)
 
 Entities:
 
@@ -428,8 +430,8 @@ The tap is the only writer and never waits for readers.
 ## The client's view
 
 In single player `client.dll` and `engine.dll` run in the tap's process. v8
-reads from them what the server doesn't have, into one 80-byte record per
-slot:
+reads from them what the server doesn't have, into one 232-byte record per
+slot (v8 wrote the first 80 bytes):
 
 | Offset | Field | Source |
 | --- | --- | --- |
@@ -441,6 +443,17 @@ slot:
 | 32 | `angles` 3×f32 | its abs angles |
 | 44 | `view_offset` 3×f32 | the server player's `m_vecViewOffset` (+0x774, a send prop); the eye is `origin + view_offset` |
 | 56 | `viewmodel_origin`, `viewmodel_angles` 3×f32 each | the client viewmodel's abs transform, which the server's `viewmodel` entity doesn't keep |
+| 80 | `camera_origin`, `camera_angles` 3×f32 each | v9: the camera the client last drew with: its `CViewSetup` origin and angles, view bob, roll and third person included |
+| 104 | `fov`, `fov_viewmodel` f32 | horizontal, degrees (101.4 at 1280×720: Dark Messiah's 85° at 4:3, widened) |
+| 112 | `screen_width`, `screen_height` u16 | |
+| 116 | `z_near`, `z_far` f32 | |
+| 124 | `viewmodel_sequence` i16, reserved u16 | the client viewmodel's `m_nSequence`, -1 when not read |
+| 128 | `viewmodel_cycle` f32 | its `m_flCycle` |
+| 132 | `layer_count` u8, 3 reserved | |
+| 136 | 8 × `{sequence i16, order i16, cycle f32, weight f32}` | its overlay layers with weight, in its own order: Dark Messiah's first-person swings, parries and charges play here while the main sequence stays idle |
+
+Flags 16 (camera), 32 (viewmodel sequence and cycle) and 64 (viewmodel
+layers) are v9's.
 
 It is read in the server frame, so it is the client's state as of its last
 frame.
@@ -459,14 +472,37 @@ live vtables of `VEngineClient012` (engine.dll), `VClientEntityList003` and
 - **`IClientEntity`:** no `Release` before the getters, unlike the SDK.
   - **`GetAbsOrigin` is slot 9:** `CalcAbsolutePosition`, then `this+0x440`.
   - **`GetAbsAngles` is slot 10:** `CalcAbsolutePosition`, then `this+0x458` or `this+0x324` by an entity flag (0x200).
+- **`IBaseClientDLL` (`VClient013`):** the SDK's slots shifted down by one.
+  - **`GetAllClasses` is slot 5:** `mov eax,[abs]; ret`. The client's RecvTables use Valve's 60-byte
+    RecvProp (name at 0, type at 4, data table at 40, offset at 44; a data table is type 6, as on the server).
+  - **`View_Render` is slot 23:** it checks the rect, then calls the global `view` (`IViewRender*`) through
+    `mov ecx,[abs]`.
+- **`IViewRender` (`CViewRender`, vtable client.dll+0x327294):**
+  - **`GetViewSetup` is slot 12:** `lea eax,[ecx+0x8C]; ret`, the `CViewSetup` the client last drew with.
+  - **`CViewSetup` (128 bytes), read from a dump on the horse ride:** width +0x0C, height +0x10,
+    fov +0x28, fov viewmodel +0x2C, origin +0x30, angles +0x48, zNear +0x54, zFar +0x58, aspect +0x68.
+- **`C_BaseViewModel`:** `DT_BaseViewModel` derives from `DT_BaseCombatCharacter`.
+  - **Main animation:** `m_nSequence` +0x1878, `m_flCycle` +0x187C.
+  - **Overlay layers:** `m_AnimOverlay` is a `RecvPropUtlVector`. Its element props point to
+    `CRecvPropExtra_UtlVector`, whose element stride (32), vector offset (+0x18F0) and maximum (15) the tap reads.
+    The fields within an element come from `DT_Animationlayer`: sequence +0, prevcycle +4, weight +8, order +12, cycle +20.
 - **Before use:** each function's code is checked against these patterns (relocated addresses masked) before it is read or called. A mismatch turns that part off and logs why. engine.dll loads at different bases between runs, which the checks allow.
 
-**Checked against the screen.** With the view set by
-`rbwire exec setang 0 190 0` and the donor held, l01_a's gate guard
-(#361, 125 units away) projected through the streamed eye and angles
-(75° 4:3 FOV, widened to 91° for 16:9) falls 6° left of centre, x ≈ 573
-of 1280. The capture of that held tick shows the guard there. Standing, the client's player sits on the
-server's; on the opening horse ride it is about 3 units off.
+**Checked against the screen (2026-10-18, held ticks, desktop captures):**
+- **First person:** with `rbwire exec setang 0 190 0`, l01_a's gate guard (#361, 125 units
+  away), projected through the eye and view angles, falls 6° left of centre. The capture shows it there.
+- **Horse ride:** the camera is about 50 units from the reconstructed eye (origin + view
+  offset), and its angles carry the ride's bob. The reconstruction is wrong there; the camera is what drew.
+- **Third person** (`thirdperson`, on open ground):
+  - The camera sits 195 units behind and above the player, at pitch 30 and yaw 136, while the view angles are 10 and 116.
+  - Projected through the camera, the player model's middle lands at (637, 434) of 1280×720, where the capture shows it.
+  - Through the eye and view angles it would be off screen.
+- **A held power attack:** three holds, charging, charged and mid-release, show the client viewmodel's layers
+  `layer_bigslash_sword_noshield_in` at 0.898, then `_in` done and `_idle`, then `_out` at 0.398.
+  The captures show the sword rising across the view, held high right, then sweeping down left.
+  The client's cycles differ from the server viewmodel's (0.644 against 0.800 charged, 0.398 against 0.418 mid-release),
+  which is why they're read from the client.
+- **Standing:** the client's player sits on the server's; on the horse ride it is about 3 units off.
 
 ## Holding the donor
 
@@ -518,6 +554,7 @@ With `-condebug -console -noshaderapi -rbhidden -novid +map l01_a`:
 - **Breaks:**
   - Input through the playtest agent: the hidden window is never in front, so the parry bot and console typing can't reach it. Stage with `rbwire exec`.
   - The client view's eye and viewmodel are still computed, but nothing draws them.
+- **Sound** still plays: the user heard the game from den-win11's monitor speakers while it ran hidden.
 - **Still needed:** the console session on den-win11, because Steam launches the game there.
 - **Stopping:** killing a hidden donor with `Stop-Process` doesn't put the desktop back if the tap hadn't yet. `ChangeDisplaySettings(NULL, 0)` from the console desktop does.
 
@@ -527,10 +564,9 @@ With `-condebug -console -noshaderapi -rbhidden -novid +map l01_a`:
   `host_timescale` itself; a time scale set by a map script through the
   console would show only in the wall clock.
 
-- The server `viewmodel` entity's origin is stale; read the client view's
-  viewmodel transform instead. The client view carries no camera effects
-  (view bob, punch angles, third-person cameras) and no client-side
-  animation of the viewmodel; its sequence and layers are the server's.
+- The server `viewmodel` entity's origin and animation lag the client's;
+  read the client view's viewmodel transform, sequence and layers instead.
+  The client view keeps at most 8 of the viewmodel's weighted layers.
 - Angles are `m_angAbsRotation` for every entity, including non-rotating
   solids, whose collision angles would be zero.
 - Every live edict is sent, triggers and logic entities included. Filtering

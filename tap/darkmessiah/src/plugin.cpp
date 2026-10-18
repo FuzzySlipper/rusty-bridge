@@ -761,6 +761,12 @@ static void WritePlayerState(wire::SlotHeader* s) {
 //   Release before them, unlike the SDK). Each calls CalcAbsolutePosition and
 //   returns a field; GetAbsAngles picks one of two by an entity flag (0x200).
 //   They're called, per entity, only when their code is that.
+// - IBaseClientDLL (VClient013) slot 23 is View_Render: it calls the global
+//   `view` (IViewRender*) through mov ecx,[abs], whose address the tap reads.
+//   IViewRender slot 12 is GetViewSetup (lea eax,[ecx+0x8C]; ret), the
+//   CViewSetup the client last drew with: the effective camera.
+// - IBaseClientDLL slot 5 is GetAllClasses (mov eax,[abs]; ret): the client's
+//   RecvTables give C_BaseViewModel's m_nSequence and m_flCycle offsets.
 
 typedef void* (__thiscall* GetClientEntityFn)(void* self, int index);
 typedef void (__thiscall* ClientCmdFn)(void* self, const char* text);
@@ -773,6 +779,79 @@ static void* g_engineClient;
 static ClientCmdFn g_clientCmd;
 static bool g_clientTried;
 static uint16_t g_viewmodelIndex = wire::kNoEntity;
+static unsigned char** g_viewRender;     // &view: the client's IViewRender*
+static int g_vmSequenceOff = -1, g_vmCycleOff = -1;  // C_BaseViewModel m_nSequence, m_flCycle
+// Its overlay layers, m_AnimOverlay: a CUtlVector<C_AnimationLayer> received
+// through a RecvPropUtlVector, whose extra data (CRecvPropExtra_UtlVector:
+// proxies, resize, capacity, then element stride, vector offset, max) says
+// where the vector is and how far apart its elements are. Field offsets in an
+// element come from DT_Animationlayer.
+static int g_vmLayersOff = -1, g_vmLayerStride = 0, g_vmLayerMax = 0;
+static int g_vmLayerSeqOff = -1, g_vmLayerCycleOff = -1, g_vmLayerWeightOff = -1, g_vmLayerOrderOff = -1;
+
+// The client's RecvTables: ClientClass {create, createEvent, networkName,
+// table, next, id} and RecvProp of 60 bytes {name, type, flags, ... table at
+// 40, offset at 44}, Valve's 2006 layout; a data table prop has type 6, as on
+// the server. Read 2026-10-18 from DT_BaseViewModel's props.
+struct RecvTableRaw { unsigned char* props; int count; void* decoder; const char* name; };
+const int kRecvStride = 60, kRecvType = 4, kRecvTable = 40, kRecvOffset = 44;
+
+const int kRecvExtra = 20;  // RecvProp::m_pExtraData
+
+static void NoteClientLayers(RecvTableRaw* vec, int base) {
+    // _ST_m_AnimOverlay_N: a length proxy table, then one DT_Animationlayer per element.
+    if (!vec || vec->count < 2) return;
+    unsigned char* element = vec->props + 1 * kRecvStride;
+    const int* extra = *(const int**)(element + kRecvExtra);
+    RecvTableRaw* layer = *(RecvTableRaw**)(element + kRecvTable);
+    if (!extra || !layer || !IsText(layer->name) || strcmp(layer->name, "DT_Animationlayer")) return;
+    int stride = extra[4], offset = extra[5], max = extra[6];
+    if (stride < 16 || stride > 256 || max < 1 || max > 64 || offset <= 0 || offset > 0x10000) {
+        Log("client view: m_AnimOverlay extra data looks wrong (stride %d offset %d max %d); no client viewmodel layers", stride, offset, max);
+        return;
+    }
+    for (int i = 0; i < layer->count; ++i) {
+        unsigned char* rp = layer->props + i * kRecvStride;
+        const char* name = *(const char**)rp;
+        int off = *(int*)(rp + kRecvOffset);
+        if (!IsText(name)) return;
+        if (!strcmp(name, "sequence")) g_vmLayerSeqOff = off;
+        else if (!strcmp(name, "cycle")) g_vmLayerCycleOff = off;
+        else if (!strcmp(name, "weight")) g_vmLayerWeightOff = off;
+        else if (!strcmp(name, "order")) g_vmLayerOrderOff = off;
+    }
+    if (g_vmLayerSeqOff < 0 || g_vmLayerCycleOff < 0 || g_vmLayerWeightOff < 0 || g_vmLayerOrderOff < 0) return;
+    g_vmLayersOff = base + offset;
+    g_vmLayerStride = stride;
+    g_vmLayerMax = max;
+    Log("client view: viewmodel layers: CUtlVector @+0x%X, %d bytes apart, at most %d", g_vmLayersOff, stride, max);
+}
+
+static void WalkRecvTable(RecvTableRaw* t, int base, int depth) {
+    if (!t || depth > 16 || !IsText(t->name)) return;
+    for (int i = 0; i < t->count; ++i) {
+        unsigned char* rp = t->props + i * kRecvStride;
+        const char* name = *(const char**)rp;
+        if (!IsText(name)) return;
+        int off = base + *(int*)(rp + kRecvOffset);
+        RecvTableRaw* dt = *(RecvTableRaw**)(rp + kRecvTable);
+        if (*(int*)(rp + kRecvType) == kDptDataTable && !strcmp(name, "m_AnimOverlay") && g_vmLayersOff < 0) {
+            NoteClientLayers(dt, base);
+            continue;
+        }
+        if (*(int*)(rp + kRecvType) == kDptDataTable) { WalkRecvTable(dt, off, depth + 1); continue; }
+        if (!strcmp(name, "m_nSequence") && g_vmSequenceOff < 0) g_vmSequenceOff = off;
+        else if (!strcmp(name, "m_flCycle") && g_vmCycleOff < 0) g_vmCycleOff = off;
+    }
+}
+
+static void FindViewmodelAnimation(unsigned char* cls) {
+    for (int n = 0; cls && n < 1024; cls = *(unsigned char**)(cls + 16), n++) {
+        const char* name = *(const char**)(cls + 8);
+        if (IsText(name) && !strcmp(name, "CBaseViewModel")) { WalkRecvTable(*(RecvTableRaw**)(cls + 12), 0, 0); return; }
+    }
+    Log("client view: no CBaseViewModel client class");
+}
 
 static bool CodeIs(const unsigned char* code, const char* pattern) {  // pattern: hex bytes, ?? for any
     for (int i = 0; pattern[0]; i++) {
@@ -812,8 +891,16 @@ static void ClientOpen() {
         else Log("client view: IVEngineClient slot 9 isn't ClientCmd as read; no console commands");
         if (CodeIs(lv[3], "8B 44 24 04 50 81 C1 EC FF FE FF E8")) { g_entityList = entityList; g_getClientEntity = (GetClientEntityFn)lv[3]; }
         else Log("client view: IClientEntityList slot 3 isn't GetClientEntity as read; no client entities");
-        Log("client view: view angles %p, local player slot %p, entity list %s, ClientCmd %s",
-            g_viewAngles, g_playerSlot, g_getClientEntity ? "ok" : "off", g_clientCmd ? "ok" : "off");
+        void* clientDll = clientFactory ? clientFactory("VClient013", nullptr) : nullptr;
+        unsigned char** cv = clientDll ? *(unsigned char***)clientDll : nullptr;
+        if (cv && CodeIs(cv[23], "8B 44 24 04 83 78 08 00 74 ?? 83 78 0C 00 74 ?? 8B 0D"))
+            g_viewRender = *(unsigned char***)(cv[23] + 0x12);
+        else Log("client view: VClient013 slot 23 isn't View_Render as read; no camera");
+        if (cv && CodeIs(cv[5], "A1 ?? ?? ?? ?? C3")) FindViewmodelAnimation(**(unsigned char***)(cv[5] + 1));
+        else Log("client view: VClient013 slot 5 isn't GetAllClasses as read; no client viewmodel animation");
+        Log("client view: view angles %p, local player slot %p, entity list %s, ClientCmd %s, camera %s, viewmodel sequence@+0x%X cycle@+0x%X",
+            g_viewAngles, g_playerSlot, g_getClientEntity ? "ok" : "off", g_clientCmd ? "ok" : "off", g_viewRender ? "ok" : "off",
+            g_vmSequenceOff, g_vmCycleOff);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("client view: exception reading the interfaces");
         g_viewAngles = nullptr; g_playerSlot = nullptr; g_getClientEntity = nullptr; g_clientCmd = nullptr;
@@ -845,6 +932,7 @@ static bool ReadAbsTransform(void* entity, float* origin, float* angles) {
 static void WriteClientView(wire::ClientView* v) {
     memset(v, 0, sizeof *v);
     v->player = v->viewmodel = wire::kNoEntity;
+    v->viewmodel_sequence = -1;
     if (!g_clientTried) ClientOpen();
     __try {
         if (g_viewAngles) { memcpy(v->view_angles, g_viewAngles, 12); v->flags |= 1; }
@@ -859,6 +947,51 @@ static void WriteClientView(wire::ClientView* v) {
         if (g_viewmodelIndex != wire::kNoEntity && g_getClientEntity) {
             void* vm = g_getClientEntity(g_entityList, g_viewmodelIndex);
             if (vm && ReadAbsTransform(vm, v->viewmodel_origin, v->viewmodel_angles)) { v->viewmodel = g_viewmodelIndex; v->flags |= 4; }
+            if (vm && g_vmSequenceOff >= 0 && g_vmCycleOff >= 0) {
+                v->viewmodel_sequence = (int16_t)*(int*)((unsigned char*)vm + g_vmSequenceOff);
+                v->viewmodel_cycle = *(float*)((unsigned char*)vm + g_vmCycleOff);
+                v->flags |= 32;
+            }
+            if (vm && g_vmLayersOff >= 0) {
+                // CUtlVector: memory pointer, allocation count, grow size, then the element count.
+                const unsigned char* vec = (const unsigned char*)vm + g_vmLayersOff;
+                const unsigned char* items = *(const unsigned char* const*)vec;
+                int size = *(const int*)(vec + 12);
+                if (items && size >= 0 && size <= g_vmLayerMax) {
+                    for (int i = 0; i < size && v->layer_count < wire::kClientLayers; i++) {
+                        const unsigned char* l = items + i * g_vmLayerStride;
+                        float weight = *(const float*)(l + g_vmLayerWeightOff);
+                        if (!(weight > 0)) continue;
+                        wire::ClientLayer& out = v->layers[v->layer_count++];
+                        out.sequence = (int16_t)*(const int*)(l + g_vmLayerSeqOff);
+                        out.order = (int16_t)*(const int*)(l + g_vmLayerOrderOff);
+                        out.cycle = *(const float*)(l + g_vmLayerCycleOff);
+                        out.weight = weight;
+                    }
+                    v->flags |= 64;
+                }
+            }
+        }
+        if (g_viewRender && *g_viewRender) {
+            // GetViewSetup (IViewRender slot 12): lea eax,[ecx+disp32]; ret. The CViewSetup it
+            // returns is the camera the client last drew with (layout in docs/wire.md).
+            unsigned char* view = (unsigned char*)*g_viewRender;
+            unsigned char* getter = (*(unsigned char***)view)[12];
+            if (CodeIs(getter, "8D 81 ?? ?? ?? ?? C3")) {
+                const unsigned char* setup = view + *(int*)(getter + 2);
+                int width = *(const int*)(setup + 0x0C), height = *(const int*)(setup + 0x10);
+                if (width > 0 && height > 0 && width < 65536 && height < 65536) {
+                    v->screen_width = (uint16_t)width;
+                    v->screen_height = (uint16_t)height;
+                    v->fov = *(const float*)(setup + 0x28);
+                    v->fov_viewmodel = *(const float*)(setup + 0x2C);
+                    memcpy(v->camera_origin, setup + 0x30, 12);
+                    memcpy(v->camera_angles, setup + 0x48, 12);
+                    v->z_near = *(const float*)(setup + 0x54);
+                    v->z_far = *(const float*)(setup + 0x58);
+                    v->flags |= 16;
+                }
+            }
         }
         const char* cls = ClassNameAt(1);
         if (g_viewOffsetOff >= 0 && cls && !strcmp(cls, "player")) {

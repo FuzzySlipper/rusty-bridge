@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v8
+## Recording v9
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 8, reserved u32), then records until the end of the file. Each older
+= 9, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 8 | 64 bytes | 152 bytes | 48 bytes | |
+| 9 | 64 bytes | 152 bytes | 48 bytes | |
+| 8 | 64 | 152 | 48 | the client view's camera and viewmodel animation (an 80-byte client view) |
 | 7 | 64 | 152 | 48 | the client view |
 | 6 | 56 (no link) | 152 | 48 | wall clock, player state, slow time |
 | 5 | 56 | 152 | 48 | overlay layers |
@@ -23,7 +24,7 @@ version is the newer one with less in it:
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-eight. Each record is
+nine. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -32,7 +33,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the 80-byte client view |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9 |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -131,7 +132,9 @@ OUT.html` writes a copy that opens with the recording already loaded.
     NPC), and the player's adrenaline and slow motion;
   - the player's timeline draws adrenaline, dashed.
 - From v8, the player's detail panel adds the client's view angles, its eye,
-  and how far the client's (predicted) player is from the server's.
+  and how far the client's (predicted) player is from the server's; from v9
+  the camera the client drew with and the client viewmodel's sequence and
+  layers.
 - Action kinds come from sequence names (`actionKind` in the page):
   `attack_*`, `*strike*` (but not `nostrike`), `*kick*` and `*bash*` are
   swings; `Hit_*`, `Push_*`, `stunned_*` and `StandUp_*` are hit reactions.

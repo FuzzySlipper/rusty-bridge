@@ -122,15 +122,22 @@ int Control(Func<TapControl, int> act)
 int Dump()
 {
     using var reader = OpenLive();
+    var resolve = SequenceResolver();
     var snap = new WireSnapshot();
     while (!reader.TryReadLatest(snap)) Thread.Sleep(1);
     Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} wall {snap.WallSeconds:F3} entities {snap.Count} layers {snap.LayerCount}");
     if (snap.Player.Index != WireLayout.NoEntity)
         Console.WriteLine($"  player #{snap.Player.Index}: {PlayerState(snap.Player)}");
     if (snap.ClientView.Flags != ClientViewFlags.None)
+    {
         Console.WriteLine($"  client: {ClientView(snap.ClientView)}");
+        // The client viewmodel's layers, named from the server viewmodel's model.
+        var vmEntity = snap.Span.ToArray().FirstOrDefault(e => e.Index == snap.ClientView.Viewmodel);
+        var vmNames = snap.ClientView.Viewmodel != WireLayout.NoEntity ? resolve?.Invoke(reader.ModelPath(snap, vmEntity.ModelIndex)) : null;
+        foreach (var l in snap.ClientView.ViewmodelLayers)
+            Console.WriteLine($"  client layer {(vmNames is not null && l.Sequence >= 0 && l.Sequence < vmNames.Count ? vmNames[l.Sequence] : $"#{l.Sequence}"),-36} cycle {l.Cycle:F3} weight {l.Weight:F2} order {l.Order}");
+    }
     var layersOf = snap.LayerSpan.ToArray().ToLookup(l => l.Index);
-    var resolve = SequenceResolver();
     foreach (ref readonly var e in snap.Span)
         Console.WriteLine($"  #{e.Index,4} {reader.ClassName(snap, e.ClassId),-32} " +
             $"({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) ({e.Pitch:F1} {e.Yaw:F1} {e.Roll:F1}) {reader.ModelPath(snap, e.ModelIndex)}" +
@@ -313,4 +320,6 @@ static string ClientView(in WireClientView c) =>
     $"flags {c.Flags}; view ({c.ViewPitch:F1} {c.ViewYaw:F1} {c.ViewRoll:F1})" +
     (c.Flags.HasFlag(ClientViewFlags.Player) ? $"; player #{c.Player} ({c.OriginX:F1} {c.OriginY:F1} {c.OriginZ:F1})" : "") +
     (c.Flags.HasFlag(ClientViewFlags.ViewOffset) ? $" eye +({c.ViewOffsetX:F1} {c.ViewOffsetY:F1} {c.ViewOffsetZ:F1})" : "") +
-    (c.Flags.HasFlag(ClientViewFlags.Viewmodel) ? $"; viewmodel #{c.Viewmodel} ({c.ViewmodelX:F1} {c.ViewmodelY:F1} {c.ViewmodelZ:F1}) ({c.ViewmodelPitch:F1} {c.ViewmodelYaw:F1})" : "");
+    (c.Flags.HasFlag(ClientViewFlags.Viewmodel) ? $"; viewmodel #{c.Viewmodel} ({c.ViewmodelX:F1} {c.ViewmodelY:F1} {c.ViewmodelZ:F1}) ({c.ViewmodelPitch:F1} {c.ViewmodelYaw:F1})" : "") +
+    (c.Flags.HasFlag(ClientViewFlags.ViewmodelAnimation) ? $" seq {c.ViewmodelSequence} cycle {c.ViewmodelCycle:F3}" : "") +
+    (c.Flags.HasFlag(ClientViewFlags.Camera) ? $"; camera ({c.CameraX:F1} {c.CameraY:F1} {c.CameraZ:F1}) ({c.CameraPitch:F2} {c.CameraYaw:F2} {c.CameraRoll:F2}) fov {c.Fov:F1} {c.ScreenWidth}x{c.ScreenHeight}" : "");

@@ -94,7 +94,7 @@ public sealed class RecordingTests : IDisposable
         // Record header (5) + frame fields (21) + one changed entity (64) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8).
-        Assert.Equal(238, recorder.Bytes - afterKey);
+        Assert.Equal(390, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -283,18 +283,21 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version8CarriesWallClockPlayerStateSlowTimeLinksAndTheClientView()
+    public void Version9CarriesWallClockPlayerStateSlowTimeLinksAndTheClientView()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
         writer.Class(0, "npc_orc_sword");
         writer.Class(1, "prop_ragdoll");
         writer.Class(2, "player");
-        writer.Client(new WireClientView
+        var client = new WireClientView
         {
-            Player = 1, Viewmodel = 7, Flags = ClientViewFlags.ViewAngles | ClientViewFlags.Player | ClientViewFlags.Viewmodel,
+            Player = 1, Viewmodel = 7, Flags = ClientViewFlags.ViewAngles | ClientViewFlags.Player | ClientViewFlags.Viewmodel | ClientViewFlags.Camera | ClientViewFlags.ViewmodelAnimation | ClientViewFlags.ViewmodelLayers,
             ViewPitch = 12, ViewYaw = 90, OriginX = 100, ViewmodelX = 101,
-        });
+            CameraZ = 50, CameraYaw = 91, Fov = 101.4f, ScreenWidth = 1280, ScreenHeight = 720, ViewmodelSequence = 4, ViewmodelCycle = 0.25f,
+        };
+        client.SetViewmodelLayers([new WireClientLayer { Sequence = 30, Order = 2, Cycle = 0.4f, Weight = 1 }]);
+        writer.Client(client);
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
         writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
         writer.FrameEntities(10,
@@ -315,9 +318,23 @@ public sealed class RecordingTests : IDisposable
             recorder.Flush();
             buffer = new MemoryStream(buffer.ToArray());
         }
-        var f = Assert.Single(RecordingReader.Frames(buffer));
-        Assert.Equal(8u, f.Version);
+        var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
+        Assert.Equal(9u, f.Version);
         Assert.Equal(90f, f.ClientView.ViewYaw);
+        Assert.Equal(91f, f.ClientView.CameraYaw);
+        Assert.Equal((ushort)1280, f.ClientView.ScreenWidth);
+        Assert.Equal((short)4, f.ClientView.ViewmodelSequence);
+        Assert.Equal(0.25f, f.ClientView.ViewmodelCycle);
+        Assert.Equal((short)30, Assert.Single(f.ClientView.ViewmodelLayers).Sequence);
+
+        // The same frame as a v8 recording wrote it: its client view stops after the viewmodel's angles.
+        var v8 = AsVersion8(buffer.ToArray());
+        var old = Assert.Single(RecordingReader.Frames(new MemoryStream(v8)));
+        Assert.Equal(8u, old.Version);
+        Assert.Equal(90f, old.ClientView.ViewYaw);
+        Assert.Equal(101f, old.ClientView.ViewmodelX);
+        Assert.Equal(0f, old.ClientView.CameraYaw);
+        Assert.Equal((short)-1, old.ClientView.ViewmodelSequence);
         Assert.Equal((ushort)7, f.ClientView.Viewmodel);
         Assert.Equal(101f, f.ClientView.ViewmodelX);
         Assert.Equal(12.5, f.WallSeconds);
@@ -389,4 +406,24 @@ public sealed class RecordingTests : IDisposable
     }
 
     public void Dispose() => File.Delete(_wire);
+
+    /// <summary>A v9 recording rewritten as v8: the version, and each frame without the client view's v9 tail.</summary>
+    static byte[] AsVersion8(byte[] v9)
+    {
+        int tail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes;
+        var output = new MemoryStream();
+        output.Write(v9, 0, 16);
+        BitConverter.GetBytes(8u).CopyTo(output.GetBuffer(), 8);
+        for (int at = 16; at < v9.Length;)
+        {
+            byte kind = v9[at];
+            int length = BitConverter.ToInt32(v9, at + 1);
+            int keep = kind == 4 ? length - tail : length;
+            output.WriteByte(kind);
+            output.Write(BitConverter.GetBytes(keep));
+            output.Write(v9, at + 5, keep);
+            at += 5 + length;
+        }
+        return output.ToArray();
+    }
 }

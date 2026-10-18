@@ -393,11 +393,11 @@ metrics, the Recorder and the stepper. Those belong to the bridge.
   interface. Server-side covers more than expected: damage, defense, parry
   outcomes and slow-motion parameters are all server-side. What remains on
   the client is the predicted player, the camera and view angles, and the
-  viewmodel. Wire v8 reads the view angles, the predicted transform, the eye
-  offset and the viewmodel's transform from `client.dll` and `engine.dll`
-  through vtable slots checked against their code ([wire.md](wire.md), "The
-  client's view"). Camera effects (bob, punch, third person) and client-side
-  viewmodel animation are still unread. Input doesn't fill the gap: the parry bot turns the view
+  viewmodel. Wire v9 reads the view angles, the predicted transform, the
+  camera the client drew with (bob, roll and third person included), and the
+  viewmodel's transform, sequence and layers from `client.dll` and
+  `engine.dll`, through vtable slots checked against their code
+  ([wire.md](wire.md), "The client's view"). Input doesn't fill the gap: the parry bot turns the view
   with keys bound to `+left`/`+right`, since relative mouse motion through
   the playtest agent doesn't turn it.
 - **Overlay layers.** The parry and gesture layers have been on the Wire

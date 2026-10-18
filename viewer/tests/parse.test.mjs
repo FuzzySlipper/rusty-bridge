@@ -64,9 +64,15 @@ function recording(frames, version = 6) {
       u32(0); u32(slowCalls.length);
       for (const b of slowCalls) { u32(tick); u16(1); u8(1); u8(b.request ? 1 : 0); f32(b.start); f32(b.duration); f32(b.factor); u32(b.caller); u32(1); u32(0); }
     }
-    if (version >= 8) {                                              // client view, 80 bytes
-      u16(1); u16(7); u32(client ? 15 : 0);
+    if (version >= 8) {                                              // client view, 80 bytes (132 from v9)
+      u16(1); u16(7); u32(client ? (version >= 9 ? 63 : 15) : 0);
       for (const x of client ? [...client.view, ...client.origin, 0, 90, 0, 0, 0, 64, 1, 2, 3, 0, 0, 0] : new Array(18).fill(0)) f32(x);
+      if (version >= 9) {
+        for (const x of client ? [...(client.camera ?? [0, 0, 0]), 0, 91, 0, 101.4, 101.4] : new Array(8).fill(0)) f32(x);
+        u16(1280); u16(720); f32(1); f32(28000); u16(client?.sequence ?? 0xffff); u16(0); f32(client?.cycle ?? 0);
+        u8(client?.layer ? 1 : 0); u8(0); u8(0); u8(0);
+        for (let i = 0; i < 8; i++) { u16(i === 0 && client?.layer ? client.layer.seq : 0); u16(0); f32(i === 0 && client?.layer ? client.layer.cycle : 0); f32(i === 0 && client?.layer ? 1 : 0); }
+      }
     }
   }));
   return new Uint8Array(bytes).buffer;
@@ -126,5 +132,23 @@ test('v8: the client\'s view rides each frame', () => {
   assert.equal(rec.version, 8);
   assert.deepEqual(Array.from(rec.frames[0].client.view), [12, 90, 0]);
   assert.equal(rec.frames[0].client.viewOffset[2], 64);
+  assert.equal(rec.frames[1].client, undefined);
+});
+
+test('v9: the client\'s camera and viewmodel animation', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, client: { view: [12, 90, 0], origin: [5, 6, 7], camera: [5, 6, 80], sequence: 4, cycle: 0.25, layer: { seq: 30, cycle: 0.5 } } },
+    { tick: 11, entities: [player, orc], wall: 1.015 },
+  ], 9));
+  const c = rec.frames[0].client;
+  assert.deepEqual(Array.from(c.camera), [5, 6, 80]);
+  assert.equal(c.cameraAngles[1], 91);
+  assert.equal(Math.round(c.fov * 10), 1014);
+  assert.deepEqual(Array.from(c.screen), [1280, 720]);
+  assert.equal(c.viewmodelSequence, 4);
+  assert.equal(c.viewmodelCycle, 0.25);
+  assert.equal(c.viewmodelLayers.length, 1);
+  assert.equal(c.viewmodelLayers[0].seq, 30);
+  assert.equal(c.viewmodelLayers[0].cycle, 0.5);
   assert.equal(rec.frames[1].client, undefined);
 });

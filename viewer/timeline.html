@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 8) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 8).`);
+  if (version < 1 || version > 9) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 9).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : 64;
   const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
@@ -327,11 +327,18 @@ function parseRecording(buf) {
                           duration: v.getFloat32(p + 12, true), factor: v.getFloat32(p + 16, true), caller: v.getUint32(p + 20, true) });
       }
       if (version >= 8) {
-        // The client's view of the local player: flags 1 view angles, 2 player transform, 4 viewmodel, 8 view offset.
+        // The client's view of the local player: flags 1 view angles, 2 player transform, 4 viewmodel, 8 view offset;
+        // v9 adds 16 the camera it drew with, 32 the client viewmodel's sequence and cycle, 64 its overlay layers.
         const f3 = (o) => [v.getFloat32(p + o, true), v.getFloat32(p + o + 4, true), v.getFloat32(p + o + 8, true)];
         const flags = v.getUint32(p + 4, true);
-        if (flags) fr.client = { flags, view: f3(8), origin: f3(20), angles: f3(32), viewOffset: f3(44), viewmodel: f3(56), viewmodelAngles: f3(68) };
-        p += 80;
+        if (flags) {
+          fr.client = { flags, view: f3(8), origin: f3(20), angles: f3(32), viewOffset: f3(44), viewmodel: f3(56), viewmodelAngles: f3(68) };
+          if (version >= 9) Object.assign(fr.client, { camera: f3(80), cameraAngles: f3(92), fov: v.getFloat32(p + 104, true),
+            screen: [v.getUint16(p + 112, true), v.getUint16(p + 114, true)], viewmodelSequence: v.getInt16(p + 124, true), viewmodelCycle: v.getFloat32(p + 128, true),
+            viewmodelLayers: Array.from({ length: Math.min(8, v.getUint8(p + 132)) }, (_, i) => ({ seq: v.getInt16(p + 136 + 12 * i, true), order: v.getInt16(p + 138 + 12 * i, true),
+              cycle: v.getFloat32(p + 140 + 12 * i, true), weight: v.getFloat32(p + 144 + 12 * i, true) })) });
+        }
+        p += version >= 9 ? 232 : 80;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -782,6 +789,9 @@ function clientRows(c, t, k) {
   if (c.flags & 1) rows.push(["client view", `${fmt(c.view[0])} ${fmt(c.view[1])} pitch, yaw`]);
   if (c.flags & 2) rows.push(["client player", `${fmt(Math.hypot(c.origin[0] - t.x[k], c.origin[1] - t.y[k], c.origin[2] - t.z[k]), 1)} u from the server's`]);
   if ((c.flags & 2) && (c.flags & 8)) rows.push(["eye", `${fmt(c.origin[0] + c.viewOffset[0])} ${fmt(c.origin[1] + c.viewOffset[1])} ${fmt(c.origin[2] + c.viewOffset[2])}`]);
+  if (c.flags & 16) rows.push(["camera", `${fmt(c.camera[0])} ${fmt(c.camera[1])} ${fmt(c.camera[2])} · ${fmt(c.cameraAngles[0], 2)} ${fmt(c.cameraAngles[1], 2)} ${fmt(c.cameraAngles[2], 2)} · fov ${fmt(c.fov)}`]);
+  if (c.flags & 32) rows.push(["client viewmodel", `sequence ${c.viewmodelSequence} at ${(c.viewmodelCycle * 100).toFixed(0)} %` +
+    (c.viewmodelLayers?.length ? `; layers ${c.viewmodelLayers.map((l) => `${l.seq} ${(l.cycle * 100).toFixed(0)}% ×${l.weight.toFixed(2)}`).join(", ")}` : "")]);
   return rows;
 }
 // v7: game time over wall time across the last half second, when it isn't 1.

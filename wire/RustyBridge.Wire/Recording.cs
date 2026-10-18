@@ -8,8 +8,9 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 8;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
-                                        // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view
+    public const uint Version = 9;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+                                        // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view;
+                                        // v9: its camera and viewmodel animation
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, _ => Marshal.SizeOf<WireEntity>() };
@@ -313,7 +314,16 @@ public static class RecordingReader
                         int slow = r.ReadInt32();
                         state.SlowTime.AddRange(MemoryMarshal.Cast<byte, WireSlowTime>(r.ReadBytes(slow * Marshal.SizeOf<WireSlowTime>())).ToArray());
                     }
-                    state.ClientView = version >= 8 ? MemoryMarshal.Read<WireClientView>(r.ReadBytes(Marshal.SizeOf<WireClientView>())) : WireClientView.None;
+                    state.ClientView = WireClientView.None;
+                    if (version >= 8)
+                    {
+                        // A v8 record is a prefix of the v9 one.
+                        var viewBytes = new byte[Marshal.SizeOf<WireClientView>()];
+                        r.ReadBytes(version >= 9 ? viewBytes.Length : WireClientView.V8Bytes).CopyTo(viewBytes, 0);
+                        var view = MemoryMarshal.Read<WireClientView>(viewBytes);
+                        if (version < 9) view.ViewmodelSequence = -1;
+                        state.ClientView = view;
+                    }
                     yield return state;
                     break;
             }

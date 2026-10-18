@@ -110,7 +110,7 @@ public sealed class MirrorProduct : IEngineProduct, IDebugCommandModuleSource
         static string List(IReadOnlyCollection<string> items) => items.Count == 0 ? "0" : $"{items.Count} ({string.Join(", ", items.Take(5))})";
         string text = string.Create(CultureInfo.InvariantCulture,
             $"map={fight.Map}; tick={clock.Current.Tick}; frame={clock.Frame}/{fight.Frames.Count}; playing={clock.Playing}; speed={clock.Speed}; " +
-            $"drawn={views.Drawn}; held={views.Attached}; sampled={views.Sampled}; holders={held.Count}/{held.Items}; camera={camera.Mode}; " +
+            $"drawn={views.Drawn}; held={views.Attached}; sampled={views.Sampled}; layered={views.Layered} ({views.LayersDrawn} layers); holders={held.Count}/{held.Items}; camera={camera.Mode}; " +
             $"missingModels={List(assets.Missing)}; missingClips={List(views.MissingClips)}");
         return views.LastError is string error ? $"{text}; lastError={error}" : text;
     }

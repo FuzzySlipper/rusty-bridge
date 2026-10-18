@@ -37,6 +37,16 @@ Check(door.Sample(9.0 + EntityTrack.MaxSpanSeconds / 2).Origin.X == 50, "a long 
 var swap = EntityTrack.Blend(At(0, 3, 0.9f), At(0, 7, 0.4f), 0.5f);
 Check(swap.Sequence == 7 && MathF.Abs(swap.Cycle - 0.2f) < 1e-4f, "a new sequence is taken as starting at the earlier update");
 
+// Overlay layers are kept when they change and read at the time the drawn state stands for.
+var layered = new EntityTrack(new EntityKey(7, 1), "npc_orc_sword", 0);
+layered.Observe(0, 0.00, At(0, 3, 0.1f));
+layered.Observe(8, 0.12, At(0, 3, 0.5f));
+layered.ObserveLayers(0.06, [new LayerState(0, 9, 0, 0.2f, 0.9f)]);
+layered.ObserveLayers(0.075, [new LayerState(0, 9, 0, 0.2f, 0.9f)]);   // unchanged: not kept
+layered.ObserveLayers(0.15, []);
+Check(layered.LayersAt(0.03).Count == 0 && layered.LayersAt(0.10).Count == 1 && layered.LayersAt(0.2).Count == 0, "an entity's layers are those of the latest change at or before a time");
+Check(Math.Abs(layered.Sample(0.18).Shown - 0.06) < 1e-9, "a sample shows the donor one update interval back, where its layers are read");
+
 Check(DonorClasses.Role("npc_orc_sword") == EntityRole.Character && DonorClasses.Role("player") == EntityRole.Character, "NPCs and the player are characters");
 Check(DonorClasses.Role("weapon_mm_shield_orc") == EntityRole.Held && DonorClasses.Attachment("weapon_mm_shield_orc") == "LeftShield", "a shield hangs from LeftShield");
 Check(DonorClasses.Attachment("weapon_arxorccleaver") == "RightHand", "a weapon hangs from RightHand");
@@ -102,6 +112,50 @@ host.Call(engine =>
     mirror.Toggle();
     for (int i = 0; i < 20; i++) Advance(60);
     Check(product.Views.LastError is null, $"twenty seconds of play through deaths and drops publish cleanly: {product.Views.LastError}");
+});
+
+// Overlay layers, on a v6 recording of the same level: an orc parrying (layer_parry_B over its move).
+string layersRecording = Path.Combine(repo ?? ".", "local", "recordings", "l01_a-layers.rbrec");
+if (!File.Exists(layersRecording)) Console.WriteLine($"skip layers run: no {layersRecording}");
+else host.Call(engine =>
+{
+    string indexName = Path.GetFileName(index);
+    var descriptor = System.Text.Json.Nodes.JsonNode.Parse(content[indexName].Span)!;
+    descriptor["provenance"]!["recordingFile"] = "recordings/l01_a-layers.rbrec";
+    var withLayers = new Dictionary<string, ReadOnlyMemory<byte>>(content)
+    {
+        ["recordings/l01_a-layers.rbrec"] = File.ReadAllBytes(layersRecording),
+        [indexName] = Encoding.UTF8.GetBytes(descriptor.ToJsonString()),
+    };
+    using EngineTestHost layersHost = EngineTestHost.Create(new EngineTestHostOptions
+    {
+        PersistenceRoot = Path.Combine(Path.GetTempPath(), "mirror-smoke-layers-" + Guid.NewGuid()),
+        Content = withLayers,
+    });
+    layersHost.Call(engine =>
+    {
+        var files = new ProductContentFile[] { new(Encoding.UTF8.GetBytes(indexName), withLayers[indexName]) };
+        using var product = new MirrorProduct(new ProductCreateContext(engine, new ProductContent(files, engine.Content),
+            new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
+        var commands = new Capture();
+        product.RegisterDebugCommands(commands);
+        var mirror = commands.Mirror!;
+        const ushort Orc = 401;
+        Console.WriteLine(mirror.Seek(10600));
+        Check(product.Views.LayersOf(Orc).Any(c => c.StartsWith("layer_parry_", StringComparison.Ordinal)),
+            $"the parrying orc lays its parry over its main sequence: {string.Join(", ", product.Views.LayersOf(Orc))}");
+        Check(product.Views.Layered >= 2, $"other animated entities draw their overlay layers too: {product.Views.Layered} with {product.Views.LayersDrawn}");
+        Check(product.Views.MissingClips.Count == 0, $"every streamed layer is a clip: {string.Join(", ", product.Views.MissingClips)}");
+        var with = product.Views.PoseOf(Orc)!;
+        mirror.Layers("off");
+        var without = product.Views.PoseOf(Orc)!;
+        mirror.Layers("on");
+        float moved = with.Zip(without, (a, b) => Vector3.Distance(a.World.Translation, b.World.Translation)).Max();
+        Check(moved > 0.05f, $"the parry layer moves the orc's joints: up to {moved:F2} m");
+        mirror.Toggle();
+        for (int i = 0; i < 10; i++) product.Update(new ProductUpdate(new ProductUpdateFacts(ProductLifecycleState.Running, 1, 1, 0, (ulong)(i * 60), 60, 60, 0, 1d / 60), default));
+        Check(product.Views.LastError is null, $"ten seconds of layered play publish cleanly: {product.Views.LastError}");
+    });
 });
 return failures == 0 ? 0 : 1;
 

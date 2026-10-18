@@ -40,6 +40,8 @@ internal sealed class RecordedFight
         var fight = new RecordedFight();
         var live = new Dictionary<EntityKey, EntityTrack>();
         var seen = new HashSet<EntityKey>();
+        var layered = new HashSet<EntityKey>();
+        var layersBy = new Dictionary<ushort, List<LayerState>>();
         foreach (var f in RecordingReader.Frames(stream))
         {
             int frame = fight.frames.Count;
@@ -63,6 +65,24 @@ internal sealed class RecordedFight
                     fight.tracks.Add(track);
                 }
                 track.Observe(frame, f.Curtime, e);
+            }
+            // Overlay layers are stored whole every frame; an entity without any this frame has none.
+            layersBy.Clear();
+            foreach (var l in f.Layers)
+            {
+                if (!layersBy.TryGetValue(l.Index, out var list)) layersBy[l.Index] = list = [];
+                list.Add(new LayerState(l.Slot, l.Sequence, l.Order, l.Cycle, l.Weight));
+            }
+            foreach (var (index, list) in layersBy)
+                if (f.Entities.TryGetValue(index, out var e) && live.TryGetValue(new EntityKey(index, e.Serial), out var track))
+                {
+                    track.ObserveLayers(f.Curtime, [.. list]);
+                    layered.Add(track.Key);
+                }
+            foreach (var key in layered.Where(k => !layersBy.ContainsKey(k.Index) || !live.ContainsKey(k)).ToList())
+            {
+                if (live.TryGetValue(key, out var track)) track.ObserveLayers(f.Curtime, []);
+                layered.Remove(key);
             }
             foreach (var key in live.Keys.Where(k => !seen.Contains(k)).ToList())
             {

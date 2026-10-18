@@ -45,13 +45,14 @@ from the Wire and import tools, which don't need the Engine.
 
 | Command | Does |
 | --- | --- |
-| `mirror.status` | Tick, playback, entities drawn, clips sampled, items held, and any model or clip the import lacks. |
+| `mirror.status` | Tick, playback, entities drawn, clips sampled, entities with overlay layers, items held, and any model or clip the import lacks. |
 | `mirror.step N` | Step N ticks. |
 | `mirror.seek TICK` | Seek to a tick. |
 | `mirror.toggle` | Play or pause. |
 | `mirror.camera chase\|eye\|overview` | Pick the camera. |
 | `mirror.hits [class]` | Damage records as `tick:attacker>victim`, to jump to blows. |
 | `mirror.held` | Each live held item, its inferred holder and whether it hangs from it. |
+| `mirror.layers on\|off` | Draw overlay layers over the main sequences, or the main sequences alone, to compare. |
 
 **Smoke run:** `dotnet run --project mirror/tests/DarkMessiah.Mirror.Smoke`.
 - The replay checks need nothing.
@@ -59,6 +60,10 @@ from the Wire and import tools, which don't need the Engine.
   Engine through `EngineTestHost`: one second of play, a seek into the parry
   bot's fight with the orc's weapons in hand, steps, and twenty seconds of
   play with no refused scene change.
+- When `local/recordings/l01_a-layers.rbrec` exists, a second run replays it
+  on the same assets. It checks that the parrying orc lays its parry layer,
+  that the layer moves its joints, and that ten seconds of layered play
+  publish cleanly.
 - It exits non-zero on a failed check.
 
 ## How it's built
@@ -107,6 +112,21 @@ donor needs the same shape (design "Scope").
   is read.
 - **Clips:** a sequence index becomes a clip name through the recording's
   own sequence names, which are the clip names the import wrote.
+- **Overlay layers** (Wire v6 recordings):
+  - **What plays:** each animated entity's streamed layers play over its main sequence as the
+    Engine's clip layers (`SetLayers`, rusty-engine #10073). There is one override layer per
+    Source layer, in `m_nOrder` order, at the layer's cycle and weight. A layer's clip is its
+    index in the model's `ReadClips`.
+  - **When they're read:** at the donor time the drawn state stands for, one update interval
+    back (`EntitySample.Shown`). That keeps them in step with the interpolated main sequence;
+    the Wire carries layers every tick.
+  - **Two kinds:** Dark Messiah's layer clips (`layer_parry_*`, `layer_block`,
+    `layer_attack_*`, `Hit_*`) have channels only for the bones their sequence weights, so an
+    override moves only those. Full-body layers (`combatidle`, `idle_0`) are Source fading a
+    sequence out under the next, and blend the whole pose by their weight.
+  - **Approximations:** no streamed layer in the recordings is a delta clip, so every layer is
+    an override. Fractional bone weights (between 0 and 1) apply at full strength.
+  - **Unchanged layers:** an update that changes nothing sends nothing.
 
 ### Time and interpolation
 
@@ -167,6 +187,10 @@ Every update sends one `PublishChanges` holding only what changed.
 - **One GLB per model:** since pair 0.1.0-dev.cd66acc30485 (rusty-engine
   #10072) a model's GLB holds all its clips. The clip packs and their
   `@inplace.N` motion-root anchors that earlier pairs needed are gone.
+- **Layers in l01_a-layers (v6):** at tick 10600 the orc parrying (#401)
+  lays `layer_parry_B` at weight 0.9 over `Combatmove_left_medium`. The
+  layer moves its joints by up to 0.79 m against the main sequence alone
+  (`SampleJointPose` of the current playback, layers on and off).
 - **Cost:** the parry-bot fight draws about 300 entities and samples about
   230 clips each update, at 60 updates a second. Interpolating in product
   C# was enough for Phase 0; design ask 1 isn't blocking yet.

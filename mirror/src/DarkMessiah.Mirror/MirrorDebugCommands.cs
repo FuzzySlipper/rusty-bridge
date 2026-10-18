@@ -30,6 +30,13 @@ internal sealed class MirrorDebugCommands(MirrorProduct product) : IDebugCommand
         .Where(h => filter is "" or "*" || h.Attacker.Contains(filter, StringComparison.Ordinal) || h.Victim.Contains(filter, StringComparison.Ordinal))
         .Select(h => $"{product.Fight.Frames[h.Frame].Tick}:{h.Attacker}>{h.Victim}").Take(80));
 
+    [DebugCommand("mirror.layers", Description = "Draw overlay layers (parries, gestures) over the main sequences, or not: on or off")]
+    public string Layers(string state)
+    {
+        product.Views.LayersOn = state is not ("off" or "0" or "false");
+        return Then();
+    }
+
     [DebugCommand("mirror.held", Description = "Each live weapon, shield and helmet: its inferred holder, their distance, and whether it hangs from them now")]
     public string Held() => product.DescribeHeld();
 

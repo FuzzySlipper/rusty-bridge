@@ -11,6 +11,15 @@ namespace DarkMessiah.Mirror.Scene;
 /// animated one gets its streamed sequence sampled at its streamed cycle, and
 /// a held item hangs from its holder's attachment joint. Only what changed
 /// since the last call is published.
+///
+/// From Wire v6 an animated entity's overlay layers play over its main
+/// sequence as the Engine's clip layers: one override per layer, in Source's
+/// layer order, at the layer's cycle and weight. They are read at the donor
+/// time the drawn state stands for, so they keep step with the main sequence.
+/// Dark Messiah's layer clips (parries, blocks, attack gestures, hit
+/// reactions) have channels only for the bones they drive, and the
+/// full-body ones (a sequence fading out under the next) blend the whole pose,
+/// as Source does.
 /// </summary>
 internal sealed class EntityViews : IDisposable
 {
@@ -28,6 +37,8 @@ internal sealed class EntityViews : IDisposable
         public ulong Parent;
         public string? Clip;
         public float Cycle = -1;
+        public (uint Clip, float Cycle, float Weight)[] Layers = [];
+        public string[] LayerNames = [];
     }
 
     readonly IEngineContext engine;
@@ -36,6 +47,10 @@ internal sealed class EntityViews : IDisposable
     readonly HeldItems held;
     readonly Dictionary<EntityKey, View> views = [];
     readonly HashSet<string> missingClips = new(StringComparer.Ordinal);
+    readonly Dictionary<LevelModel, Dictionary<string, uint>> clipIndices = [];
+    readonly AnimationLayerSet layerSet = new();
+    readonly List<(uint Clip, float Cycle, float Weight)> wanted = [];
+    readonly List<string> wantedNames = [];
     readonly List<View> leaving = [];
     readonly Appearance? world;
     bool worldPublished;
@@ -44,6 +59,12 @@ internal sealed class EntityViews : IDisposable
     public int Drawn => views.Count;
     public int Attached { get; private set; }
     public int Sampled { get; private set; }
+    /// <summary>Animated entities drawing at least one overlay layer in the last update.</summary>
+    public int Layered { get; private set; }
+    /// <summary>Overlay layers laid in the last update, over all entities.</summary>
+    public int LayersDrawn { get; private set; }
+    /// <summary>Whether overlay layers are drawn; off shows the main sequences alone, for comparison.</summary>
+    public bool LayersOn { get; set; } = true;
     public IReadOnlyCollection<string> MissingClips => missingClips;
     /// <summary>The last scene change the Engine refused, if any.</summary>
     public string? LastError { get; private set; }
@@ -159,7 +180,7 @@ internal sealed class EntityViews : IDisposable
         // Appearances leave the scene before they're disposed.
         foreach (var view in retired) Release(view);
 
-        Sampled = 0;
+        Sampled = Layered = LayersDrawn = 0;
         foreach (var (key, sample) in samples)
             if (sample.Animated && views[key].Published) Animate(views[key], sample);
     }
@@ -171,18 +192,72 @@ internal sealed class EntityViews : IDisposable
         string clip = names[sample.Sequence];
         if (missingClips.Contains($"{view.Model.DonorPath}:{clip}")) return;
         Sampled++;
-        if (clip == view.Clip && sample.Cycle == view.Cycle) return;
         view.Instance ??= engine.Animation.CreateInstance(new(view.Appearance, view.Id));
-        try
+        if (clip != view.Clip || sample.Cycle != view.Cycle)
         {
-            engine.Animation.SetPlayback(new(view.Instance, AnimationPlaybackKind.Sample, clip, AnimationLoopMode.Once, 1, 1, false, 0, false, sample.Cycle));
-            view.Clip = clip;
-            view.Cycle = sample.Cycle;
+            try
+            {
+                engine.Animation.SetPlayback(new(view.Instance, AnimationPlaybackKind.Sample, clip, AnimationLoopMode.Once, 1, 1, false, 0, false, sample.Cycle));
+                view.Clip = clip;
+                view.Cycle = sample.Cycle;
+            }
+            catch (EngineCallException)
+            {
+                missingClips.Add($"{view.Model.DonorPath}:{clip}");
+                return;
+            }
         }
-        catch (EngineCallException)
+        Overlay(view, names, view.Track.LayersAt(sample.Shown));
+    }
+
+    /// <summary>Lays the entity's overlay layers over its main sequence; nothing is sent when they haven't changed.</summary>
+    void Overlay(View view, string[] names, IReadOnlyList<LayerState> layers)
+    {
+        wanted.Clear();
+        wantedNames.Clear();
+        var clips = Clips(view.Model);
+        foreach (var layer in (LayersOn ? layers : []).OrderBy(l => l.Order).ThenBy(l => l.Slot))
         {
-            missingClips.Add($"{view.Model.DonorPath}:{clip}");
+            if (layer.Sequence < 0 || layer.Sequence >= names.Length || layer.Weight <= 0) continue;
+            if (!clips.TryGetValue(names[layer.Sequence], out uint index)) { missingClips.Add($"{view.Model.DonorPath}:{names[layer.Sequence]}"); continue; }
+            wanted.Add((index, Math.Clamp(layer.Cycle, 0, 1), Math.Min(layer.Weight, 1)));
+            wantedNames.Add(names[layer.Sequence]);
         }
+        if (wanted.Count > 0) { Layered++; LayersDrawn += wanted.Count; }
+        if (wanted.SequenceEqual(view.Layers)) return;
+        layerSet.Clear();
+        foreach (var (clip, cycle, weight) in wanted) layerSet.Override(clip, cycle, weight);
+        engine.Animation.SetLayers(layerSet.ToRequest(view.Instance!));
+        view.Layers = [.. wanted];
+        view.LayerNames = [.. wantedNames];
+    }
+
+    /// <summary>The overlay clips laid on the drawn entity at an edict index, in order; empty when none.</summary>
+    internal string[] LayersOf(ushort index) => views.Values.FirstOrDefault(v => v.Track.Key.Index == index)?.LayerNames ?? [];
+
+    /// <summary>
+    /// The pose the drawn entity at an edict index shows now, layers included
+    /// (its current playback), at the origin; null when it isn't animated.
+    /// </summary>
+    internal JointPose[]? PoseOf(ushort index)
+    {
+        var view = views.Values.FirstOrDefault(v => v.Track.Key.Index == index);
+        if (view?.Instance is not AnimationInstance instance) return null;
+        return engine.Animation.SampleJointPose(AnimationPoseSampleRequest.OfCurrentPlayback(instance, new(Vector3.Zero, Quaternion.Identity, Vector3.One), applyPoseControls: false)).ToArray();
+    }
+
+    /// <summary>A model's clips by name, as clip layers index them (its <c>ReadClips</c> order).</summary>
+    Dictionary<string, uint> Clips(LevelModel model)
+    {
+        if (clipIndices.TryGetValue(model, out var map)) return map;
+        map = new(StringComparer.Ordinal);
+        var clips = engine.Animation.ReadClips(model.Mesh).Span;
+        for (int i = 0; i < clips.Length; i++)
+        {
+            map.TryAdd(clips[i].Name, (uint)i);
+            map.TryAdd(clips[i].Id, (uint)i);
+        }
+        return clipIndices[model] = map;
     }
 
     static void Release(View view)

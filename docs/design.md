@@ -167,7 +167,7 @@ answer drives the order in the next section.
 | --- | --- | --- | --- | --- | --- |
 | Static world (map geometry, lighting, collision) | Assets | n/a | None | GLB import, bound world collision | 0 |
 | Entity transforms | Server | Yes | Per moved entity (only once Rusty moves them) | Object placement, set every update | 0 (Donor) |
-| Character animation pose | Server: main sequence, cycle, playback rate; overlay layers (gestures, parries) not yet streamed | Yes: melee traces start from the weapons, which follow the hands | None while the donor keeps its own animation for hit detection | `AnimationPlaybackRequest` with a `Sample` command (normalized point in one clip); `JointOverride` | 1 |
+| Character animation pose | Server: main sequence, cycle, playback rate; overlay layers (gestures, parries) since Wire v6 | Yes: melee traces start from the weapons, which follow the hands | None while the donor keeps its own animation for hit detection | `AnimationPlaybackRequest` with a `Sample` command (normalized point in one clip); clip layers (`SetLayers`) for the overlays; `JointOverride` | 1 |
 | Held weapons and armour | Server entities following the holder's hand | Yes (they are what a swing traces, and what a block strikes) | None while the donor keeps hit detection | Joint attachments, `HandRig` | 1 |
 | First-person weapon model and camera | Client | No | None | Viewmodel fitting, camera control | 1 |
 | Effects, decals, sound, screen feedback, hit slow-motion | Client (some server events; slow motion is requested on the server and streamed as Wire v7 slow-time records) | No | None | Presentation services, recorded audio | 1 |
@@ -362,7 +362,8 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
    sets a whole local pose array. One `JointOverride` per joint every update
    works, but costs too much per character. Filed as rusty-engine #10073,
    which shipped clip layers (`IAnimationService.SetLayers`) in pair
-   0.1.0-dev.a64d20f624c7. The mirror still draws the main sequence only.
+   0.1.0-dev.a64d20f624c7. The mirror lays each streamed overlay layer as
+   an override clip layer ([mirror.md](mirror.md), "Overlay layers").
 3. **Bodies that follow external targets (Phase 3).** A Dynamics body (and a
    ragdoll bone) that tracks a target transform from outside, the way a
    kinematic body would, and reports how far its own simulation would have
@@ -394,8 +395,9 @@ metrics, the Recorder and the stepper. Those belong to the bridge.
   part of the Tap. Input doesn't fill the gap: the parry bot turns the view
   with keys bound to `+left`/`+right`, since relative mouse motion through
   the playtest agent doesn't turn it.
-- **Overlay layers.** The parry and gesture layers are on the Wire since v6;
-  the mirror doesn't draw them yet.
+- **Overlay layers.** The parry and gesture layers have been on the Wire
+  since v6, and the mirror draws them as clip layers. Delta layers and
+  fractional bone weights are approximated.
 - **Format variants.** Arkane modified Source's formats, but the parts read
   so far are stock: MDL headers are version 44 with Episode One offsets,
   sequence descriptors are 212 bytes, and VPKs are versions 1 and 2. The

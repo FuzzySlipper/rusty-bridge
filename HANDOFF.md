@@ -132,7 +132,9 @@ while Steam is shut down; a backup is at `localconfig.vdf.rb-backup`.
   VK codes, and `` ` `` is 192. The console closes on map load, so open it
   again before typing.
 - Mouse buttons work (`click`; button 1 attacks, 3 blocks).
-- Relative mouse motion (`move`) does not turn the view.
+- Relative mouse motion (`move`) does not turn the view. Keys bound to
+  `+left`/`+right` do (`rbbot.cfg`, `rbseek.cfg`); read the view's yaw from
+  the `viewmodel`, since the player entity's yaw is its body.
 
 **Runtime layouts** (details and how each was found in
 [wire.md](docs/wire.md))

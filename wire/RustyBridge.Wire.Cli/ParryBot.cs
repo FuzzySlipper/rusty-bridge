@@ -6,9 +6,14 @@ using RustyBridge.Wire;
 /// <summary>
 /// Plays the player's defense from the Wire: when an enemy within reach starts
 /// an attack sequence, hold block (right mouse) long enough to cover the
-/// impact; otherwise turn toward the nearest enemy (relative mouse motion,
-/// calibrated against the player's yaw on the Wire), walk up to it (W) and
-/// swing (left mouse). Input goes
+/// impact; otherwise turn toward the nearest enemy, walk up to it (W) and
+/// attack, cycling a fast swing (left click), a power attack (left held,
+/// the `.qct`'s critical attacks) and a kick (F). It keeps one target until
+/// it dies or another enemy is much nearer. Relative mouse motion
+/// doesn't turn Dark Messiah's view, so the bot turns with keys that
+/// rbbot.cfg binds to `+left`/`+right` (J and L, `cl_yawspeed 90`), held for
+/// the angle over a turn rate it calibrates against the player's yaw on the
+/// Wire. Input goes
 /// through the den-win11 playtest agent's desktop lease, so the game must be
 /// in front. Its purpose is to catch clean parries on the Wire: the player's
 /// (defense result 17) and an NPC's (1).
@@ -30,7 +35,13 @@ static class ParryBot
     const int SwingMs = 120;
     const double SwingEvery = 1.4;   // seconds between swings
     const float Facing = 20;         // degrees: close enough to face an enemy
-    const int VkW = 0x57;
+    const int VkW = 0x57, VkF = 0x46;
+    const int VkTurnLeft = 0x4A, VkTurnRight = 0x4C;   // J, L: rbbot.cfg binds them to +left, +right
+    const int CalibrateMs = 1000;
+    const float TurnGain = 0.6f;     // turn this share of the error per hold, then look again
+    const int SettleMs = 300;        // after a turn, before the next look
+    const int PowerMs = 1000;        // held long enough for layer_bigslash_*_in to release
+    const float Switch = 0.6f;       // change target only to an enemy this much nearer
 
     public static int Run(WireReader reader, Func<string, IReadOnlyList<string>>? sequences, string agent, double seconds)
     {
@@ -48,27 +59,43 @@ static class ParryBot
         void Act(int button, int ms) => Send(new { kind = "click", button, ms });
 
         var snap = new WireSnapshot();
+        // The view's yaw is the viewmodel's: the player entity's yaw is its body, which
+        // turns in place in steps of about 90 degrees (Player_Turn_45_*) once the view
+        // has moved far enough, and not at all for small turns.
+        float? ViewYaw(WireSnapshot s)
+        {
+            float? body = null;
+            foreach (ref readonly var e in s.Span)
+            {
+                string cls = reader.ClassName(s, e.ClassId);
+                if (cls == "viewmodel") return e.Yaw;
+                if (cls == "player") body = e.Yaw;
+            }
+            return body;
+        }
         float? PlayerYaw()
         {
             Thread.Sleep(250);
-            if (!reader.TryReadLatest(snap)) return null;
-            foreach (ref readonly var e in snap.Span)
-                if (reader.ClassName(snap, e.ClassId) == "player") return e.Yaw;
-            return null;
+            return reader.TryReadLatest(snap) ? ViewYaw(snap) : null;
         }
-        // Degrees of yaw per pixel of relative mouse motion (negative: moving right turns clockwise).
-        float before = PlayerYaw() ?? 0;
-        Send(new { kind = "move", dx = 200, dy = 0, ms = 100 }); busy.Wait();
-        float after = PlayerYaw() ?? 0;
-        float perPixel = Wrap(after - before) / 200f;
-        Send(new { kind = "move", dx = -200, dy = 0, ms = 100 }); busy.Wait();
-        Console.WriteLine($"mouse: {perPixel:F3} degrees per pixel (yaw {before:F1} -> {after:F1})");
-        if (MathF.Abs(perPixel) < 0.001f) { Console.Error.WriteLine("the view did not turn; is the game in front?"); perPixel = -0.022f; }
+        // Degrees of yaw per second of holding a turn key (+left turns counter-clockwise: yaw grows).
+        // The first input after the console closes can be lost, so try a few times.
+        float perSecond = 0;
+        for (int attempt = 0; attempt < 5 && MathF.Abs(perSecond) < 10; attempt++)
+        {
+            float before = PlayerYaw() ?? 0;
+            Send(new { kind = "hold", keys = new[] { VkTurnLeft }, ms = CalibrateMs }); busy.Wait();
+            float after = PlayerYaw() ?? 0;
+            perSecond = Wrap(after - before) / (CalibrateMs / 1000f);
+            Console.WriteLine($"turn keys: {perSecond:F0} degrees per second (yaw {before:F1} -> {after:F1})");
+        }
+        if (MathF.Abs(perSecond) < 10) { Console.Error.WriteLine("the view did not turn; is the game in front, and rbbot.cfg exec'd?"); perSecond = 70; }
 
         var last = new Dictionary<ushort, (short seq, float cycle)>();
         var clock = Stopwatch.StartNew();
         double lastSwing = 0;
-        int blocks = 0, swings = 0;
+        int blocks = 0, swings = 0, powers = 0, kicks = 0, turns = 0;
+        ushort target = WireLayout.NoEntity;
         var outcomes = new Dictionary<DefenseResult, int>();
         ulong lastFrame = 0;
         int t0 = 0;
@@ -91,17 +118,16 @@ static class ParryBot
             if (player is not { } p) continue;
 
             string? threat = null;
-            float nearest = float.MaxValue, nearestBearing = 0;
+            float nearest = float.MaxValue, nearestBearing = 0, held = float.MaxValue, heldBearing = 0;
+            ushort nearestIndex = WireLayout.NoEntity;
             foreach (ref readonly var e in snap.Span)
             {
                 string cls = reader.ClassName(snap, e.ClassId);
                 if (!Enemy.IsMatch(cls) || e.LifeState != 0 || e.Sequence < 0) continue;
                 float dist = MathF.Sqrt((e.OriginX - p.OriginX) * (e.OriginX - p.OriginX) + (e.OriginY - p.OriginY) * (e.OriginY - p.OriginY));
-                if (dist < nearest)
-                {
-                    nearest = dist;
-                    nearestBearing = MathF.Atan2(e.OriginY - p.OriginY, e.OriginX - p.OriginX) * 180 / MathF.PI;
-                }
+                float bearing = MathF.Atan2(e.OriginY - p.OriginY, e.OriginX - p.OriginX) * 180 / MathF.PI;
+                if (dist < nearest) { nearest = dist; nearestBearing = bearing; nearestIndex = e.Index; }
+                if (e.Index == target) { held = dist; heldBearing = bearing; }
                 bool started = !last.TryGetValue(e.Index, out var was) || was.seq != e.Sequence || e.Cycle < was.cycle - 0.5f;
                 last[e.Index] = (e.Sequence, e.Cycle);
                 if (!started || dist > BlockReach) continue;
@@ -110,6 +136,10 @@ static class ParryBot
                 if (Attack.IsMatch(name) && !NotAttack.IsMatch(name)) threat = $"{cls} #{e.Index} {name} at {dist:F0} u";
             }
 
+            // Keep the target unless it's gone or another enemy is much nearer: two enemies
+            // either side of the player would otherwise flip the bot between them.
+            if (held == float.MaxValue || nearest < held * Switch) target = nearestIndex;
+            else { nearest = held; nearestBearing = heldBearing; }
             double now = clock.Elapsed.TotalSeconds;
             if (threat is not null && busy.IsCompleted)
             {
@@ -124,15 +154,27 @@ static class ParryBot
             }
             else if (busy.IsCompleted && nearest < 1500)
             {
-                float error = Wrap(nearestBearing - p.Yaw);
+                float error = Wrap(nearestBearing - (ViewYaw(snap) ?? p.Yaw));
                 if (MathF.Abs(error) > Facing)
-                    Send(new { kind = "move", dx = (int)Math.Clamp(error / perPixel, -800, 800), dy = 0, ms = 60 });
+                {
+                    // Hold the turn key for the angle; positive error turns counter-clockwise.
+                    int ms = (int)Math.Clamp(MathF.Abs(TurnGain * error / perSecond) * 1000, 40, 2000);
+                    int key = (error > 0) == (perSecond > 0) ? VkTurnLeft : VkTurnRight;
+                    // Walk while turning when the enemy is roughly ahead and still far.
+                    int[] keys = MathF.Abs(error) < 60 && nearest > SwingReach * 2 ? [key, VkW] : [key];
+                    busy = http.PostAsJsonAsync($"/v1/lease/{id}/input", new { steps = new object[] { new { kind = "hold", keys, ms }, new { kind = "wait", ms = SettleMs } } });
+                    turns++;
+                }
                 else if (nearest > SwingReach * 0.8f)
-                    Send(new { kind = "hold", keys = new[] { VkW }, ms = 200 });
+                    Send(new { kind = "hold", keys = new[] { VkW }, ms = nearest > SwingReach * 3 ? 600 : 200 });
                 else if (now - lastSwing > SwingEvery)
                 {
-                    Act(1, SwingMs);
-                    swings++;
+                    switch ((swings + powers + kicks) % 3)
+                    {
+                        case 0: Act(1, SwingMs); swings++; break;
+                        case 1: Act(1, PowerMs); powers++; break;
+                        default: Send(new { kind = "hold", keys = new[] { VkF }, ms = SwingMs }); kicks++; break;
+                    }
                     lastSwing = now;
                 }
             }
@@ -140,7 +182,7 @@ static class ParryBot
         }
         busy.Wait();
         http.DeleteAsync($"/v1/lease/{id}").Wait();
-        Console.WriteLine($"done: {blocks} blocks, {swings} swings; outcomes seen live " +
+        Console.WriteLine($"done: {blocks} blocks, {swings} swings, {powers} power attacks, {kicks} kicks, {turns} turns; outcomes seen live " +
             (outcomes.Count == 0 ? "none" : string.Join(", ", outcomes.Select(kv => $"{kv.Key} {kv.Value}"))));
         return 0;
     }

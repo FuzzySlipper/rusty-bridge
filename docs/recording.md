@@ -164,16 +164,29 @@ Wire. It runs on den-win11 next to the game, with the game in front.
   sequence (a new sequence, or a cycle wrap, whose name is an attack), the
   bot holds block (right mouse) for 700 ms, after a delay it cycles through
   0/200/400/600 ms.
-- **Attack:** otherwise it swings (left mouse) every 1.4 s at an enemy
-  within 110 units.
+- **Attack:** otherwise it attacks every 1.4 s at an enemy within 110
+  units, cycling a fast swing (left click), a power attack (left held for
+  1 s) and a kick (F).
+- **Seek:** it turns toward its target and walks up to it (W). It keeps one
+  target until it dies or another enemy is under 0.6 of its distance, so
+  two enemies either side of the player don't flip it back and forth.
 - **Input:** all of it goes through one desktop lease on the playtest agent
   (`click` steps; button 3 is right).
-- **Turning doesn't work:** the bot also tries to face and approach the
-  nearest enemy, but relative mouse motion (`move` steps) doesn't turn
-  Dark Messiah's view. Its calibration reads 0° per pixel, so the bot
-  relies on enemies coming to the player. With `god` and no `notarget`,
-  they do.
-- **Staging:** stage with `tap/darkmessiah/rbbot.cfg` (sword, two orcs).
+- **Turning:** relative mouse motion (`move` steps) doesn't turn Dark
+  Messiah's view, so the staging cfgs bind J and L to `+left` and `+right`
+  with `cl_yawspeed 90`. The bot holds them for 0.6 of the angle over a turn
+  rate it measures at the start (about 36°/s through the agent; the first
+  hold after the console closes can be lost, so it retries), then waits
+  300 ms and looks again. It walks while turning when the target is within
+  60° and far.
+- **The view's yaw is the viewmodel's.** The player entity's yaw is its body,
+  which turns in place in steps of about 90° (`Player_Turn_45_*`) once the
+  view has moved far enough, and not at all for small turns.
+- **Staging:** `tap/darkmessiah/rbbot.cfg` (sword, two orcs that come to
+  the player) or `rbseek.cfg` (`notarget`, two unshielded orcs 800 units
+  behind the player). `god` and `notarget` toggle, so after the first
+  `exec` in a session, type them again. `ent_fire npc_orc_sword sethealth
+  10` lets the short sword kill.
   Launch nothing on the desktop during a run: `run-on-desktop.ps1` and
   `dotnet publish` take focus and minimize the game.
 - **Output:** the bot prints each block with its delay and the threat, and
@@ -195,6 +208,13 @@ parries and 9 breaks.
 - That matches the attack resolver's rule: a weapon flag 0x10 attack
   breaks a parry.
 - Timing only has to cover the impact. Blows landed 22–55 ticks (0.33–0.8
+**Seeking (2026-10-18, `l01_a-v7-seek.rbrec`, `rbseek.cfg`):** from facing
+away (172° off), the bot faced its orc within 15° in 7 s and closed from 804
+to 46 units in 11 s. Close in, the orcs circle the player and the bearing
+changes faster than the bot turns. The other v7 runs, kicks, knockdowns and
+slow-motion calls are in [wire.md](wire.md) ("Slow motion", "Kicks,
+knockdowns and adrenaline").
+
   s) after the bot saw the wind-up on the Wire.
 
 **NPC parries are weapon contact.** Both times the player's short sword

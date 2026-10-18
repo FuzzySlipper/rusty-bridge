@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DarkMessiah.Import/DarkMessiah.Import.csproj" />
+  <Project Path="DarkMessiah.Import.Tool/DarkMessiah.Import.Tool.csproj" />
+  <Project Path="DarkMessiah.Import.Tests/DarkMessiah.Import.Tests.csproj" />
+</Solution>

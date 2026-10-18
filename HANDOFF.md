@@ -2,8 +2,9 @@
 
 How to run the bridge against Dark Messiah, and what the game has turned out
 to be like underneath. The design is in [docs/design.md](docs/design.md).
-The Wire format and hooks are in [docs/wire.md](docs/wire.md), and
-recordings, staging and the stepper in [docs/recording.md](docs/recording.md).
+The Wire format and hooks are in [docs/wire.md](docs/wire.md),
+recordings, staging and the stepper in [docs/recording.md](docs/recording.md),
+and the asset importer in [docs/import.md](docs/import.md).
 Tasks, status and decisions live in the Den project `rusty-bridge`.
 
 ## What the project is
@@ -37,8 +38,9 @@ understand why the combat feels good.
 | `tap/darkmessiah/rb*.cfg` | Fight staging scripts for `mm\cfg\`. `rbfight`: NPC fight. `rbduel`, `rbparry`: player fights. `rbbot`: setup for the parry bot. |
 | `wire/` | C# Wire reader, recordings and donor-file readers (`RustyBridge.Wire`), their tests, and the `rbwire` CLI. |
 | `viewer/` | `timeline.html`, the combat stepper; `embed.py` bakes a recording into a copy. |
+| `import/` | `dm-import` (`DarkMessiah.Import.Tool`): maps and studio models to GLBs keyed by Wire model path, with its library and tests. |
 | `tools/vpk_list_maps.py` | Lists the `.bsp` maps inside the game's VPK directory files. |
-| `local/` (gitignored) | Recordings, dumps and anything else derived from the game. |
+| `local/` (gitignored) | Recordings, dumps and anything else derived from the game: `local/donor/vpks` (a copy of the game's VPKs, which the importer reads) and `local/import` (its GLBs and `<map>.assets.json`). |
 
 `rbwire` subcommands: `tail`, `dump`, `record`, `info`, `sequences`,
 `parrybot`. `rbwire help` prints usage; with no arguments it runs `tail`.

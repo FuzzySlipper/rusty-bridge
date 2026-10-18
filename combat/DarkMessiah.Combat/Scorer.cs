@@ -48,7 +48,7 @@ public static class Scorer
     /// <summary>Damage agrees within this, the Wire's float rounding.</summary>
     const float Tolerance = 0.01f;
 
-    public static ScoreReport Score(FightCases fight)
+    public static ScoreReport Score(FightCases fight, CombatModel model)
     {
         var scores = new List<DecisionScore>();
         var mismatches = new List<Mismatch>();
@@ -60,9 +60,9 @@ public static class Scorer
         int agree = 0;
         foreach (var c in fight.Defense)
         {
-            var model = CombatModel.Verdict(c);
-            if (model == c.Donor) agree++;
-            else mismatches.Add(new("NPC verdict", c.ToString(), c.Donor.ToString(), model.ToString(), VerdictReason(c, model)));
+            var verdict = CombatModel.Verdict(c);
+            if (verdict == c.Donor) agree++;
+            else mismatches.Add(new("NPC verdict", c.ToString(), c.Donor.ToString(), verdict.ToString(), VerdictReason(c, verdict)));
         }
         if (fight.Defense.Count > 0) scores.Add(new("NPC verdict", fight.Defense.Count, agree, 0));
         int stanceCases = fight.Defense.Count(c => c.Struck == Struck.Body && CombatModel.Stance(c.Victim) != CombatModel.DefenseStance.None);
@@ -73,9 +73,9 @@ public static class Scorer
         agree = 0;
         foreach (var c in fight.Parries)
         {
-            var model = CombatModel.PlayerParry(c);
-            if (model == c.Donor) agree++;
-            else mismatches.Add(new("player parry", c.ToString(), c.Donor.ToString(), model.ToString(), "unexplained"));
+            var outcome = model.PlayerParry(c);
+            if (outcome == c.Donor) agree++;
+            else mismatches.Add(new("player parry", c.ToString(), c.Donor.ToString(), outcome.ToString(), "unexplained"));
         }
         if (fight.Parries.Count > 0) scores.Add(new("player parry", fight.Parries.Count, agree, 0));
 
@@ -84,10 +84,17 @@ public static class Scorer
         agree = 0;
         foreach (var c in fight.Damage)
         {
-            float? model = CombatModel.Damage(c);
-            if (model is null) { unmodelled++; mismatches.Add(new("damage", c.ToString(), F(c.Requested), "-", "no base damage for this attacker")); continue; }
-            if (MathF.Abs(model.Value - c.Requested) <= Tolerance) agree++;
-            else mismatches.Add(new("damage", c.ToString(), F(c.Requested), F(model.Value), DamageReason(c, model.Value)));
+            float? asked = model.Damage(c);
+            if (asked is null)
+            {
+                unmodelled++;
+                mismatches.Add(new("damage", c.ToString(), F(c.Requested), "-", c.Requested == 0
+                    ? "an attack its .qct doesn't list, and the donor asked nothing for it"
+                    : "unexplained: no .qct attack or weapon for this blow"));
+                continue;
+            }
+            if (MathF.Abs(asked.Value - c.Requested) <= Tolerance) agree++;
+            else mismatches.Add(new("damage", c.ToString(), F(c.Requested), F(asked.Value), DamageReason(c, asked.Value)));
         }
         if (fight.Damage.Count > 0) scores.Add(new("damage requested", fight.Damage.Count, agree, unmodelled));
 
@@ -131,10 +138,9 @@ public static class Scorer
     /// </summary>
     static readonly (string Attacker, string Sequence, string Reason)[] KnownOpen =
     [
-        ("player", "", "the player's charged swing: how long it was held isn't on the Wire (#10077)"),
-        ("npc_orc_sword", "attack_Fast", "the first contact's strength varies, 3.2 six times and 4.8 once (#10077)"),
-        ("npc_ghoul", "Turn_strike_90_right", "asks 0 on every contact in some fights and 12 in others (#10077)"),
-        ("npc_ghoul", "attack_wounded_1", "asked 0 on its one recorded contact (#10077)"),
+        ("player", "", "a player blow above its fast attack, out of a parry: a riposte or charge the Wire doesn't identify (#10077)"),
+        ("npc_orc_sword", "attack_Fast", "the first part asked 0.6 of the base once where its .qct says 0.4 (3.2 six times) (#10077)"),
+        ("npc_ghoul", "Turn_strike_90_right", "has no damage event in its animation; asks 0 on every contact in some fights and 12 in others (#10077)"),
     ];
 
     static string DamageReason(DamageCase c, float model) =>

@@ -42,6 +42,43 @@ public static class StudioModel
         }
     }
 
+    /// <summary>
+    /// The animation events of every sequence of a model and its includes, by
+    /// sequence name (first definition wins, as with <see cref="SequenceNames"/>):
+    /// (cycle, event id) pairs in cycle order. The mstudioevent_t records are
+    /// 80 bytes, cycle at +0 and event at +4, from the seqdesc's count (+24)
+    /// and offset (+28).
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>> Events(string path, Func<string, byte[]?> read)
+    {
+        var events = new Dictionary<string, IReadOnlyList<(float, int)>>(StringComparer.OrdinalIgnoreCase);
+        var visited = new HashSet<string>();
+        void Append(string model)
+        {
+            if (!visited.Add(VpkIndex.Normalize(model))) return;
+            var b = read(model);
+            if (b is null || b.Length < 344 || Encoding.ASCII.GetString(b, 0, 4) != "IDST") return;
+            int count = BitConverter.ToInt32(b, 188), index = BitConverter.ToInt32(b, 192);
+            for (int i = 0; i < count; i++)
+            {
+                int desc = index + i * SeqDescBytes;
+                string name = CString(b, desc + BitConverter.ToInt32(b, desc + 4));
+                int n = BitConverter.ToInt32(b, desc + 24), at = desc + BitConverter.ToInt32(b, desc + 28);
+                var list = new List<(float, int)>();
+                for (int k = 0; k < n; k++) list.Add((BitConverter.ToSingle(b, at + k * 80), BitConverter.ToInt32(b, at + k * 80 + 4)));
+                events.TryAdd(name, list.OrderBy(e => e.Item1).ToList());
+            }
+            int includes = BitConverter.ToInt32(b, 336), includeIndex = BitConverter.ToInt32(b, 340);
+            for (int k = 0; k < includes; k++)
+            {
+                int group = includeIndex + k * 8;
+                Append(CString(b, group + BitConverter.ToInt32(b, group + 4)));
+            }
+        }
+        Append(path);
+        return events;
+    }
+
     static string CString(byte[] b, int at)
     {
         int end = Array.IndexOf(b, (byte)0, at);

@@ -1,10 +1,11 @@
 using System.Text;
 
-namespace DarkMessiah.Import.Source;
+namespace RustyBridge.Wire.Donor;
 
 /// <summary>
-/// A KeyValues block as material files write it: a name, string values and
-/// child blocks. Keys compare without case, as the engine reads them.
+/// A KeyValues block as the donor's text files write it (materials, model
+/// $keyvalues sources): a name, string values and child blocks. Keys may be
+/// quoted or bare and compare without case, as the engine reads them.
 /// </summary>
 public sealed class KeyValues
 {
@@ -19,14 +20,39 @@ public sealed class KeyValues
     public KeyValues? Block(string name) => Blocks.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The first top-level block of a file, or null when there is none.</summary>
-    public static KeyValues? Parse(byte[] bytes)
+    public static KeyValues? Parse(byte[] bytes) => ParseAll(bytes).FirstOrDefault();
+
+    /// <summary>
+    /// Every top-level block of a file. A block left open at the end of the
+    /// file (Arkane's npc_orc.qct misses a brace) ends there.
+    /// </summary>
+    public static List<KeyValues> ParseAll(byte[] bytes)
     {
+        var blocks = new List<KeyValues>();
         var tokens = Tokens(Encoding.Latin1.GetString(bytes)).GetEnumerator();
-        if (!tokens.MoveNext()) return null;
-        string name = tokens.Current.Text;
-        if (!tokens.MoveNext() || tokens.Current.Text != "{" || tokens.Current.Quoted) return null;
-        return ReadBlock(name, tokens);
+        while (tokens.MoveNext())
+        {
+            string name = tokens.Current.Text;
+            if (!tokens.MoveNext()) break;
+            if (tokens.Current.Text == "{" && !tokens.Current.Quoted) blocks.Add(ReadBlock(name, tokens));
+        }
+        return blocks;
     }
+
+    /// <summary>The first block named <paramref name="name"/> here or below, depth first.</summary>
+    public KeyValues? Find(string name)
+    {
+        foreach (var b in Blocks)
+        {
+            if (b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return b;
+            if (b.Find(name) is KeyValues deeper) return deeper;
+        }
+        return null;
+    }
+
+    /// <summary>A value as a number, or null when absent or not a number.</summary>
+    public float? Number(string key) =>
+        this[key] is string v && float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float f) ? f : null;
 
     static KeyValues ReadBlock(string name, IEnumerator<(string Text, bool Quoted)> tokens)
     {

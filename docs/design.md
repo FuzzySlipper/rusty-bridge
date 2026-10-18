@@ -154,11 +154,66 @@ answer drives the order in the next section.
 | Effects, decals, sound, screen feedback, hit slow-motion | Client (some server events; slow-mo parameters arrive with each damage record) | No | None | Presentation services, recorded audio | 1 |
 | Combat decisions: damage, defense verdicts, player parry outcomes | Server, at hooked decision points ([wire.md](wire.md)) | Yes | The verdict or damage, returned from the existing detours | Product code | 2 |
 | Kick, adrenaline, other combat rules | Server | Yes | Effects on entities (kicks also push physics) | Product code | 2–3 |
-| Death ragdolls | **Server** in Dark Messiah: `prop_ragdoll` with `phys_bone_follower`s, replacing the NPC the tick it dies | Yes: they're physics objects that collide and can be kicked | Bone transforms every tick | Ragdoll layer with blend; `ReadRagdoll`; needs bodies that follow external targets | 3 |
+| Ragdolls (deaths and knockdowns) | **Server** in Dark Messiah: a separate `prop_ragdoll` entity, swapped in and out (see below) | Yes: they collide, take hits, deal impact damage and can be kicked or grabbed | Bone transforms every tick | `DynamicsRagdollRequest`, `ApplyRagdollImpulse`, `ReadRagdoll`, ragdoll layer blend; needs bodies that follow external targets | 3 |
 | Physics props (kickable, breakable) | Server (Havok) | Yes (AI, triggers, damage) | Prop transforms and velocities every tick | Dynamics worlds | 3 |
 | Player movement | Client prediction plus server | Yes | Player position, velocity and stance every tick | Character controller | 3 |
 | AI decisions and navigation | Server | Yes | Become Rusty actors; the donor's copies are suppressed | Pathfinding | 5 |
 | Scripts, quests, inventory, saves | Server | Yes | Whole-world state | Persistence | 5 |
+
+### Ragdolls: swaps, not blends
+
+Dark Messiah moves characters between animation and physics by swapping
+entities. It never blends the two.
+
+- **Death.** The NPC is removed in the tick it dies, and a server
+  `prop_ragdoll` with its model takes its place. The bridge sees this in
+  every recorded kill.
+- **Knockdown.** A living NPC "falls in ragdoll" when a kick or attack, ice,
+  physics or the void calls for it (`TASK_FALL_IN_RAGDOLL`). Recorded in
+  `l01_a-parrybot.rbrec` at 10.68 s:
+  - Orc #401, mid-`attack_right`, is knocked down. In the same tick a
+    separate `prop_ragdoll` with its model appears.
+  - The orc entity stays alive, parked on `StandUp_front_firstframe`, the
+    first frame of a get-up clip.
+  - The ragdoll falls on its own, and is removed at 12.12 s.
+  - The orc is then exactly where the ragdoll came to rest ("Repositionning
+    NPC for Unragdoll"), and it plays the get-up from that first frame.
+  - `SCHED_MM_STAND_UP_BACK` or `_FRONT` is picked by which way the body
+    landed, so the get-up begins near the lying pose.
+- **Hit reactions** are animated sequences (`Hit_*`, `Push_*`, `stunned_*`).
+  There is no physics-driven "active ragdoll".
+
+The handover looks continuous because of the content: get-up clips that
+start lying down, chosen front or back. Nothing blends at runtime on the
+server. Whether the client smooths the swap visually is unverified.
+
+**Ragdolls are gameplay objects, not set dressing.** They:
+
+- take slash, big-slash and kick hits (`OnRagdoll_HitBySlash` /
+  `HitByBigSlash` / `HitByKick`);
+- turn impact speed into damage (`mm_ragdoll_vel_to_damage`);
+- can be grabbed by telekinesis and pulled by ragdoll magnets.
+
+An NPC can also be knocked down again during its get-up ("Fall in ragdoll
+during stand up").
+
+**For Rusty:**
+
+- **Parity needs no animation/physics blending and no physics motors.**
+  It needs:
+  - spawning a ragdoll from the current pose with its motion
+    (`DynamicsRagdollRequest`);
+  - impulses at bones (`ApplyRagdollImpulse`);
+  - reading the settled pose (`ReadRagdoll`);
+  - product logic to place the character at the ragdoll and start the
+    matching get-up clip.
+- **Rusty can do better than the donor:** fade the ragdoll layer's blend
+  from 1 to 0 over a few frames while the get-up clip starts, instead of
+  snapping. That's a visual crossfade with today's API.
+- **The gap is interaction.** Because the donor reads its ragdolls, a Rusty
+  ragdoll in Shadow mode, or handing authority back, needs bodies that
+  follow external targets (upstream ask 3). That keeps ragdolls in
+  Phase 3.
 
 ## Handover order
 
@@ -196,7 +251,8 @@ What the decisions turned out to be, so far:
 - An NPC shield-blocks when the blow strikes its off-hand item, or when its
   shield is up and the attack comes from the front.
 
-**Phase 3: Physics write-back.** Physics props, server-side death ragdolls,
+**Phase 3: Physics write-back.** Physics props, server-side ragdolls (deaths
+and knockdowns),
 kick impulses and player movement. From here on the donor still reads
 physics state Rusty owns, so the Tap has to force donor state from Rusty
 every tick: teleport props and ragdoll bones, set velocities, override the
@@ -258,7 +314,9 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
 - **A ragdoll authority dial.** The ragdoll layer's blend mixes the
   simulated bodies over the pose below them, and blend 0 leaves the pose
   unchanged while the bodies keep simulating. That's Shadow mode for
-  ragdolls, already.
+  ragdolls, already. The same dial covers knockdown and get-up: spawn the
+  ragdoll from the current pose (`DynamicsRagdollRequest`), push it at a
+  bone (`ApplyRagdollImpulse`), and fade it out over the get-up clip.
 - **Reproducible physics.** Deterministic world stepping makes offline
   fitting against recorded segments possible.
 
@@ -282,8 +340,9 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
 3. **Bodies that follow external targets (Phase 3).** A Dynamics body (and a
    ragdoll bone) that tracks a target transform from outside, the way a
    kinematic body would, and reports how far its own simulation would have
-   gone. Props need this, and so do Dark Messiah's server-side death
-   ragdolls, to run in Shadow mode and to switch authority without a pop.
+   gone. Props need this, and so do Dark Messiah's server-side ragdolls
+   (deaths and knockdowns), to run in Shadow mode and to switch authority
+   without a pop.
 4. **Switching authority without a pop (Phase 1 onward).** Moving a channel
    between modes should blend over a few updates, not snap. The ragdoll layer
    already works this way. The same blend-in, blend-out treatment is wanted

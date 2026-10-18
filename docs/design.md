@@ -261,7 +261,7 @@ player parry outcomes run in Shadow first, from the inputs the hooks
 already capture, and then hand over through those hooks. The donor keeps
 physics, animation and AI, and reacts to verdicts Rusty decided. Recorded
 fights make this testable offline: every blow in a recording is a test
-case.
+case ([combat.md](combat.md) scores the Shadow model that way).
 
 What the decisions turned out to be, so far:
 

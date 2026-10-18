@@ -4,8 +4,9 @@ How to run the bridge against Dark Messiah, and what the game has turned out
 to be like underneath. The design is in [docs/design.md](docs/design.md).
 The Wire format and hooks are in [docs/wire.md](docs/wire.md),
 recordings, staging and the stepper in [docs/recording.md](docs/recording.md),
-the asset importer in [docs/import.md](docs/import.md), and the Frontend
-mirror in [docs/mirror.md](docs/mirror.md).
+the asset importer in [docs/import.md](docs/import.md), the Frontend
+mirror in [docs/mirror.md](docs/mirror.md), and the Shadow combat model in
+[docs/combat.md](docs/combat.md).
 Tasks, status and decisions live in the Den project `rusty-bridge`.
 
 ## What the project is
@@ -41,6 +42,7 @@ understand why the combat feels good.
 | `viewer/` | `timeline.html`, the combat stepper; `embed.py` bakes a recording into a copy. |
 | `import/` | `dm-import` (`DarkMessiah.Import.Tool`): maps and studio models to GLBs keyed by Wire model path, with its library and tests. |
 | `mirror/` | The Frontend mirror: a Rusty Engine product (`DarkMessiah.Mirror`) that replays a recording on the imported level, with its smoke run. Its own Engine pin is in `mirror/Directory.Build.props`. |
+| `combat/` | The Shadow combat model (`DarkMessiah.Combat`): NPC verdicts, player parries and damage from captured inputs, and `dm-combat score`, which scores it against recordings. |
 | `tools/vpk_list_maps.py` | Lists the `.bsp` maps inside the game's VPK directory files. |
 | `local/` (gitignored) | Recordings, dumps and anything else derived from the game: `local/donor/vpks` (a copy of the game's VPKs, which the importer reads) and `local/import` (its GLBs and `<map>.assets.json`). |
 

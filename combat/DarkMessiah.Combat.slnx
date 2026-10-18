@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DarkMessiah.Combat/DarkMessiah.Combat.csproj" />
+  <Project Path="DarkMessiah.Combat.Tool/DarkMessiah.Combat.Tool.csproj" />
+  <Project Path="DarkMessiah.Combat.Tests/DarkMessiah.Combat.Tests.csproj" />
+</Solution>

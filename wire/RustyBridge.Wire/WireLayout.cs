@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 10;
+    public const uint Version = 11;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -289,7 +289,9 @@ public struct WireDamage
     /// Attacker is then its owner.</summary>
     public ushort Weapon;
     public short HitBox, HitGroup, PhysicsBone;
-    public byte TraceValid, Reserved;
+    public byte TraceValid;
+    /// <summary>v11: the attacker's critical byte (+0x21F7) as the call arrived; set, the melee routine doubled the blow.</summary>
+    public byte AttackerCritical;
     public float PositionX, PositionY, PositionZ;
     public float ForceX, ForceY, ForceZ;
     public float TraceStartX, TraceStartY, TraceStartZ;
@@ -299,7 +301,12 @@ public struct WireDamage
     public float MMDirectionX, MMDirectionY, MMDirectionZ;
     /// <summary>EHANDLE serials of the entities above (0 with <see cref="WireLayout.NoEntity"/>).</summary>
     public uint VictimSerial, AttackerSerial, InflictorSerial, TraceEntitySerial, WeaponSerial;
-    public uint Reserved2;
+    /// <summary>v11: an NPC victim's alert level (magnitude of +0x36EC), which the melee routine compares with mul_damages_Npc_Not_alerted_level.</summary>
+    public short VictimAlert;
+    /// <summary>v11: the NPC victim's state (+0x1A5C); 3 never takes the not-alerted multiplier.</summary>
+    public byte VictimNpcState;
+    /// <summary>v11: 1 when <see cref="VictimAlert"/> and <see cref="VictimNpcState"/> were read (npc_* victims).</summary>
+    public byte VictimAlertValid;
 }
 
 /// <summary>An Arkane NPC's verdict on a melee blow (CNPC_BaseArx's defense virtual).</summary>
@@ -338,6 +345,13 @@ public struct WireDefense
     public uint Source;
     /// <summary>EHANDLE serials of the entities above (0 with <see cref="WireLayout.NoEntity"/>).</summary>
     public uint VictimSerial, AttackerSerial, WeaponSerial, StruckSerial;
+    /// <summary>v11: the NPC's defense state as its verdict read it (0x4 parry/block, 0x10 shield up); see <see cref="StateValid"/>.</summary>
+    public uint VictimState;
+    /// <summary>v11: 1 when <see cref="VictimState"/> was read (NPC verdicts with the state getter found).</summary>
+    public byte StateValid;
+    /// <summary>v11: the NPC's no-effect byte (+0x2961): set, the verdict is 4 whatever the blow struck.</summary>
+    public byte NoEffect;
+    public ushort Reserved;
 }
 
 /// <summary>

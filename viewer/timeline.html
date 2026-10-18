@@ -197,10 +197,10 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 10) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 10).`);
+  if (version < 1 || version > 11) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 11).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
-  const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
+  const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
   const bySerial = new Map();   // v5: `${index}:${serial}` -> track, for resolving event records
   const dec = new TextDecoder("ascii");
   const str = (o) => { const n = v.getUint16(o, true); return [dec.decode(new Uint8Array(buf, o + 2, n)), o + 2 + n]; };
@@ -306,6 +306,7 @@ function parseRecording(buf) {
           // v5 serials: victim, attacker, weapon, struck at +32..+44, in the order of their indices at +4..+10.
           const ent = resolver(v, p, version >= 5 ? 32 : -1, [4, 6, 8, 10]);
           defenses.push({ fi, tick: v.getInt32(p, true), victim: ent(4), attacker: ent(6), weapon: ent(8), struck: ent(10), result: v.getInt32(p + 12, true), source: v.getUint32(p + 28, true),
+                          state: version >= 11 && v.getUint8(p + 52) ? v.getUint32(p + 48, true) : null, noEffect: version >= 11 ? v.getUint8(p + 53) : 0,
                           dir: [v.getFloat32(p + 16, true), v.getFloat32(p + 20, true), v.getFloat32(p + 24, true)] });
         }
       }
@@ -570,7 +571,8 @@ function buildEvents() {
     li.children[2].textContent = e.damage || selected ? e.text : `${label(e.track)}: ${e.kind === "action" ? "swings " : ""}${e.text}`;
     li.addEventListener("click", () => { if (!selected) select(e.track); seek(e.fi); });
     if (e.damage) li.title = damageDetail(e.damage);
-    if (e.defense) li.title = `defense check result ${e.defense.result}${e.defense.struck && e.defense.struck !== e.defense.victim ? `, blow struck ${label(e.defense.struck)}` : ""}, direction ${e.defense.dir.map((x) => x.toFixed(2)).join(" ")}`;
+    if (e.defense) li.title = `defense check result ${e.defense.result}${e.defense.struck && e.defense.struck !== e.defense.victim ? `, blow struck ${label(e.defense.struck)}` : ""}, direction ${e.defense.dir.map((x) => x.toFixed(2)).join(" ")}` +
+      (e.defense.state !== null && e.defense.state !== undefined ? `, defense state 0x${e.defense.state.toString(16)}${e.defense.state & 4 ? " (parry)" : ""}${e.defense.state & 0x10 ? " (shield up)" : ""}` : "") + (e.defense.noEffect ? ", no-effect set" : "");
     ul.appendChild(li);
   }
 }

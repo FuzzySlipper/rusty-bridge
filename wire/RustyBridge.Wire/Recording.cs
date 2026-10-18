@@ -8,14 +8,15 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 10;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+    public const uint Version = 11;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
                                         // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view;
-                                        // v9: its camera and viewmodel animation; v10: 80-byte entities (parent, attachment, owner)
+                                        // v9: its camera and viewmodel animation; v10: 80-byte entities (parent, attachment, owner);
+                                        // v11: 56-byte defense records (the NPC's defense state)
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, < 10 => 64, _ => Marshal.SizeOf<WireEntity>() };
     public static int DamageBytes(uint version) => version < 5 ? 128 : Marshal.SizeOf<WireDamage>();
-    public static int DefenseBytes(uint version) => version < 5 ? 32 : Marshal.SizeOf<WireDefense>();
+    public static int DefenseBytes(uint version) => version < 5 ? 32 : version < 11 ? 48 : Marshal.SizeOf<WireDefense>();
     public const int KeyframeInterval = 330;  // 5 s at 66 ticks/s
 
     public const byte LevelRecord = 1;

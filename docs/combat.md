@@ -37,6 +37,7 @@ each `.mdl` in the VPKs, commented. `CombatData` reads them by model path
 | A character's `combatmovedatas` | per attack sequence: `HitPow`, and `breakparade`/`forcebreakparade`; an attack in parts lists `event0`, `event1`… |
 | A weapon's `entity_data` | `WDmg`, "to be added to damage done" |
 | `models/npc/player/first_basic.qct` | the player's attacks, named by the first-person layers they play as |
+| `scripts/mm_game_settings.txt` | `mul_damages_Npc_Not_alerted` (3) and its `_level` (0), `player_damage_multiplier` (1.0) |
 
 `combatmovedatas` is a top-level block in most files and sits inside
 `$keyvalues` in `npc_orc.qct`, which misses a brace.
@@ -85,15 +86,14 @@ published) hold no combat data.
 
 `CombatModel` holds the rules, each with its evidence:
 
-- **NPC verdict:**
-  - A blow that strikes the defender's weapon is a parry; its off-hand item
-    (shield), a shield block.
-  - On the body, a parry stance parries, and a raised shield blocks blows
-    from in front.
-  - Otherwise the blow is a hit.
-  - This follows `CNPC_BaseArx`'s defense virtual (docs/wire.md "The
-    defense hook"). The defense-state bits it reads aren't streamed, so the
-    stance stands in for them.
+- **NPC verdict**, in the order of `CNPC_BaseArx`'s defense virtual (docs/wire.md,
+  "The defense hook"):
+  - its no-effect byte (+0x2961) set: no effect (4), whatever the blow struck;
+  - a blow that strikes the defender's weapon: a parry; its off-hand item (shield): a shield block;
+  - on the body, its defense-state word: bit 0x4 parries, bit 0x10 blocks blows from in front;
+  - otherwise a hit.
+  - From Wire v11 the state word and the byte come with each verdict. Before, the stance the defender
+    plays stands in for the state, and no-effect can't be told.
 - **Player parry:** broken when the part of the attack that struck has
   `breakparade` or `forcebreakparade` (the donor's weapon flag 0x10,
   docs/wire.md "The player's parry"); parried otherwise.
@@ -106,11 +106,37 @@ published) hold no combat data.
 - **Damage requested:** (strength + weapon `WDmg`, or 1 unarmed) × the
   struck part's `HitPow` × the victim's `hitboxes_modifier` for the hit
   group. A parried or blocked blow asks for 0: the melee routine zeroes it
-  before `TakeDamage`.
+  before `TakeDamage`. The player's blows also take:
+  - **×2 when critical.** The melee routine's `DmgCrit` is `DmgBase × (1 + (the player's byte +0x21F7 != 0))`.
+    The byte is a random roll at the swing: below 2 × an equipment stat plus the weapon's chance,
+    for weapons that can critical. A critical power attack also carries damage type bit 0x10000.
+    NPCs' bytes are set too, but their blows aren't doubled.
+  - **×3 on an NPC that isn't alerted** (`mul_damages_Npc_Not_alerted`): its alert level
+    (+0x36EC) is at most `mul_damages_Npc_Not_alerted_level` (0), and its state (+0x1A5C) isn't 3.
+  - **× `player_damage_multiplier`** (1.0).
+  - **Inputs:** the multipliers come from `scripts/mm_game_settings.txt`. The critical byte and the
+    alert level are streamed from Wire v11.
+  - **Before v9:** the player's attack comes from the server view model's layers. From v9, when those
+    are missing, it comes from the client's.
 - **Damage applied:** the victim loses what was asked, a tenth of it between
   NPCs of the same class.
   - A kill counts as a kill whether the donor left the health at 0 or below
     it; it does both.
+
+## How the donor computes melee damage
+
+`mm_show_dmg_computing 1` with `developer 1` makes Arkane's melee routine
+(`server.dll+0x407D70`) print each computation to the console through `DevMsg`.
+- **What it prints:** `DmgBase`, `DmgCrit`, `Armor`, `HB Modifier`, a dodged or blocked zero, and the
+  not-alerted test with the target's alert level.
+- **Damage to the player:** a dynamic-difficulty multiplier ("Difficulty dmg mul").
+- **The player's blows:** `player_damage_multiplier` ("Final Player dmg multiplier"), then `DmgFinal`.
+- **NPC attackers:** `HitPow` is applied after the routine. A ghoul's blow prints `DmgBase 12`, the
+  guard's chest modifier 0.5 and `DmgFinal 6`, and the request is that times the struck part's `HitPow`.
+- **The player:** `HitPow` is already in its base: the short sword's 2 × 0.7 = 1.4.
+- **In the 2026-10-18 sessions:** every target was alerted (levels 3–4) and the difficulty multiplier
+  was 1.00 throughout. The not-alerted rule, the player's critical and the difficulty multiplier
+  never fired.
 
 ## Scores
 
@@ -129,6 +155,18 @@ limbs. The model now reads them, and scores at least as well everywhere:
 | l01_a-parry (v4) | 72 / 72 | 2 / 2 | 80 / 86, 1 unmodelled | 24 / 24 |
 | l01_a-parry-attempt3 (v4) | 90 / 90 | – | 37 / 37 | – |
 | l01_a-layers (v6) | 82 / 91 | 21 / 21 | 141 / 142 | 35 / 35 |
+| l01_a-v11-damage (v11) | 161 / 161 | 12 / 12 | 240 / 240 | 27 / 27 |
+| l01_a-v11-crit (v11) | 902 / 902 | – | 158 / 158 | 22 / 22 |
+| l01_a-v11-unaware (v11) | 220 / 220 | – | 66 / 66 | 8 / 8 |
+
+The v11 sessions stream the defense state, the no-effect byte, the player's
+critical byte and the victims' alert levels. Every verdict and request agrees.
+In `l01_a-v11-damage`, 8 parries came from state bit 0x4 while the orc was
+moving, and 5 no-effect verdicts came from the byte. Before v11 these were
+the stance's misses. In `l01_a-v11-crit`, 5 player blows needed the client's
+view-model layers: the server view model had none, about 70% of the session.
+These include a 60 from `layer_combo_sword_huge` (`HitPow` 30) and 9 from a
+power attack to the head.
 
 The data explained what the measured tables couldn't: a ghoul lunge's
 second strike asks 0 because its table has one part, and its
@@ -141,15 +179,16 @@ Wire doesn't say:
   health;
 - l01_a's guards, who never drop below 1.
 
-**Every remaining mismatch has a stated reason, all tracked in #10077:**
-- **NPC defense state:** the orc chose to parry 9 body blows (l01_a-layers)
-  from defense-state bits the Wire doesn't carry.
-- **A player blow above its fast attack:** 8.4 to a head straight out of a
-  parry (`layer_parry_sword_noshield_out` at weight 0.8), 2 × the table: a
-  riposte or charge the Wire doesn't identify.
-- **The orc's attack_Fast:** its first part asked 0.6 of the base once where
-  the table says 0.4 (3.2 six times).
-- **The ghoul's Turn_strike_90_right:** its animation has no part event
-  (only 2175/2176); it asked 0 on every contact in l01_a-parry and 12 in
-  l01_a-parrybot.
-- **Untested:** no recorded case has a shield-up block on the body.
+**Every remaining mismatch is in a recording made before Wire v11, with a stated reason (#10077):**
+- **NPC defense state:** the orc's 9 state-bit parries in l01_a-layers. The state is on the Wire from v11.
+- **A player blow at twice its table:** 8.4 to a head (l01_a-layers). It fits a player critical, which
+  doesn't always set the damage type's bit. The critical byte is on the Wire from v11.
+- **Not taken further:**
+  - **The orc's attack_Fast:** it once asked 4.8 where its table gives 3.2. That's ×1.5, which no table
+    or setting gives. One blow, in a v3 recording.
+  - **The ghoul's Turn_strike_90_right:** in l01_a-parry it asked 0 on six contacts and 12 on one, at the
+    same cycle (0.45), in one fight. Nothing streamed (flags, type, hit group, force) tells them apart.
+    Its table lists `HitPow` 1. Its animation fires 2175/2176 at 0.21 and 0.79, not the part events.
+  - **If either recurs:** the damage prints show whether the routine zeroed the blow or the part's
+    `HitPow` did.
+- **Untested:** no recorded case has a shield-up block on the body. No v11 session raised state bit 0x10.

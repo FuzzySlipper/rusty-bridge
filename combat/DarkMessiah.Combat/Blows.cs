@@ -24,7 +24,9 @@ public sealed record Party(string Class, string Sequence, IReadOnlyList<string> 
 public enum Struck { Body, Weapon, OffHand, Other }
 
 /// <summary>An NPC defense check: the inputs the donor's verdict had, and the verdict.</summary>
-public sealed record DefenseCase(int Tick, Party Victim, Party Attacker, string Weapon, Struck Struck, float Front, DefenseResult Donor)
+/// <param name="State">From Wire v11: the defender's defense-state word as its verdict read it; null before.</param>
+/// <param name="NoEffect">From Wire v11: the defender's no-effect byte was set.</param>
+public sealed record DefenseCase(int Tick, Party Victim, Party Attacker, string Weapon, Struck Struck, float Front, DefenseResult Donor, uint? State = null, bool NoEffect = false)
 {
     public override string ToString() => $"tick {Tick}: {Attacker.Class} ({Attacker.Sequence}) on {Victim.Class} ({Victim.Sequence}), struck {Struck}, front {Front:F2}";
 }
@@ -40,8 +42,10 @@ public sealed record ParryCase(int Tick, Party Attacker, DefenseResult Donor, in
 /// requested, and what it applied. <see cref="Contact"/> is which contact of
 /// the attacker's swing on this victim it was (0 the first).
 /// </summary>
+/// <param name="VictimAlert">From Wire v11: an NPC victim's alert level, and its state, which the not-alerted multiplier reads; null before.</param>
 public sealed record DamageCase(int Tick, Party Victim, Party Attacker, string Weapon, int? HitGroup, uint DamageType, int WeaponFlags,
-    float Requested, float HealthBefore, float HealthAfter, bool Defended, int Contact = 0, string WeaponModel = "")
+    float Requested, float HealthBefore, float HealthAfter, bool Defended, int Contact = 0, string WeaponModel = "",
+    int? VictimAlert = null, int VictimNpcState = 0, bool AttackerCritical = false)
 {
     public float Applied => HealthBefore - HealthAfter;
     public override string ToString() =>
@@ -131,7 +135,15 @@ public static class Blows
                 string Name(int sequence) => s.Sequences is { } names && sequence >= 0 && sequence < names.Length ? names[sequence] : "";
                 var layers = LayerNames(layerSource, index, s.Sequences);
                 if (s.Class == "player" && viewModel.Value.ModelIndex != 0)
-                    layers = LayerNames(f.Layers, viewModel.Key, f.Sequences.GetValueOrDefault(viewModel.Value.ModelIndex));
+                {
+                    var vmNames = f.Sequences.GetValueOrDefault(viewModel.Value.ModelIndex);
+                    layers = LayerNames(f.Layers, viewModel.Key, vmNames);
+                    // The server view model doesn't always carry its layers; from Wire v9 the client's,
+                    // which drew the swing, are on the Wire too.
+                    if (layers.Count == 0 && f.ClientView.Flags.HasFlag(ClientViewFlags.ViewmodelLayers))
+                        layers = f.ClientView.ViewmodelLayers.OrderBy(l => l.Order)
+                            .Select(l => vmNames is not null && l.Sequence >= 0 && l.Sequence < vmNames.Length ? vmNames[l.Sequence] : "").Where(n => n.Length > 0).ToList();
+                }
                 string id = f.Version >= 5 ? $"#{index}.{serial:x}" : $"#{index}";
                 string recent = lastAttack.TryGetValue(id, out var a) && f.Tick - a.Tick <= AttackMemoryTicks ? a.Sequence : "";
                 return new Party(s.Class, (s.Entity.Flags & WireEntityFlags.HasAnimation) != 0 ? Name(s.Entity.Sequence) : "", layers, s.Entity.Cycle,
@@ -160,7 +172,8 @@ public static class Blows
                 var attacker = Who(d.Attacker, d.AttackerSerial);
                 var struckBy = d.Struck == d.Victim && d.StruckSerial == d.VictimSerial ? Struck.Body : Classify(Who(d.Struck, d.StruckSerial).Class);
                 defense.Add(new DefenseCase(d.Tick, victim, attacker, Who(d.Weapon, d.WeaponSerial).Class, struckBy,
-                    Front(d, f.Entities.TryGetValue(d.Victim, out var v) ? v : null), d.Result));
+                    Front(d, f.Entities.TryGetValue(d.Victim, out var v) ? v : null), d.Result,
+                    d.StateValid != 0 ? d.VictimState : null, d.NoEffect != 0));
             }
 
             // One swing can touch a defender twice in a tick (its body, then its weapon), and the
@@ -200,7 +213,8 @@ public static class Blows
                 var record = d;
                 contacts.Add((d.Tick, contacts.Count, () => damage.Add(new DamageCase(record.Tick, victim, attacker, weapon.Class,
                     record.TraceValid != 0 ? record.HitGroup : null, record.DamageType, record.WeaponFlags,
-                    record.Damage, record.HealthBefore, record.HealthAfter, defended, Contact(attacker, victim, record.Tick), weapon.Model))));
+                    record.Damage, record.HealthBefore, record.HealthAfter, defended, Contact(attacker, victim, record.Tick), weapon.Model,
+                    record.VictimAlertValid != 0 ? record.VictimAlert : null, record.VictimNpcState, record.AttackerCritical != 0))));
             }
             foreach (var c in contacts.OrderBy(c => c.Tick).ThenBy(c => c.Order)) c.Add();
 

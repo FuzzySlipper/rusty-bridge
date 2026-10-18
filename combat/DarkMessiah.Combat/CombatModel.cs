@@ -26,21 +26,30 @@ public sealed class CombatModel(CombatData data)
     public CombatData Data => data;
 
     /// <summary>
-    /// An NPC's verdict on a blow (CNPC_BaseArx's defense virtual). The blow
-    /// striking its weapon is a parry and its off-hand item a shield block,
-    /// whatever its state. On the body, its defense state decides: parrying
-    /// (state bit 0x4) parries, a raised shield (0x10) blocks blows from in
-    /// front. The state bits aren't on the Wire; the stance the defender is
-    /// playing before the blow stands in for them.
+    /// An NPC's verdict on a blow (CNPC_BaseArx's defense virtual, in its order):
+    /// - its no-effect byte (+0x2961) set: no effect (4), whatever the blow struck;
+    /// - the blow striking its weapon: a parry; its off-hand item: a shield block;
+    /// - on the body, its defense state: parrying (bit 0x4) parries, a raised
+    ///   shield (0x10) blocks blows from in front.
+    /// From Wire v11 the state word and the byte are streamed with each verdict.
+    /// Before, the stance the defender is playing stands in for the state, and
+    /// no-effect can't be told.
     /// </summary>
-    public static DefenseResult Verdict(DefenseCase c) => c.Struck switch
+    public static DefenseResult Verdict(DefenseCase c) => c switch
     {
-        Struck.Weapon => DefenseResult.Parry,
-        Struck.OffHand => DefenseResult.Shield,
+        { NoEffect: true } => DefenseResult.NoEffect,
+        { Struck: Struck.Weapon } => DefenseResult.Parry,
+        { Struck: Struck.OffHand } => DefenseResult.Shield,
+        { State: uint s } when (s & ParryState) != 0 => DefenseResult.Parry,
+        { State: uint s } when (s & ShieldState) != 0 && c.Front >= ShieldFrontCosine => DefenseResult.Shield,
+        { State: uint } => DefenseResult.Hit,
         _ when Stance(c.Victim) == DefenseStance.Parry => DefenseResult.Parry,
         _ when Stance(c.Victim) == DefenseStance.Shield && c.Front >= ShieldFrontCosine => DefenseResult.Shield,
         _ => DefenseResult.Hit,
     };
+
+    /// <summary>The defense-state bits the verdict tests: 0x4 parry/block, 0x10 shield up.</summary>
+    public const uint ParryState = 0x4, ShieldState = 0x10;
 
     public enum DefenseStance { None, Parry, Shield }
 
@@ -125,6 +134,10 @@ public sealed class CombatModel(CombatData data)
     /// <item>× the `HitPow` of the attack's part that struck (by animation event). A strike past the table's last part asks for nothing.</item>
     /// <item>× the victim's `hitboxes_modifier` for the hit group struck.</item>
     /// <item>A parried or blocked blow asks for 0: the melee routine zeroes it before TakeDamage.</item>
+    /// <item>A player's critical blow asks for twice as much: the melee routine's DmgCrit is DmgBase × (1 + (the player's byte +0x21F7 != 0)),
+    /// streamed from Wire v11; a critical power attack also carries damage type bit 0x10000. NPC blows aren't doubled.</item>
+    /// <item>The player's blows × `player_damage_multiplier`, and × `mul_damages_Npc_Not_alerted`
+    /// on an NPC whose alert level is at most `_level` and whose state isn't 3 (alert levels on the Wire from v11).</item>
     /// </list>
     /// </summary>
     public float? Damage(DamageCase c)
@@ -137,8 +150,26 @@ public sealed class CombatModel(CombatData data)
         if (float.IsNaN(weapon)) return null;
         float strength = c.Attacker.IsPlayer ? 0 : data.Character(c.Attacker.Model)?.Strength ?? 0;
         float group = c.HitGroup is int g && data.Character(c.Victim.Model) is CharacterData victim ? victim.HitGroup(g) : 1f;
-        return (strength + weapon) * hit.HitPow * group;
+        float damage = (strength + weapon) * hit.HitPow * group;
+        // A critical doubles a player's blow once: by the player's critical byte (Wire v11), or the
+        // damage type a critical power attack carries. The routine only applies DmgCrit on the player's
+        // path; NPCs' bytes are set too (ghoul, cyclops) and their blows aren't doubled.
+        if (c.Attacker.IsPlayer && (c.AttackerCritical || (c.DamageType & CriticalDamage) != 0)) damage *= CriticalMultiplier;
+        if (c.Attacker.IsPlayer)
+        {
+            var settings = data.Settings;
+            damage *= settings.PlayerDamageMultiplier;
+            if (c.VictimAlert is int alert && alert <= settings.NotAlertedLevel && c.VictimNpcState != NotAlertedExemptState)
+                damage *= settings.NotAlertedMultiplier;
+        }
+        return damage;
     }
+
+    /// <summary>Damage type bit 0x10000: a critical hit (the power attack in l01_a-v7-seek asked 6.00 for its 3.00).</summary>
+    public const uint CriticalDamage = 0x10000;
+    public const float CriticalMultiplier = 2f;
+    /// <summary>An NPC in this state (+0x1A5C) never takes the not-alerted multiplier (the melee routine's test).</summary>
+    public const int NotAlertedExemptState = 3;
 
     /// <summary>
     /// The victim's health after a blow: what was asked, a tenth of it between

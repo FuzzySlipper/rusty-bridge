@@ -95,7 +95,7 @@ public static class Scorer
                 continue;
             }
             if (MathF.Abs(asked.Value - c.Requested) <= Tolerance) agree++;
-            else mismatches.Add(new("damage", c.ToString(), F(c.Requested), F(asked.Value), DamageReason(c, asked.Value)));
+            else mismatches.Add(new("damage", c.ToString(), F(c.Requested), F(asked.Value), DamageReason(c, asked.Value, fight.Version)));
         }
         if (fight.Damage.Count > 0) scores.Add(new("damage requested", fight.Damage.Count, agree, unmodelled));
 
@@ -127,9 +127,10 @@ public static class Scorer
     static string F(float v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     static string VerdictReason(DefenseCase c, DefenseResult model) =>
-        c.Struck == Struck.Body && c.Donor is DefenseResult.Parry or DefenseResult.Shield
-            ? "the defender's state bits (0x4 parry, 0x10 shield up) aren't on the Wire (#10077)"
-            : c.Donor == DefenseResult.NoEffect ? "no-effect verdicts (4) aren't modelled yet"
+        c.State is not null ? "unexplained"
+        : c.Struck == Struck.Body && c.Donor is DefenseResult.Parry or DefenseResult.Shield
+            ? "the defender's state bits (0x4 parry, 0x10 shield up) are on the Wire only from v11"
+            : c.Donor == DefenseResult.NoEffect ? "the no-effect byte is on the Wire only from v11"
             : "unexplained";
 
     /// <summary>
@@ -137,14 +138,19 @@ public static class Scorer
     /// by attacker and sequence ("" matches any). Everything else reads
     /// "unexplained", so a new gap stands out.
     /// </summary>
-    static readonly (string Attacker, string Sequence, string Reason)[] KnownOpen =
+    static readonly (string Attacker, string Sequence, uint BeforeVersion, string Reason)[] KnownOpen =
     [
-        ("player", "", "a player blow above its fast attack, out of a parry: a riposte or charge the Wire doesn't identify (#10077)"),
-        ("npc_orc_sword", "attack_Fast", "the first part asked 0.6 of the base once where its .qct says 0.4 (3.2 six times) (#10077)"),
-        ("npc_ghoul", "Turn_strike_90_right", "has no damage event in its animation; asks 0 on every contact in some fights and 12 in others (#10077)"),
+        // Twice its table, as a player critical doubles (the melee routine's DmgCrit, by the player's
+        // byte +0x21F7, which isn't always marked in the damage type). Streamed from Wire v11.
+        ("player", "", 11, "a player critical (×2) the Wire carries only from v11"),
+        // Not taken further (#10077): one blow in a v3 recording, ×1.5 that no table or setting gives.
+        ("npc_orc_sword", "attack_Fast", uint.MaxValue, "not taken further: one 4.8 where its .qct gives 3.2 (×1.5); mm_show_dmg_computing would show the factor if it recurs"),
+        // Not taken further (#10077): the same attack at the same cycle asked 0 and 12 in one fight, and
+        // nothing streamed (flags, type, hit group, force) tells the contacts apart.
+        ("npc_ghoul", "Turn_strike_90_right", uint.MaxValue, "not taken further: asked 0 and 12 at the same cycle in one fight; nothing on the Wire tells them apart"),
     ];
 
-    static string DamageReason(DamageCase c, float model) =>
-        KnownOpen.FirstOrDefault(k => k.Attacker == c.Attacker.Class
+    static string DamageReason(DamageCase c, float model, uint version) =>
+        KnownOpen.FirstOrDefault(k => k.Attacker == c.Attacker.Class && version < k.BeforeVersion
             && (k.Sequence.Length == 0 || k.Sequence.Equals(c.Attacker.Sequence, StringComparison.OrdinalIgnoreCase))).Reason ?? "unexplained";
 }

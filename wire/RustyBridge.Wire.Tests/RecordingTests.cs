@@ -283,7 +283,7 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version10CarriesWallClockPlayerStateSlowTimeLinksParentsAndTheClientView()
+    public void Version11CarriesWallClockPlayerStateSlowTimeLinksParentsAndTheClientView()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
@@ -319,7 +319,7 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(10u, f.Version);
+        Assert.Equal(11u, f.Version);
         Assert.Equal((ushort)7, f.Entities[9].Parent);
         Assert.Equal((byte)3, f.Entities[9].ParentAttachment);
         Assert.Equal(0x123u, f.Entities[9].OwnerSerial);

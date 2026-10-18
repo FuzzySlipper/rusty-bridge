@@ -1232,6 +1232,12 @@ static uint32_t WielderOf(uint16_t index) {
     return owner;
 }
 
+// Read by the melee routine (server.dll+0x407D70) for the not-alerted multiplier:
+// abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level and [npc+0x1A5C] != 3.
+static const int kAlertLevelOffset = 0x36EC, kNpcStateOffset = 0x1A5C;
+// The attacker's critical byte: the melee routine's DmgCrit is DmgBase x (1 + (byte != 0)).
+static const int kCriticalOffset = 0x21F7;
+
 static void ClearPendingDamage() { g_pendingCount = 0; g_pendingDropped = 0; g_defenseCount = 0; g_defenseDropped = 0; g_slowTimeCount = 0; g_slowTimeDropped = 0; }
 
 static void OnDamage(void* victim, const void* info, float before, float after) {
@@ -1259,7 +1265,18 @@ static void OnDamage(void* victim, const void* info, float before, float after) 
         d.weapon_serial = HandleSerial(weapon);
         d.inflictor_serial = HandleSerial(inflictor);
         d.trace_entity_serial = HandleSerial(traced);
-        d.reserved2 = 0;
+        d.victim_alert = 0;
+        d.victim_npc_state = 0;
+        d.victim_alert_valid = 0;
+        if (d.victim != wire::kNoEntity) {
+            const char* cls = ClassNameAt(d.victim);
+            if (cls && !strncmp(cls, "npc_", 4)) {
+                int alert = *(const int*)((const unsigned char*)victim + kAlertLevelOffset);
+                d.victim_alert = (int16_t)(alert < 0 ? -alert : alert);
+                d.victim_npc_state = *((const unsigned char*)victim + kNpcStateOffset);
+                d.victim_alert_valid = 1;
+            }
+        }
         d.damage = F(dmg::Damage);
         d.health_before = before;
         d.health_after = after;
@@ -1269,7 +1286,13 @@ static void OnDamage(void* victim, const void* info, float before, float after) 
         d.hitbox = (int16_t)I(dmg::HitBox);
         d.hitgroup = (int16_t)I(dmg::HitGroup);
         d.physics_bone = (int16_t)I(dmg::PhysicsBone);
-        d.reserved = 0;
+        d.attacker_critical = 0;
+        if (d.attacker != wire::kNoEntity) {
+            const char* cls = ClassNameAt(d.attacker);
+            unsigned char* e = g_edicts + d.attacker * g_stride;
+            const unsigned char* who = cls && (!strcmp(cls, "player") || !strncmp(cls, "npc_", 4)) ? *(const unsigned char**)(e + g_unkOff) : nullptr;
+            if (who) d.attacker_critical = who[kCriticalOffset] ? 1 : 0;
+        }
         memcpy(d.position, in + dmg::Position, 12);
         memcpy(d.force, in + dmg::Force, 12);
         memcpy(d.trace_start, in + dmg::TraceStart, 12);
@@ -1347,7 +1370,36 @@ static uint16_t IndexOrNone(void* entity) {
     return i < 0 ? wire::kNoEntity : (uint16_t)i;
 }
 
+// The NPC's defense state, as the verdict reads it: CNPC_BaseArx's getter at
+// server.dll+0x2BBCA0 returns a word cached per tick (+0x23D4, stamped with
+// the tick at +0x23D8), recomputed through vtable+0xC98 when stale. The
+// verdict tests its bits 0x4 (parry/block) and 0x10 (shield up). Read before
+// the verdict, so it is the state the verdict sees.
+static const uint32_t kDefenseStateRva = 0x2BBCA0;
+static const int kNoEffectOffset = 0x2961;
+typedef uint32_t (__thiscall* DefenseStateFn)(void* self);
+static DefenseStateFn g_defenseState;
+
+static void FindDefenseState(unsigned char* base) {
+    unsigned char* f = base + kDefenseStateRva;
+    if (CodeIs(f, "A1 ?? ?? ?? ?? 8B 40 18 56 8B F1 39 86 D8 23 00 00 75 ?? 8B 8E D4 23 00 00"))
+        g_defenseState = (DefenseStateFn)f;
+    else
+        Log("defense hook: the defense-state getter at server.dll+0x%X isn't as read; no defense states", kDefenseStateRva);
+}
+
 static int __fastcall DefenseHook(void* victim, void* /*edx*/, void* dir, void* out1, void* struck, void* out2, void* attacker, void* weapon) {
+    uint32_t state = 0;
+    uint8_t stateValid = 0, noEffect = 0;
+    if (g_streamOk && g_defenseState) {
+        __try {
+            state = g_defenseState(victim);
+            stateValid = 1;
+            noEffect = *((unsigned char*)victim + kNoEffectOffset);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ++g_faults;
+        }
+    }
     int result = g_defense(victim, dir, out1, struck, out2, attacker, weapon);
     ++g_defenseTotal;
     if (!g_streamOk) return result;
@@ -1367,6 +1419,10 @@ static int __fastcall DefenseHook(void* victim, void* /*edx*/, void* dir, void* 
         if (dir) memcpy(d.direction, dir, sizeof d.direction);
         else memset(d.direction, 0, sizeof d.direction);
         d.source = 0;
+        d.victim_state = state;
+        d.state_valid = stateValid;
+        d.no_effect = noEffect;
+        d.reserved = 0;
         ++g_defenseCount;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ++g_faults;
@@ -1396,7 +1452,8 @@ static void InstallDefenseHook() {
     VirtualProtect(site, 6, old, &old);
     FlushInstructionCache(GetCurrentProcess(), site, 6);
     g_defenseSite = site;
-    Log("defense hook: CNPC_BaseArx defense check at %p hooked", site);
+    FindDefenseState(base);
+    Log("defense hook: CNPC_BaseArx defense check at %p hooked, defense states %s", site, g_defenseState ? "on" : "off");
 }
 
 static void RemoveDefenseHook() {
@@ -1455,6 +1512,10 @@ static void __stdcall OnParryState(void* player, int state, void* edi, unsigned 
         d.result = state == 1 ? wire::kPlayerParried : wire::kPlayerParryBroken;
         memset(d.direction, 0, sizeof d.direction);
         d.source = source;
+        d.victim_state = 0;
+        d.state_valid = 0;
+        d.no_effect = 0;
+        d.reserved = 0;
         ++g_defenseCount;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ++g_faults;

@@ -44,6 +44,13 @@ static class GameData
             $keyvalues { "entity_data" { "WDmg" "7" // To be added to damage done.
             } }
             """),
+        ["scripts/mm_game_settings.txt"] = Text("""
+            Game
+            {
+             "Combat" { "mul_damages_Npc_Not_alerted" "3" // VAlue that multiply damages done by player when npc is not alerted
+                "mul_damages_Npc_Not_alerted_level" "0" "player_damage_multiplier" "1.0" }
+            }
+            """),
         ["models/items/weapons/sword_short/sword_short.qct"] = Text("""
             $keyvalues { "entity_data" { "WDmg" "2" } }
             """),
@@ -123,6 +130,38 @@ public sealed class ModelTests
         // A broken parry and a counter-attack are not defending.
         Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(Blow(Struck.Body, Orc("Parry_Break"))));
         Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(Blow(Struck.Body, Orc("Block_attack"))));
+    }
+
+    [Fact]
+    public void FromWireV11TheStreamedDefenseStateDecides()
+    {
+        DefenseCase With(Struck struck, uint state, bool noEffect = false, float front = 1) =>
+            Blow(struck, Orc("Combatmove_left_small"), front) with { State = state, NoEffect = noEffect };
+        // The state word, not the stance: parrying while moving, and a shield up only in front.
+        Assert.Equal(DefenseResult.Parry, CombatModel.Verdict(With(Struck.Body, 0x200006)));
+        Assert.Equal(DefenseResult.Shield, CombatModel.Verdict(With(Struck.Body, 0x10, front: 0.9f)));
+        Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(With(Struck.Body, 0x10, front: -0.9f)));
+        Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(Blow(Struck.Body, Orc("idle", 0, "layer_parry_B")) with { State = 0x800000 }));
+        // The no-effect byte comes first, whatever the blow struck.
+        Assert.Equal(DefenseResult.NoEffect, CombatModel.Verdict(With(Struck.OffHand, 0x200012, noEffect: true)));
+    }
+
+    [Fact]
+    public void ThePlayersCriticalsAndBlowsOnUnalertedNpcsMultiply()
+    {
+        const string sword = "weapon_arx_short_sword";
+        var plain = Hit(Player, sword, ShortSword, Orc(), 1);
+        Assert.Equal(4.2f, Model.Damage(plain)!.Value, 4);
+        // A critical doubles, by the streamed byte or the damage type.
+        Assert.Equal(8.4f, Model.Damage(plain with { AttackerCritical = true })!.Value, 4);
+        Assert.Equal(8.4f, Model.Damage(plain with { DamageType = 0x10004 })!.Value, 4);
+        // An NPC's critical byte doesn't double its blow.
+        Assert.Equal(6f, Model.Damage(Hit(Ghoul("attack_bash", 0.38f), "-", "", Villager, 2) with { AttackerCritical = true }));
+        // Not alerted (alert level 0, at or below the setting's level): ×3; alerted, or in state 3: not.
+        Assert.Equal(12.6f, Model.Damage(plain with { VictimAlert = 0 })!.Value, 4);
+        Assert.Equal(4.2f, Model.Damage(plain with { VictimAlert = 4 })!.Value, 4);
+        Assert.Equal(4.2f, Model.Damage(plain with { VictimAlert = 0, VictimNpcState = 3 })!.Value, 4);
+        Assert.Equal(new GameSettings(3, 0, 1), Model.Data.Settings);
     }
 
     [Fact]
@@ -317,5 +356,22 @@ public sealed class RecordedFightTests(Xunit.Abstractions.ITestOutputHelper outp
         output.WriteLine(report.Format());
         Assert.DoesNotContain(report.Mismatches, m => m.Reason.StartsWith("unexplained", StringComparison.Ordinal));
         Assert.NotEmpty(report.Scores);
+    }
+
+    /// <summary>
+    /// Wire v11 sessions carry the defenders' state, their no-effect byte, the
+    /// player's critical byte and the victims' alert levels: the model agrees
+    /// with every verdict and every damage request.
+    /// </summary>
+    [Theory]
+    [InlineData("l01_a-v11-damage.rbrec")]
+    [InlineData("l01_a-v11-crit.rbrec")]
+    public void WithTheV11InputsEveryDecisionAgrees(string name)
+    {
+        if (Recording(name) is not string path || Vpks() is null) { output.WriteLine($"no local/recordings/{name} or local/donor/vpks; skipped"); return; }
+        using var stream = File.OpenRead(path);
+        var report = Scorer.Score(Blows.Read(name, stream), CombatModel());
+        output.WriteLine(report.Format());
+        Assert.All(report.Scores.Where(s => s.Decision is "NPC verdict" or "damage requested"), s => Assert.Equal(s.Cases, s.Agree));
     }
 }

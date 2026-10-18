@@ -1,4 +1,4 @@
-# Wire v10
+# Wire v11
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -19,7 +19,9 @@ each tick carries the tap's wall clock, the player's slow-motion and
 adrenaline state and every bullet-time call, and every entity its link: a
 knocked-down NPC's ragdoll and back. Since v8 each tick carries the client's
 view of the local player: its view angles, predicted transform, eye offset
-and first-person viewmodel. Since v10 every entity also carries what it
+and first-person viewmodel. Since v11 each NPC verdict carries the
+defender's defense state, and each damage record the player's critical byte
+and an NPC victim's alert level. Since v10 every entity also carries what it
 hangs from (its move parent and the parent's attachment) and its owner.
 Since v9 the client view also carries the camera the client
 drew with and the client viewmodel's own sequence, cycle and overlay layers.
@@ -27,13 +29,13 @@ A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v10 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v11 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 23,766,272 bytes and maps it read-write; readers open
+creates it, sizes it to 23,799,040 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -50,7 +52,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 181,064 | Ring of slots |
+| 590,080 | 128 × 181,320 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -66,10 +68,10 @@ at 72), then:
 
 - up to 2048 entities of 80 bytes (64 before v10)
 - at slot offset 163,936, up to 64 damage records of 152 bytes
-- at 173,664, up to 32 defense records of 48 bytes
-- at 175,200, up to 256 overlay layer records of 20 bytes
-- at 180,320, up to 16 slow-time records of 32 bytes
-- at 180,832, the 232-byte client view (80 bytes in v8)
+- at 173,664, up to 32 defense records of 56 bytes (48 before v11)
+- at 175,456, up to 256 overlay layer records of 20 bytes
+- at 180,576, up to 16 slow-time records of 32 bytes
+- at 181,088, the 232-byte client view (80 bytes in v8)
 
 Entities:
 
@@ -144,6 +146,7 @@ fields are edict indices, 0xFFFF for none.
 | 30 | `weapon` u16 | the original `m_hAttacker` when it was a held weapon |
 | 32, 34, 36 | `hitbox`, `hitgroup`, `physics_bone` i16 | `m_iTraceHitBox`, `m_iTraceHitGroup`, `m_iTracePhysicsBone` |
 | 38 | `trace_valid` u8 | `m_bTraceInfoValid` |
+| 39 | `attacker_critical` u8 | v11: the attacker's critical byte (+0x21F7) as the call arrived (see "Melee damage") |
 | 40 | `position` 3×f32 | `m_vecDamagePosition` |
 | 52 | `force` 3×f32 | `m_vecDamageForce` |
 | 64, 76 | `trace_start`, `trace_end` 3×f32 | `m_vecTraceStartPos`, `m_vecTraceEndPos` |
@@ -151,7 +154,7 @@ fields are edict indices, 0xFFFF for none.
 | 104 | `slow_time_delay`, `_duration`, `_factor` f32 | `m_fSlowTime*` |
 | 116 | `mm_direction` 3×f32 | `m_vecMMDirection` |
 | 128 | `victim_serial`, `attacker_serial`, `inflictor_serial`, `trace_entity_serial`, `weapon_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
-| 148 | reserved u32 | |
+| 148 | `victim_alert` i16, `victim_npc_state` u8, `victim_alert_valid` u8 | v11: an `npc_*` victim's alert level (magnitude of +0x36EC) and state (+0x1A5C), which the not-alerted multiplier reads; valid 0 otherwise |
 
 Defense records. There are two sources: each verdict from
 `CNPC_BaseArx`'s defense virtual, and each parried or broken change of the
@@ -168,6 +171,8 @@ player's parry state:
 | 16 | `direction` 3×f32 | the vector passed with the check (zero for player records) |
 | 28 | `source` u32 | player records: `server.dll` RVA of the code that set the state |
 | 32 | `victim_serial`, `attacker_serial`, `weapon_serial`, `struck_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
+| 48 | `victim_state` u32 | v11: the NPC's defense-state word as its verdict read it (0x4 parry/block, 0x10 shield up) |
+| 52 | `state_valid` u8, `no_effect` u8, reserved u16 | v11: whether the state was read; the NPC's no-effect byte (+0x2961) |
 
 Overlay layers, one record per active layer (flag 1 set, weight above 0):
 
@@ -301,6 +306,35 @@ CBaseEntity* attacker, CBaseEntity* weapon)`, `ret 0x18`.
 - The player inherits the stub, so it has no verdict (0). Its defense is a
   separate mechanism; see below.
 - The scripted fights in the l01_a intro don't call the check.
+
+**The defense state (v11).** The verdict reads the state through a getter at
+`server.dll+0x2BBCA0`. The getter returns a word cached per tick (+0x23D4, stamped with the tick at
++0x23D8) and recomputes it through `vtable+0xC98` when the stamp is stale.
+- **Reading it:** the tap calls the getter on the victim just before the verdict, so the record has the
+  state the verdict saw. The getter's code is checked first.
+- **No effect:** the verdict's first test is the byte at +0x2961. Set, the result is 4 whatever struck.
+- **What the recordings show:** in `l01_a-v11-damage`, every NPC parry (1) had bit 0x4
+  (e.g. 0x200006) and no hit (2) did; every no-effect (4) had the byte set.
+
+## Melee damage
+
+Arkane's melee routine (`server.dll+0x407D70`) computes a blow and logs each step through `DevMsg`
+when `mm_show_dmg_computing` (a cvar at `[0x2283C8E0]`, flags 0) and `developer` are set.
+docs/combat.md has the pipeline. Where its factors come from:
+
+- **Critical:** `DmgCrit = DmgBase × (1 + ([attacker+0x21F7] != 0))`, on the player's path only.
+  - **The roll:** at `+0x416000..0x4160B0`, the byte is set when `RandomFloat(0, 100) < 2 × (the
+    equipment sum from +0x3E5600) + the chance` (the weapon's +0x1198, or the attacker's +0x1210). It
+    needs a can-critical byte too (the weapon's +0x1124, or the attacker's +0x1230).
+  - **On the Wire:** the damage record's `attacker_critical`, read when `TakeDamage` arrives inside the routine.
+- **Not alerted:** × `mul_damages_Npc_Not_alerted` (settings global `0x2279D1A0`+0x430) when
+  `abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level` (+0x434) and `[npc+0x1A5C] != 3`. The
+  record's `victim_alert` and `victim_npc_state` carry both.
+- **Difficulty:** "Difficulty dmg mul", from the dynamic-difficulty object at settings+0x524
+  (`mm_game_settings.txt` `Difficulty*DmgMul`). It was 1.00 in every printed blow; it isn't streamed.
+- **Player multiplier:** `player_damage_multiplier`, settings+0x56C, 1.0 shipped.
+- **Equipment:** the helpers at `+0x3E5D40` and `+0x3E5600` add up stats over the item slots
+  (+0x18F0..+0x18FC, +0x2250).
 
 ## The player's parry
 

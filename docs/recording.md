@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v10
+## Recording v11
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 10, reserved u32), then records until the end of the file. Each older
+= 11, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 10 | 80 bytes | 152 bytes | 48 bytes | |
+| 11 | 80 bytes | 152 bytes | 56 bytes | |
+| 10 | 80 | 152 (no critical byte, alert level) | 48 (no defense state) | |
 | 9 | 64 (no parent or owner) | 152 | 48 | |
 | 8 | 64 | 152 | 48 | the client view's camera and viewmodel animation (an 80-byte client view) |
 | 7 | 64 | 152 | 48 | the client view |
@@ -25,7 +26,7 @@ version is the newer one with less in it:
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-ten. Each record is
+eleven. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 

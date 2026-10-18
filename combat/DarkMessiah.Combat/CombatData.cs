@@ -22,6 +22,18 @@ public sealed record CharacterData(string Model, float Strength, IReadOnlyDictio
     public AttackData? Attack(string sequence) => Attacks.GetValueOrDefault(sequence);
 }
 
+/// <summary>
+/// The melee routine's settings from `scripts/mm_game_settings.txt`: a player
+/// blow on an NPC at or below <see cref="NotAlertedLevel"/> is multiplied by
+/// <see cref="NotAlertedMultiplier"/>, and every player blow by
+/// <see cref="PlayerDamageMultiplier"/>.
+/// </summary>
+public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier)
+{
+    /// <summary>What the shipped file says, for when it can't be read.</summary>
+    public static readonly GameSettings Shipped = new(3, 0, 1);
+}
+
 /// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done".</summary>
 public sealed record WeaponData(string Model, float Damage);
 
@@ -65,6 +77,27 @@ public sealed class CombatData
     }
 
     public CombatData(Func<string, byte[]?> read) => _read = read;
+
+    GameSettings? _settings;
+
+    /// <summary>The melee routine's settings, read once from `scripts/mm_game_settings.txt`.</summary>
+    public GameSettings Settings => _settings ??= ReadSettings();
+
+    /// <summary>A number under <paramref name="key"/> in this block or any below it, depth first.</summary>
+    static float? Deep(KeyValues block, string key) =>
+        block.Number(key) ?? block.Blocks.Select(b => Deep(b, key)).FirstOrDefault(v => v is not null);
+
+    GameSettings ReadSettings()
+    {
+        if (_read("scripts/mm_game_settings.txt") is not byte[] bytes) return GameSettings.Shipped;
+        var game = KeyValues.ParseAll(bytes).FirstOrDefault();
+        if (game is null) return GameSettings.Shipped;
+        var shipped = GameSettings.Shipped;
+        return new GameSettings(
+            Deep(game, "mul_damages_Npc_Not_alerted") ?? shipped.NotAlertedMultiplier,
+            (int)(Deep(game, "mul_damages_Npc_Not_alerted_level") ?? shipped.NotAlertedLevel),
+            Deep(game, "player_damage_multiplier") ?? shipped.PlayerDamageMultiplier);
+    }
 
     /// <summary>The tables from a game's VPK folder (local/donor/vpks, or the install's vpks).</summary>
     public static CombatData FromVpks(string vpks) => new(new VpkIndex(vpks).Read);

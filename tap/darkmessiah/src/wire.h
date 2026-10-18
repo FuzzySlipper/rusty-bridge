@@ -1,4 +1,4 @@
-// Wire v10: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v11: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 10;
+const uint32_t kVersion = 11;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -125,7 +125,8 @@ struct Damage {
     int16_t hitgroup;           // m_iTraceHitGroup (HITGROUP_*)
     int16_t physics_bone;       // m_iTracePhysicsBone
     uint8_t trace_valid;        // m_bTraceInfoValid
-    uint8_t reserved;
+    uint8_t attacker_critical;  // v11: the attacker's critical byte (+0x21F7) as the call arrived: set,
+                                //   Arkane's melee routine doubled the blow (DmgCrit = DmgBase x 2)
     float position[3];          // m_vecDamagePosition
     float force[3];             // m_vecDamageForce
     float trace_start[3];       // m_vecTraceStartPos
@@ -143,7 +144,12 @@ struct Damage {
     uint32_t inflictor_serial;  //   is reused; 0 with kNoEntity
     uint32_t trace_entity_serial;
     uint32_t weapon_serial;
-    uint32_t reserved2;
+    // v11: an NPC victim's awareness, which Arkane's melee routine reads for
+    // the "not alerted" damage multiplier (mm_game_settings.txt
+    // mul_damages_Npc_Not_alerted, applied at or below _level).
+    int16_t victim_alert;       // the NPC's alert level (+0x36EC, as its magnitude)
+    uint8_t victim_npc_state;   // its state (+0x1A5C); 3 never takes the multiplier
+    uint8_t victim_alert_valid; // 1 when the two fields above were read (npc_* victims)
 };
 
 // One melee defense outcome: an Arkane NPC's verdict on a blow that reached
@@ -170,6 +176,12 @@ struct Defense {
     uint32_t attacker_serial;
     uint32_t weapon_serial;
     uint32_t struck_serial;
+    // v11: the NPC's defense state as its verdict read it (CNPC_BaseArx's cached
+    // state word: 0x4 parry/block, 0x10 shield up), for NPC verdicts.
+    uint32_t victim_state;
+    uint8_t state_valid;        // 1 when victim_state was read
+    uint8_t no_effect;          // the NPC's +0x2961 byte: set, the verdict is 4 (no effect) whatever struck
+    uint16_t reserved;
 };
 
 // One active animation overlay layer (CAnimationLayer in
@@ -252,7 +264,7 @@ static_assert(sizeof(Header) == 144, "Header layout");
 static_assert(sizeof(SlotHeader) == 96, "SlotHeader layout");
 static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
 static_assert(sizeof(Layer) == 20, "Layer layout");
-static_assert(sizeof(Defense) == 48, "Defense layout");
+static_assert(sizeof(Defense) == 56, "Defense layout");
 static_assert(sizeof(Damage) == 152, "Damage layout");
 static_assert(sizeof(Entity) == 80, "Entity layout");
 

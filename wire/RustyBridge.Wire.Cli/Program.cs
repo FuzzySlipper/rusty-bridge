@@ -7,7 +7,8 @@
 //   rbwire info   IN.rbrec                      summarise a recording
 //   rbwire sequences MODEL.mdl [--game DIR]     list a model's sequences in m_nSequence order
 //   rbwire parrybot [--seconds N] [--agent URL] play defense: block when a nearby enemy starts
-//                                               an attack, swing at it otherwise (needs the
+//                                               an attack, turn to, approach and swing at it
+//                                               otherwise (needs rbbot.cfg and the
 //                                               den-win11 playtest agent's desktop lease)
 //
 // record and sequences read model files from the game's VPKs; --game defaults
@@ -96,14 +97,17 @@ int Dump()
     using var reader = OpenLive();
     var snap = new WireSnapshot();
     while (!reader.TryReadLatest(snap)) Thread.Sleep(1);
-    Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} entities {snap.Count} layers {snap.LayerCount}");
+    Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} wall {snap.WallSeconds:F3} entities {snap.Count} layers {snap.LayerCount}");
+    if (snap.Player.Index != WireLayout.NoEntity)
+        Console.WriteLine($"  player #{snap.Player.Index}: {PlayerState(snap.Player)}");
     var layersOf = snap.LayerSpan.ToArray().ToLookup(l => l.Index);
     var resolve = SequenceResolver();
     foreach (ref readonly var e in snap.Span)
         Console.WriteLine($"  #{e.Index,4} {reader.ClassName(snap, e.ClassId),-32} " +
             $"({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) ({e.Pitch:F1} {e.Yaw:F1} {e.Roll:F1}) {reader.ModelPath(snap, e.ModelIndex)}" +
             (e.Flags.HasFlag(WireEntityFlags.HasHealth) && e.MaxHealth > 0 ? $" hp {e.Health:F1}/{e.MaxHealth:F1} life {e.LifeState}" : "") +
-            (e.Flags.HasFlag(WireEntityFlags.HasAnimation) && e.ModelIndex > 0 ? $" seq {e.Sequence} cycle {e.Cycle:F3} rate {e.PlaybackRate:F2}" : ""));
+            (e.Flags.HasFlag(WireEntityFlags.HasAnimation) && e.ModelIndex > 0 ? $" seq {e.Sequence} cycle {e.Cycle:F3} rate {e.PlaybackRate:F2}" : "") +
+            (e.Link != WireLayout.NoEntity ? $" link #{e.Link}" : ""));
     foreach (var l in layersOf.SelectMany(g => g))
     {
         var owner = snap.Span.ToArray().FirstOrDefault(e => e.Index == l.Index);
@@ -145,6 +149,8 @@ int Follow(string? recordPath)
                 layerPeak = Math.Max(layerPeak, snap.LayerCount);
                 foreach (var d in snap.DefenseSpan) if (d.Result is not (DefenseResult.Hit or DefenseResult.None)) defended++;
                 dropped += snap.DamageDropped;
+                foreach (var b in snap.SlowTimeSpan)
+                    Console.WriteLine($"  tick {b.Tick}: slow motion {b.Source} x{b.Factor:F2} for {b.Duration:F2} s {(b.Source == SlowTimeSource.Request ? "after" : "from")} {b.Start:F2} (caller server.dll+0x{b.Caller:X})");
                 recorder?.Write(snap, reader.Map, reader.Header.TickInterval, reader);
                 next++;
             }
@@ -158,7 +164,8 @@ int Follow(string? recordPath)
             string player = "";
             foreach (ref readonly var e in snap.Span)
                 if (reader.ClassName(snap, e.ClassId) == "player")
-                    player = $" player ({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) yaw {e.Yaw:F1} hp {e.Health:F0}/{e.MaxHealth:F0}";
+                    player = $" player ({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) yaw {e.Yaw:F1} hp {e.Health:F0}/{e.MaxHealth:F0}" +
+                        (snap.Player.Index != WireLayout.NoEntity ? $" {PlayerState(snap.Player)}" : "");
             string saved = recorder is null ? "" : $" saved {recorder.Bytes / 1024} KiB";
             Console.WriteLine($"{t,5:F1}s frame {snap.Frame} tick {snap.Tick} ({(lastTick - firstTick) / t:F1} ticks/s) " +
                 $"entities {snap.Count} read {read} lost {lost} retries {retries} damage {hits}{(dropped > 0 ? $" ({dropped} dropped)" : "")} defended {defended} layers {snap.LayerCount} (peak {layerPeak}){saved}{player}");
@@ -183,8 +190,35 @@ int Info(string path)
     var defenseResults = new Dictionary<DefenseResult, int>();
     var pairs = new Dictionary<string, (int hits, double applied)>();
     var names = new EventNames();
+    var slowCallers = new Dictionary<(SlowTimeSource source, uint caller), (int calls, float factor, float duration)>();
+    long slowDropped = 0, slowTicks = 0;
+    float adrenalineMax = float.NaN;
+    var links = new HashSet<(string, string)>();
+    double? firstWall = null, lastWall = null;
+    float firstCurtime = 0, lastCurtime = 0;
     foreach (var f in RecordingReader.Frames(stream))
     {
+        slowDropped += f.SlowTimeDropped;
+        foreach (var b in f.SlowTime)
+        {
+            var c = slowCallers.GetValueOrDefault((b.Source, b.Caller));
+            slowCallers[(b.Source, b.Caller)] = (c.calls + 1, b.Factor, b.Duration);
+        }
+        if (f.Player.Index != WireLayout.NoEntity)
+        {
+            if (f.Player.InBulletTime != 0) slowTicks++;
+            adrenalineMax = float.IsNaN(adrenalineMax) ? f.Player.Adrenaline : MathF.Max(adrenalineMax, f.Player.Adrenaline);
+        }
+        if (!double.IsNaN(f.WallSeconds))
+        {
+            firstWall ??= f.WallSeconds;
+            if (firstWall == f.WallSeconds) firstCurtime = f.Curtime;
+            lastWall = f.WallSeconds;
+            lastCurtime = f.Curtime;
+        }
+        foreach (var (index, e) in f.Entities)
+            if (e.Link != WireLayout.NoEntity && f.Entities.TryGetValue(e.Link, out var linked))
+                links.Add(($"{f.Classes.GetValueOrDefault(e.ClassId, "?")} #{index}", $"{f.Classes.GetValueOrDefault(linked.ClassId, "?")} #{e.Link}"));
         damageDropped += f.DamageDropped;
         names.Observe(f);
         foreach (var d in f.Defense) defenseResults[d.Result] = defenseResults.GetValueOrDefault(d.Result) + 1;
@@ -222,8 +256,26 @@ int Info(string path)
     foreach (var (key, p) in pairs.OrderByDescending(kv => kv.Value.applied).Take(15))
         Console.WriteLine($"  {key,-52} {p.hits,5} {p.applied,8:F1}");
     Console.WriteLine("defense checks: " + (defenseResults.Count == 0 ? "none" : string.Join(", ", defenseResults.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}"))));
+    if (lastWall is double wallEnd && firstWall is double wallStart && wallEnd > wallStart)
+        Console.WriteLine($"time: {lastCurtime - firstCurtime:F2} s of game time in {wallEnd - wallStart:F2} s of wall time ({(lastCurtime - firstCurtime) / (wallEnd - wallStart):F2}x); " +
+            $"player in slow motion {slowTicks * interval:F2} s of game time; adrenaline peak {adrenalineMax:F1}");
+    if (slowCallers.Count > 0 || slowDropped > 0)
+    {
+        Console.WriteLine($"slow motion calls: {slowCallers.Values.Sum(c => c.calls)}, {slowDropped} dropped; by caller:");
+        foreach (var ((source, caller), c) in slowCallers.OrderByDescending(kv => kv.Value.calls))
+            Console.WriteLine($"  {source,-7} server.dll+0x{caller:X}  {c.calls,4} calls  last x{c.factor:F2} for {c.duration:F2} s");
+    }
+    if (links.Count > 0)
+    {
+        Console.WriteLine($"knockdown links: {links.Count}");
+        foreach (var (from, to) in links.Take(15)) Console.WriteLine($"  {from} -> {to}");
+    }
     Console.WriteLine("most travelled:");
     foreach (var ((index, _), t) in travelled.OrderByDescending(kv => kv.Value.distance).Take(15))
         Console.WriteLine($"  #{index,4} {t.cls,-28} {t.distance,9:F1} units  {t.model}");
     return 0;
 }
+
+static string PlayerState(WirePlayerState p) =>
+    $"adrenaline {p.Adrenaline:F1}/{p.MaxAdrenaline:F1}" +
+    (p.InBulletTime != 0 ? $" slow motion x{p.BulletTimeFactor:F2} from {p.BulletTimeStart:F2} for {p.BulletTimeDuration:F2} s" : "");

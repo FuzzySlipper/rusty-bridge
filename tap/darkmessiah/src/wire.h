@@ -1,4 +1,4 @@
-// Wire v6: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v7: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 6;
+const uint32_t kVersion = 7;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -18,6 +18,7 @@ const uint32_t kModelPathBytes = 128;
 const uint32_t kMaxDamage = 64;      // damage records per slot
 const uint32_t kMaxDefense = 32;     // defense records per slot
 const uint32_t kMaxLayers = 256;     // overlay layer records per slot
+const uint32_t kMaxSlowTime = 16;    // bullet-time setter calls per slot
 
 #pragma pack(push, 4)
 
@@ -56,6 +57,19 @@ struct SlotHeader {
     uint32_t defense_dropped;
     uint32_t layer_count;       // overlay layer records after the defense array
     uint32_t layer_dropped;     // active layers that didn't fit (over kMaxLayers)
+    // v7
+    double wall_seconds;        // QueryPerformanceCounter time at the write, seconds since the tap loaded;
+                                //   against curtime it shows the donor's time scale (hit slow motion)
+    uint32_t slow_time_count;   // bullet-time setter calls after the layer array
+    uint32_t slow_time_dropped;
+    uint16_t player;            // edict index of the player the fields below are read from; kNoEntity if none
+    uint8_t in_bullet_time;     // CMM_Player::m_bInBulletTime (+0x20B0): slow motion is on
+    uint8_t bullet_time_sound;  // +0x20B1, set with the bullet time: whether it plays its sound
+    float bullet_time_start;    // m_fBulletTimeStart (+0x20A4): curtime it starts at; <= 0 when none is pending
+    float bullet_time_duration; // m_fBulletTimeDuration (+0x20A8)
+    float bullet_time_factor;   // m_fBulletTimeFactor (+0x20AC): the time scale it sets (mm_host_timescale)
+    float adrenaline;           // m_fAdrenaline (+0x29D8)
+    float max_adrenaline;       // m_fMaxAdrenaline (+0x29D4)
 };
 
 const uint8_t kHasHealth = 1;       // health, max_health and life_state are valid
@@ -75,6 +89,12 @@ struct Entity {
     float cycle;                // CBaseAnimating::m_flCycle, 0..1 through the sequence
     float playback_rate;        // CBaseAnimating::m_flPlaybackRate
     uint32_t serial;            // the entity's EHANDLE serial (handle >> 12); with index, its identity
+    // v7
+    uint16_t link;              // the entity it stands in for or with: an NPC's knockdown ragdoll
+                                //   (m_hRagdollFall, +0x29E4), a prop_ragdoll's NPC (m_hUnragdoll,
+                                //   +0x16A0); kNoEntity when none
+    uint16_t reserved;
+    uint32_t link_serial;       // the linked entity's serial; 0 with kNoEntity
 };
 
 const uint16_t kNoEntity = 0xFFFF;
@@ -159,14 +179,33 @@ struct Layer {
     float playback_rate;        // m_flPlaybackRate
 };
 
+// One call of the player's bullet-time setter (CMM_Player virtual at
+// server.dll+0x146E80: start, duration, factor, sound), which arms slow
+// motion; caller is the server.dll RVA it returns to, naming the code path.
+enum : uint8_t { kSlowTimeSetter = 0, kSlowTimeRequest = 1 };
+
+struct SlowTime {
+    int32_t tick;
+    uint16_t player;
+    uint8_t sound;
+    uint8_t source;             // kSlowTimeSetter or kSlowTimeRequest
+    float start;                // setter: curtime slow motion starts at; request: delay from now
+    float duration;             // seconds of game time (setter) or as asked (request; the game stores duration * factor)
+    float factor;               // time scale while it lasts
+    uint32_t caller;            // server.dll RVA of the return address
+    uint32_t player_serial;
+    uint32_t reserved2;
+};
+
 #pragma pack(pop)
 
 static_assert(sizeof(Header) == 144, "Header layout");
-static_assert(sizeof(SlotHeader) == 56, "SlotHeader layout");
+static_assert(sizeof(SlotHeader) == 96, "SlotHeader layout");
+static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
 static_assert(sizeof(Layer) == 20, "Layer layout");
 static_assert(sizeof(Defense) == 48, "Defense layout");
 static_assert(sizeof(Damage) == 152, "Damage layout");
-static_assert(sizeof(Entity) == 56, "Entity layout");
+static_assert(sizeof(Entity) == 64, "Entity layout");
 
 const uint32_t kClassesOffset = 256;
 const uint32_t kModelsOffset = kClassesOffset + kMaxClasses * kClassNameBytes;
@@ -174,7 +213,8 @@ const uint32_t kSlotsOffset = kModelsOffset + kMaxModels * kModelPathBytes;
 const uint32_t kDamageOffset = sizeof(SlotHeader) + kMaxEntities * sizeof(Entity);  // within a slot
 const uint32_t kDefenseOffset = kDamageOffset + kMaxDamage * sizeof(Damage);
 const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
-const uint32_t kSlotBytes = kLayersOffset + kMaxLayers * sizeof(Layer);
+const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
+const uint32_t kSlotBytes = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 } // namespace wire

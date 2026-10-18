@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v6
+## Recording v7
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 6, reserved u32), then records until the end of the file. Each older
+= 7, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 6 | 56 bytes | 152 bytes | 48 bytes | |
+| 7 | 64 bytes | 152 bytes | 48 bytes | |
+| 6 | 56 (no link) | 152 | 48 | wall clock, player state, slow time |
 | 5 | 56 | 152 | 48 | overlay layers |
 | 4 | 52 (no serial) | 128 (no serials) | 32 (no serials) | |
 | 3 | 52 | 128 | none | |
@@ -21,7 +22,7 @@ version is the newer one with less in it:
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-six. Each record is
+seven. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -30,7 +31,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -119,6 +120,15 @@ OUT.html` writes a copy that opens with the recording already loaded.
 - A hit draws, for 20 ticks, the swing trace (start to end), an X at the
   damage position and a dashed attacker-to-victim line. The detail panel
   shows the selection's last hit taken and dealt.
+- From v7:
+  - frames where the player is in slow motion are shaded on the timeline;
+  - the clock shows the game-time scale when it isn't 1;
+  - the event list adds each bullet-time call with its caller, and each
+    knockdown;
+  - kicks read "player #1 → orc_sword #377 kicks";
+  - the detail panel names a knocked-down NPC's ragdoll (and a ragdoll's
+    NPC), and the player's adrenaline and slow motion;
+  - the player's timeline draws adrenaline, dashed.
 - Action kinds come from sequence names (`actionKind` in the page):
   `attack_*`, `*strike*` (but not `nostrike`), `*kick*` and `*bash*` are
   swings; `Hit_*`, `Push_*`, `stunned_*` and `StandUp_*` are hit reactions.
@@ -197,6 +207,13 @@ Wire. It runs on den-win11 next to the game, with the game in front.
 (17), 8 broken parries (18), 2 NPC weapon parries (1) and 1 shield block
 (8). An earlier bot run, without the delay sweep, also produced 2 NPC
 parries and 9 breaks.
+
+**Seeking (2026-10-18, `l01_a-v7-seek.rbrec`, `rbseek.cfg`):** from facing
+away (172° off), the bot faced its orc within 15° in 7 s and closed from 804
+to 46 units in 11 s. Close in, the orcs circle the player and the bearing
+changes faster than the bot turns. The other v7 runs, kicks, knockdowns and
+slow-motion calls are in [wire.md](wire.md) ("Slow motion", "Kicks,
+knockdowns and adrenaline").
 
 **What decides a player parry is the attack, not the timing.**
 

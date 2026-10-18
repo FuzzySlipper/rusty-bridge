@@ -70,12 +70,27 @@ sealed unsafe class TestWriter : IDisposable
         s->DamageCount = (uint)_damage.Length;
         _damage = Array.Empty<WireDamage>();
         s->DefenseCount = 0;
+        s->Player = _player;
+        s->WallSeconds = _wall;
+        _slowTime.CopyTo(new Span<WireSlowTime>((byte*)s + WireLayout.SlowTimeOffset, _slowTime.Length));
+        s->SlowTimeCount = (uint)_slowTime.Length;
+        _slowTime = Array.Empty<WireSlowTime>();
         _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
         s->LayerCount = (uint)_layers.Length;
         _layers = Array.Empty<WireLayer>();
         Volatile.Write(ref s->Seq, 2 * f + 2);
         Volatile.Write(ref H->FramesWritten, f + 1);
     }
+
+    /// <summary>Player state and wall clock for the next frame written by <see cref="FrameEntities"/>.</summary>
+    public void Player(WirePlayerState player, double wallSeconds) { _player = player; _wall = wallSeconds; }
+
+    /// <summary>Bullet-time calls for the next frame written by <see cref="FrameEntities"/>.</summary>
+    public void SlowTime(params WireSlowTime[] calls) => _slowTime = calls;
+
+    WirePlayerState _player = new() { Index = WireLayout.NoEntity };
+    double _wall;
+    WireSlowTime[] _slowTime = Array.Empty<WireSlowTime>();
 
     /// <summary>Damage records for the next frame written by <see cref="FrameEntities"/>.</summary>
     public void Damage(params WireDamage[] damage) => _damage = damage;

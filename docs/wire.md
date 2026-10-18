@@ -1,4 +1,4 @@
-# Wire v6
+# Wire v7
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -14,16 +14,18 @@ every melee defense verdict (block, parry or hit). Since v5 every entity,
 and every entity named in a damage or defense record, carries its EHANDLE
 serial, so a reused edict index is a different entity. Since v6 each tick
 also carries every active animation overlay layer: the gestures, parries,
-blocks and hit reactions that play over an entity's main sequence. There's
-no input or write-back yet.
+blocks and hit reactions that play over an entity's main sequence. Since v7
+each tick carries the tap's wall clock, the player's slow-motion and
+adrenaline state and every bullet-time call, and every entity its link: a
+knocked-down NPC's ragdoll and back. There's no input or write-back yet.
 
-v2–v6 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v7 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 17,374,464 bytes and maps it read-write; readers open
+creates it, sizes it to 19,542,272 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -40,22 +42,25 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 131,128 | Ring of slots |
+| 590,080 | 128 × 148,064 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
 `tick_interval` (seconds, from the donor), `map[64]`, and `frames_written`
 (u64, at offset 136).
 
-Slot: a 56-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
+Slot: a 96-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 `level_serial` u32, `entity_count` u32, `damage_count` u32,
 `damage_dropped` u32, `defense_count` u32, `defense_dropped` u32,
-`layer_count` u32, `layer_dropped` u32), then:
+`layer_count` u32, `layer_dropped` u32, then v7's `wall_seconds` f64 at 56,
+`slow_time_count` u32, `slow_time_dropped` u32 and the 24-byte player state
+at 72), then:
 
-- up to 2048 entities of 56 bytes
-- at slot offset 114,744, up to 64 damage records of 152 bytes
-- at 124,472, up to 32 defense records of 48 bytes
-- at 126,008, up to 256 overlay layer records of 20 bytes
+- up to 2048 entities of 64 bytes
+- at slot offset 131,168, up to 64 damage records of 152 bytes
+- at 140,896, up to 32 defense records of 48 bytes
+- at 142,432, up to 256 overlay layer records of 20 bytes
+- at 147,552, up to 16 slow-time records of 32 bytes
 
 Entities:
 
@@ -74,6 +79,9 @@ Entities:
 | 44 | `cycle` f32 | `CBaseAnimating::m_flCycle` (+0xEBC), 0..1 |
 | 48 | `playback_rate` f32 | `CBaseAnimating::m_flPlaybackRate` (+0xE70) |
 | 52 | `serial` u32 | the entity's EHANDLE serial (`IServerEntity::GetRefEHandle() >> 12`) |
+| 56 | `link` u16 | v7: an `npc_*`'s `m_hRagdollFall` (+0x29E4), or a `prop_ragdoll`'s `m_hUnragdoll` (+0x16A0); 0xFFFF for none |
+| 58 | reserved u16 | |
+| 60 | `link_serial` u32 | the linked entity's serial |
 
 **Identity is (index, serial).** Edict indices are reused within a level,
 often by an entity of the same class. Each entity's own handle carries a
@@ -148,6 +156,38 @@ Overlay layers, one record per active layer (flag 1 set, weight above 0):
 | 8 | `cycle` f32 | `m_flCycle` |
 | 12 | `weight` f32 | `m_flWeight` |
 | 16 | `playback_rate` f32 | `m_flPlaybackRate` |
+
+Player state (v7, in the slot header; `player` 0xFFFF when edict 1 isn't a
+`player`), read from `CMM_Player`:
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16 | edict index (1) |
+| 2 | `in_bullet_time` u8 | `m_bInBulletTime` (+0x20B0) |
+| 3 | `bullet_time_sound` u8 | +0x20B1 |
+| 4 | `bullet_time_start` f32 | `m_fBulletTimeStart` (+0x20A4), curtime |
+| 8 | `bullet_time_duration` f32 | +0x20A8 |
+| 12 | `bullet_time_factor` f32 | +0x20AC |
+| 16 | `adrenaline` f32 | `m_fAdrenaline` (+0x29D8) |
+| 20 | `max_adrenaline` f32 | `m_fMaxAdrenaline` (+0x29D4, a send prop) |
+
+Slow-time records (v7), one per bullet-time call:
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| 0 | `tick` i32 | |
+| 4 | `player` u16 | |
+| 6 | `sound` u8 | the call's sound flag |
+| 7 | `source` u8 | 0 the player's setter, 1 the static request (see "Slow motion") |
+| 8 | `start` f32 | setter: the curtime slow motion starts at; request: the delay from now |
+| 12 | `duration` f32 | seconds, as asked |
+| 16 | `factor` f32 | time scale while it lasts |
+| 20 | `caller` u32 | `server.dll` RVA of the return address: the code that asked |
+| 24 | `player_serial` u32 | |
+| 28 | reserved u32 | |
+
+`wall_seconds` is the tap's `QueryPerformanceCounter` time since `Load`.
+Game time over wall time is the effective time scale.
 
 ### Finding the layers
 
@@ -266,6 +306,76 @@ CBaseEntity* attacker, CBaseEntity* weapon)`, `ret 0x18`.
   falls back to it when resolving a weapon's wielder. Confirmed: player hits
   now read `player → npc_orc_sword`.
 
+## Slow motion
+
+`CMM_Player` keeps slow motion in four fields: start (+0x20A4), duration
+(+0x20A8), factor (+0x20AC) and `m_bInBulletTime` (+0x20B0). The game
+frame (`server.dll+0x147610`) sets `m_bInBulletTime` and sends
+`mm_host_timescale <factor>` once curtime passes start, and clears it all
+when the duration is over. Two functions write those fields; they are the
+only writers of +0x20A4 in `server.dll` besides a reset to -1:
+
+- **The setter**, a `CMM_Player` virtual at `server.dll+0x146E80`
+  (thiscall: start, duration, factor, sound; `ret 0x10`). Its prologue
+  (`mov eax,[esp+4]; mov edx,[esp+8]`, 8 bytes) moves to a trampoline. Its
+  RVA came from the strings `slowtime_*` and the player's datadesc.
+- **The request** at `server.dll+0x147560` (delay, duration, factor, sound;
+  `ret 0x10`, called with `ecx` = a global at 0x227593C4 it never reads). It
+  returns at once unless `mm_ai_bullet_time` is set, finds the local
+  player through the engine, and writes start = curtime + delay,
+  duration × factor, factor and sound directly. Its first two instructions
+  are `mov eax,[mm_ai_bullet_time]` (a relocated absolute address) and
+  `cmp dword [eax+0x2C],0`, 9 bytes. The hook checks that the relocated
+  address is that cvar's before patching. Found as the other writer of
+  +0x20A4.
+
+The request has seven callers:
+
+| Call site | What it passes |
+| --- | --- |
+| `+0x2CB841` | the damage info's `m_fSlowTime*`, when the victim's flag +0x2798 bit 13 is set |
+| `+0x2EE9F4` | `slowtime_critical_delay/_duration/_factor` from `scripts/mm_game_settings.txt` (+0x5A0 of the settings global), on a critical hit (damage type bit 0x10000), gated by a cvar |
+| `+0x2EED80` | stack values, when +0x1255 bit 1 is set and a cvar is 0 |
+| `+0x440F66`, `+0x444C70`, `+0x44D64A` | an entity's delay at +0x1118 and two arguments |
+| `+0x44885D` | an entity's +0x1364/+0x1368/+0x136C |
+
+**What the recordings show (2026-10-18, l01_a, five bot runs, about 10 minutes):**
+- **No call in normal play:** not on kicks, kills (a kick kill and a power
+  attack kill), criticals, knockdowns or full combos. The tap's wall clock
+  agreed with game time to 1.00× in every run.
+- **Criticals ask for nothing:** Arkane's `mm_game_settings.txt` sets
+  `slowtime_critical_delay 0`, `slowtime_critical_duration 0` and
+  `slowtime_critical_factor 1`. With `mm_ai_bullet_time_forcealways 1`, 176
+  requests came from `+0x2EE9F4` (returning to `+0x2EE9F9`), all ×1.00 for
+  0 s, and `m_bInBulletTime` was up for 2 ticks after each.
+- **The damage fields aren't slow motion:** every damage record's
+  `m_fSlowTime*` (×0.10 for 2.00 s) is a default. It reaches slow motion only
+  through `+0x2CB841`, for victims with that flag.
+- **Not seen:** a call with a factor below 1. Map scripts and the other
+  callers (scripted kills, impales) are the remaining sources.
+
+The stepper shades the frames where `m_bInBulletTime` is set, lists each
+call with its caller, and shows the game-time scale next to the clock when
+it differs from 1. `rbwire info` groups calls by source and caller.
+
+## Kicks, knockdowns and adrenaline
+
+- **Kicks:** a kick is a damage record with damage type 0x40000, weapon flags 0x20,
+  no weapon and `mm_damage_flag` bit 0x400000, while the player plays
+  `attack_kick_medium` (view-model layer `layer_sword_noshield_kick_medium`).
+  It asks for 1 (the kick's `HitPow` on the player's base) and has about
+  four times a sword's force (12,788). `push_force` is 0 on the kick itself.
+- **Knockdowns:** a kick that knocks the NPC down sets `mm_damage_flag` bit
+  0x1000 (0x401040). It is followed by a second record from the player
+  with damage 0, `push_force` 2 and slow time ×1 for 0. The NPC's
+  `m_hRagdollFall` then names the `prop_ragdoll` that falls in its place,
+  and the ragdoll's `m_hUnragdoll` names the NPC. The tap only writes a link
+  when the handle names a live entity of the expected kind (`prop_ragdoll`,
+  or an `npc_*`), with a matching serial.
+- **Adrenaline:** it rises by the `adrenalineadd` of each attack that lands
+  (0.5 for fast attacks, 1–3 for power attacks, from `first_basic.qct`)
+  and decays. `max_adrenaline` is 20 in l01_a. The highest seen was 10.5.
+
 ## Finding fields: send tables
 
 The tap doesn't hard-code those offsets. The first time it meets a class name
@@ -311,6 +421,10 @@ The tap is the only writer and never waits for readers.
   order: 0 lost, 0 retries.
 
 ## Known gaps
+
+- Slow motion is streamed as the game's requests and its flag, not as
+  `host_timescale` itself; a time scale set by a map script through the
+  console would show only in the wall clock.
 
 - Server state only. The `viewmodel` entity's server origin is stale; the
   first-person weapon and the predicted player live in `client.dll` (see

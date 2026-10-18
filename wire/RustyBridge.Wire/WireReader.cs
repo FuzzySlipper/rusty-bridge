@@ -29,6 +29,15 @@ public sealed class WireSnapshot
     public uint LayerDropped;
     public readonly WireLayer[] Layers = new WireLayer[WireLayout.MaxLayers];
     public ReadOnlySpan<WireLayer> LayerSpan => Layers.AsSpan(0, LayerCount);
+    /// <summary>The tap's wall clock at the write (Wire v7).</summary>
+    public double WallSeconds;
+    /// <summary>The player's slow motion and adrenaline (Wire v7).</summary>
+    public WirePlayerState Player;
+    /// <summary>Bullet-time setter calls since the previous frame (Wire v7).</summary>
+    public int SlowTimeCount;
+    public uint SlowTimeDropped;
+    public readonly WireSlowTime[] SlowTime = new WireSlowTime[WireLayout.MaxSlowTime];
+    public ReadOnlySpan<WireSlowTime> SlowTimeSpan => SlowTime.AsSpan(0, SlowTimeCount);
 }
 
 /// <summary>
@@ -107,6 +116,11 @@ public sealed unsafe class WireReader : IDisposable
         int layers = (int)Math.Min(header->LayerCount, (uint)WireLayout.MaxLayers);
         snapshot.LayerDropped = header->LayerDropped;
         new ReadOnlySpan<WireLayer>(slot + WireLayout.LayersOffset, layers).CopyTo(snapshot.Layers);
+        int slow = (int)Math.Min(header->SlowTimeCount, (uint)WireLayout.MaxSlowTime);
+        snapshot.SlowTimeDropped = header->SlowTimeDropped;
+        new ReadOnlySpan<WireSlowTime>(slot + WireLayout.SlowTimeOffset, slow).CopyTo(snapshot.SlowTime);
+        snapshot.WallSeconds = header->WallSeconds;
+        snapshot.Player = header->Player;
 
         Interlocked.MemoryBarrier();
         if (Volatile.Read(ref header->Seq) != seq) return false;
@@ -114,6 +128,7 @@ public sealed unsafe class WireReader : IDisposable
         snapshot.DamageCount = damage;
         snapshot.DefenseCount = defense;
         snapshot.LayerCount = layers;
+        snapshot.SlowTimeCount = slow;
         return true;
     }
 

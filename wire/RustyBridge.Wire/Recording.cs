@@ -8,10 +8,11 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 6;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers
+    public const uint Version = 7;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+                                        // v7: 64-byte entities (links), wall clock, player state, slow-time events
 
     // Record sizes by version; older records are a prefix of the current ones.
-    public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, _ => Marshal.SizeOf<WireEntity>() };
+    public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, _ => Marshal.SizeOf<WireEntity>() };
     public static int DamageBytes(uint version) => version < 5 ? 128 : Marshal.SizeOf<WireDamage>();
     public static int DefenseBytes(uint version) => version < 5 ? 32 : Marshal.SizeOf<WireDefense>();
     public const int KeyframeInterval = 330;  // 5 s at 66 ticks/s
@@ -141,6 +142,12 @@ public sealed class Recorder : IDisposable
             w.Write(snap.LayerDropped);
             w.Write(snap.LayerCount);
             w.Write(MemoryMarshal.AsBytes(snap.LayerSpan));
+            // v7: the wall clock, the player's slow motion and adrenaline, and bullet-time calls.
+            w.Write(snap.WallSeconds);
+            w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WirePlayerState>(in snap.Player)));
+            w.Write(snap.SlowTimeDropped);
+            w.Write(snap.SlowTimeCount);
+            w.Write(MemoryMarshal.AsBytes(snap.SlowTimeSpan));
         });
         FramesWritten++;
     }
@@ -191,6 +198,13 @@ public sealed class RecordedFrame
     /// <summary>Every active overlay layer this frame (v6 recordings).</summary>
     public readonly List<WireLayer> Layers = new();
     public uint LayerDropped;
+    /// <summary>v7: the tap's wall clock at the frame (seconds); NaN in older recordings.</summary>
+    public double WallSeconds = double.NaN;
+    /// <summary>v7: the player's slow motion and adrenaline; Index is NoEntity in older recordings.</summary>
+    public WirePlayerState Player = new() { Index = WireLayout.NoEntity };
+    /// <summary>v7: bullet-time setter calls since the previous frame.</summary>
+    public readonly List<WireSlowTime> SlowTime = new();
+    public uint SlowTimeDropped;
     public readonly Dictionary<ushort, string> Classes = new();
     public readonly Dictionary<int, string> Models = new();
     /// <summary>Sequence names by model index, in m_nSequence order.</summary>
@@ -252,7 +266,7 @@ public static class RecordingReader
                     var bytes = r.ReadBytes(changed * entityBytes);
                     for (int i = 0; i < changed; i++)
                     {
-                        var e = Widen<WireEntity>(bytes.AsSpan(i * entityBytes, entityBytes), new WireEntity { Sequence = -1 });
+                        var e = Widen<WireEntity>(bytes.AsSpan(i * entityBytes, entityBytes), new WireEntity { Sequence = -1, Link = WireLayout.NoEntity });
                         state.Entities[e.Index] = e;
                     }
                     int removed = r.ReadInt32();
@@ -282,6 +296,18 @@ public static class RecordingReader
                         state.LayerDropped = r.ReadUInt32();
                         int layers = r.ReadInt32();
                         state.Layers.AddRange(MemoryMarshal.Cast<byte, WireLayer>(r.ReadBytes(layers * Marshal.SizeOf<WireLayer>())).ToArray());
+                    }
+                    state.WallSeconds = double.NaN;
+                    state.Player = new WirePlayerState { Index = WireLayout.NoEntity };
+                    state.SlowTime.Clear();
+                    state.SlowTimeDropped = 0;
+                    if (version >= 7)
+                    {
+                        state.WallSeconds = r.ReadDouble();
+                        state.Player = MemoryMarshal.Read<WirePlayerState>(r.ReadBytes(Marshal.SizeOf<WirePlayerState>()));
+                        state.SlowTimeDropped = r.ReadUInt32();
+                        int slow = r.ReadInt32();
+                        state.SlowTime.AddRange(MemoryMarshal.Cast<byte, WireSlowTime>(r.ReadBytes(slow * Marshal.SizeOf<WireSlowTime>())).ToArray());
                     }
                     yield return state;
                     break;

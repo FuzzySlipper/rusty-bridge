@@ -91,9 +91,10 @@ public sealed class RecordingTests : IDisposable
         Assert.True(reader.TryReadFrame(1, snap));
         recorder.Write(snap, reader.Map, 0.015f, reader);
 
-        // Record header (5) + frame fields (21) + one changed entity (56) + removed count (4)
-        // + damage, defense and layer dropped-and-count pairs (8 each).
-        Assert.Equal(110, recorder.Bytes - afterKey);
+        // Record header (5) + frame fields (21) + one changed entity (64) + removed count (4)
+        // + damage, defense and layer dropped-and-count pairs (8 each)
+        // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8).
+        Assert.Equal(158, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -279,6 +280,46 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         Assert.Equal(new uint[] { 0x123, 0x9AB }, RecordingReader.Frames(buffer).Select(f => f.Entities[7].Serial).ToArray());
+    }
+
+    [Fact]
+    public void Version7CarriesWallClockPlayerStateSlowTimeAndLinks()
+    {
+        // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
+        using var writer = new TestWriter(_wire, "l01_a");
+        writer.Class(0, "npc_orc_sword");
+        writer.Class(1, "prop_ragdoll");
+        writer.Class(2, "player");
+        writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
+        writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
+        writer.FrameEntities(10,
+            new WireEntity { Index = 1, ClassId = 2, Serial = 1, Link = WireLayout.NoEntity },
+            new WireEntity { Index = 7, ClassId = 0, Serial = 0x123, Link = 9, LinkSerial = 0x55 },
+            new WireEntity { Index = 9, ClassId = 1, Serial = 0x55, Link = 7, LinkSerial = 0x123 });
+        using var reader = new WireReader(_wire);
+        var snap = new WireSnapshot();
+        Assert.True(reader.TryReadFrame(0, snap));
+        Assert.Equal(12.5, snap.WallSeconds);
+        Assert.Equal(0.1f, snap.Player.BulletTimeFactor);
+        Assert.Equal(0x3B2447u, Assert.Single(snap.SlowTimeSpan.ToArray()).Caller);
+
+        var buffer = new MemoryStream();
+        using (var recorder = new Recorder(buffer))
+        {
+            recorder.Write(snap, reader.Map, 0.015f, reader);
+            recorder.Flush();
+            buffer = new MemoryStream(buffer.ToArray());
+        }
+        var f = Assert.Single(RecordingReader.Frames(buffer));
+        Assert.Equal(7u, f.Version);
+        Assert.Equal(12.5, f.WallSeconds);
+        Assert.Equal((byte)1, f.Player.InBulletTime);
+        Assert.Equal(40f, f.Player.Adrenaline);
+        Assert.Equal(2f, Assert.Single(f.SlowTime).Duration);
+        Assert.Equal(SlowTimeSource.Request, f.SlowTime[0].Source);
+        Assert.Equal((ushort)9, f.Entities[7].Link);
+        Assert.Equal(0x123u, f.Entities[9].LinkSerial);
+        Assert.Equal(WireLayout.NoEntity, f.Entities[1].Link);
     }
 
     [Fact]

@@ -26,6 +26,8 @@
   --act-move: #7f9a6a;
   --act-idle: #c3cad1;
   --act-death: #3b3f45;
+  --act-slow: #7d4fb5;        /* slow motion */
+  --act-knock: #8a5a2b;       /* knocked down */
   --health: #2e9e5b;
   --prop: #8b939b;
   --other: #a7adb3;
@@ -38,7 +40,7 @@
     --bg: #12151a; --panel: #1a1e24; --ink: #dfe3e7; --muted: #8d97a1; --line: #2c333b; --grid: #20262d;
     --accent: #e0b04f; --accent-soft: #e0b04f33;
     --player: #6aa8ec; --human: #8fb1c9; --greenskin: #e06a52; --goblin: #9bc24a; --beast: #b994dc; --gear: #5cc4b9;
-    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --health: #57c98a;
+    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --act-slow: #b18ae6; --act-knock: #d0a172; --health: #57c98a;
     --prop: #6c757e; --other: #555d66;
     color-scheme: dark;
   }
@@ -47,7 +49,7 @@
   --bg: #12151a; --panel: #1a1e24; --ink: #dfe3e7; --muted: #8d97a1; --line: #2c333b; --grid: #20262d;
   --accent: #e0b04f; --accent-soft: #e0b04f33;
   --player: #6aa8ec; --human: #8fb1c9; --greenskin: #e06a52; --goblin: #9bc24a; --beast: #b994dc; --gear: #5cc4b9;
-    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --health: #57c98a;
+    --act-attack: #ef6a5a; --act-hit: #f0b247; --act-guard: #6aaee8; --act-move: #8fae79; --act-idle: #3a424b; --act-death: #c9cfd6; --act-slow: #b18ae6; --act-knock: #d0a172; --health: #57c98a;
   --prop: #6c757e; --other: #555d66;
   color-scheme: dark;
 }
@@ -195,9 +197,9 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 6) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 6).`);
-  // Record sizes by version; v5 adds EHANDLE serials.
-  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : 56;
+  if (version < 1 || version > 7) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 7).`);
+  // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
+  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : 64;
   const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
   const bySerial = new Map();   // v5: `${index}:${serial}` -> track, for resolving event records
   const dec = new TextDecoder("ascii");
@@ -211,6 +213,8 @@ function parseRecording(buf) {
   const damage = [];          // v3 damage records, resolved to tracks
   const defenses = [];        // v4 melee defense checks
   const layers = [];          // v6: per frame, the active overlay layers [{track, slot, seq, cycle, weight, order, rate, flags}]
+  const slowTime = [];        // v7: bullet-time calls [{fi, tick, player, request, start, duration, factor, caller}]; a request's start is a delay
+  const links = [];           // v7: [{fi, track, link: "index:serial"}] where an entity's link changes
   const activity = [];
   let o = 16;
   while (o + 5 <= buf.byteLength) {
@@ -233,7 +237,8 @@ function parseRecording(buf) {
     } else if (kind === 4) {
       const fi = frames.length;
       const frame = Number(v.getBigUint64(p, true)), tick = v.getInt32(p + 8, true), curtime = v.getFloat32(p + 12, true), flags = v.getUint8(p + 16);
-      frames.push({ frame, tick, curtime, gap: !!(flags & 2) });
+      const fr = { frame, tick, curtime, gap: !!(flags & 2), wall: NaN, player: null };
+      frames.push(fr);
       const key = !!(flags & 1);
       let n = v.getInt32(p + 17, true); p += 21;
       const seen = key ? new Set() : null;
@@ -249,20 +254,22 @@ function parseRecording(buf) {
           if (flags & 2) { seq = v.getInt16(p + 40, true); cycle = v.getFloat32(p + 44, true); rate = v.getFloat32(p + 48, true); }
         }
         const serial = version >= 5 ? v.getUint32(p + 52, true) : 0;
+        const linkIndex = version >= 7 ? v.getUint16(p + 56, true) : 0xFFFF;
+        const link = linkIndex === 0xFFFF ? null : `${linkIndex}:${v.getUint32(p + 60, true)}`;
         seen?.add(index);
         let t = live.get(index);
         // v5 tells a reused index by its serial; older recordings fall back to a change of class or model.
         if (t && (version >= 5 ? t.serial !== serial : t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
         if (!t) {
           t = { key: `${level}:${index}:${fi}`, index, serial, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
-                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [],
+                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [], link: [],
                 born: fi, died: Infinity, moves: false, fights: false, dist: 0 };
           tracks.set(t.key, t); live.set(index, t);
           if (version >= 5) bySerial.set(`${index}:${serial}`, t);
         }
         const k = t.f.length - 1;
         if (k >= 0 && t.x[k] === x && t.y[k] === y && t.z[k] === z && t.pitch[k] === pitch && t.yaw[k] === yaw && t.roll[k] === roll
-            && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate) continue;
+            && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate && t.link[k] === link) continue;
         if (k >= 0) {
           const d = Math.hypot(x - t.x[k], y - t.y[k], z - t.z[k]);
           if (d > 0) { t.moves = true; t.dist += d; moving++; }
@@ -275,7 +282,8 @@ function parseRecording(buf) {
           }
         }
         t.f.push(fi); t.x.push(x); t.y.push(y); t.z.push(z); t.pitch.push(pitch); t.yaw.push(yaw); t.roll.push(roll);
-        t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate);
+        if (link !== (k >= 0 ? t.link[k] : null)) links.push({ fi, track: t, link });
+        t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate); t.link.push(link);
       }
       const removed = v.getInt32(p, true); p += 4;
       const gone = [];
@@ -305,6 +313,18 @@ function parseRecording(buf) {
                              cycle: v.getFloat32(p + 8, true), weight: v.getFloat32(p + 12, true), rate: v.getFloat32(p + 16, true) });
         }
         layers[fi] = list;
+      }
+      if (version >= 7) {
+        // The wall clock, the player's slow motion and adrenaline, then the bullet-time calls since the previous frame.
+        fr.wall = v.getFloat64(p, true); p += 8;
+        if (v.getUint16(p, true) !== 0xFFFF)
+          fr.player = { inSlow: v.getUint8(p + 2) !== 0, start: v.getFloat32(p + 4, true), duration: v.getFloat32(p + 8, true), factor: v.getFloat32(p + 12, true),
+                        adrenaline: v.getFloat32(p + 16, true), maxAdrenaline: v.getFloat32(p + 20, true) };
+        p += 24 + 4;  // player state, then slow-time records dropped
+        const n = v.getInt32(p, true); p += 4;
+        for (let i = 0; i < n; i++, p += 32)
+          slowTime.push({ fi, tick: v.getInt32(p, true), player: v.getUint16(p + 4, true), playerSerial: v.getUint32(p + 24, true), request: v.getUint8(p + 7) === 1, start: v.getFloat32(p + 8, true),
+                          duration: v.getFloat32(p + 12, true), factor: v.getFloat32(p + 16, true), caller: v.getUint32(p + 20, true) });
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -351,7 +371,9 @@ function parseRecording(buf) {
     if (d.attacker) d.attacker.fights = true;
     const who = d.attacker ? label(d.attacker) : "world";
     const where = HITGROUPS[d.hitgroup] ?? `hitgroup ${d.hitgroup}`;
-    const weapon = d.weapon ? ` with ${d.weapon.cls.replace(/^weapon_(arx|mm_)?/, "")}` : "";
+    // A kick: Arkane's kick damage type (0x40000) with the kick weapon flag (0x20) and no weapon.
+    const kick = (d.type & 0x40000) && (d.weaponFlags & 0x20) && !d.weapon;
+    const weapon = kick ? " kicks" : d.weapon ? ` with ${d.weapon.cls.replace(/^weapon_(arx|mm_)?/, "")}` : "";
     const text = `${who} → ${d.victim ? label(d.victim) : "?"}${weapon}: ${fmtHp(+applied.toFixed(2))} ${damageTypes(d.type)}${d.traceValid ? ` to ${where}` : ""}` +
       `${kill ? ", kill" : ""}${d.push ? ` (push ${d.push})` : ""}`;
     if (d.victim) events.push({ fi: d.fi, kind: kill ? "death" : "hit", track: d.victim, other: d.attacker, damage: d, text });
@@ -368,8 +390,19 @@ function parseRecording(buf) {
                   text: d.result === 18 ? `${label(d.victim)} ${how} ${d.attacker ? label(d.attacker) : "a blow"}`
                                         : `${label(d.victim)} ${how} ${d.attacker ? `${label(d.attacker)}'s${weapon || " blow"}` : "a blow"}` });
   }
+  // v7: slow motion asked for, through the player's setter or the static request; caller is the return address in server.dll.
+  for (const b of slowTime) {
+    const t = bySerial.get(`${b.player}:${b.playerSerial}`);
+    if (t) events.push({ fi: b.fi, kind: "slow", track: t, slow: b, text: `slow motion ×${b.factor.toFixed(2)} for ${b.duration.toFixed(2)} s${b.request ? ` after ${b.start.toFixed(2)} s` : ""} (server.dll+0x${b.caller.toString(16)})` });
+  }
+  // v7: an NPC knocked down links to the ragdoll that replaces it, and the ragdoll back to it.
+  for (const l of links) {
+    const other = l.link ? bySerial.get(l.link) ?? null : null;
+    l.other = other;
+    if (other && /^npc_/.test(l.track.cls)) { l.track.fights = true; events.push({ fi: l.fi, kind: "knock", track: l.track, other, text: `${label(l.track)} knocked down` }); }
+  }
   events.sort((a, b) => a.fi - b.fi);
-  return { frames, tracks: [...tracks.values()], map, interval, activity, events, damage, defenses, layers, version };
+  return { frames, tracks: [...tracks.values()], map, interval, activity, events, damage, defenses, layers, links, bySerial, version };
 }
 
 const DEFENSE = { 1: "parried", 8: "shield-blocked", 4: "shrugged off", 17: "parried", 18: "had the parry broken by" };
@@ -427,7 +460,7 @@ function category(cls) { for (const [c, re] of CATEGORIES) if (re.test(cls)) ret
 function isActor(cls) { return /^(player$|npc_)/.test(cls); }
 function readColors() {
   const s = getComputedStyle(document.documentElement);
-  for (const k of ["bg", "panel", "ink", "muted", "line", "grid", "accent", "accent-soft", "player", "human", "greenskin", "goblin", "beast", "gear", "prop", "other", "act-attack", "act-hit", "act-guard", "act-move", "act-idle", "act-death", "health"]) colors[k] = s.getPropertyValue(`--${k}`).trim();
+  for (const k of ["bg", "panel", "ink", "muted", "line", "grid", "accent", "accent-soft", "player", "human", "greenskin", "goblin", "beast", "gear", "prop", "other", "act-attack", "act-hit", "act-guard", "act-move", "act-idle", "act-death", "act-slow", "act-knock", "health"]) colors[k] = s.getPropertyValue(`--${k}`).trim();
 }
 
 // Latest sample index of track t at or before frame fi, or -1.
@@ -696,10 +729,25 @@ function drawTrack() {
       g.lineTo(X(next), y);
     }
     g.stroke();
+    if (t.cls === "player" && rec.version >= 7) {
+      // v7: the player's adrenaline, scaled to its maximum.
+      g.strokeStyle = colors["act-slow"]; g.lineWidth = 1.25; g.setLineDash([4, 2]); g.beginPath();
+      for (let i = 0; i < n; i++) {
+        const pl = rec.frames[i].player;
+        if (!pl || !(pl.maxAdrenaline > 0)) continue;
+        const y = bottom - (bottom - top) * Math.min(1, pl.adrenaline / pl.maxAdrenaline);
+        if (i === 0 || !rec.frames[i - 1].player) g.moveTo(X(i), y); else g.lineTo(X(i), y);
+      }
+      g.stroke(); g.setLineDash([]);
+    }
   }
+  // v7: frames where the player is in slow motion, shaded behind everything.
+  g.fillStyle = colors["act-slow"]; g.globalAlpha = .18;
+  for (let i = 0; i < n; i++) if (rec.frames[i].player?.inSlow) g.fillRect(X(i), 2, Math.max(1, X(i + 1) - X(i)), h - 4);
+  g.globalAlpha = 1;
   for (let i = 0; i < n; i++) if (rec.frames[i].gap) { g.fillStyle = colors.greenskin; g.fillRect(X(i) - 1, top - 6, 2, 6); }
   g.fillStyle = colors.muted; g.font = "10px monospace";
-  g.fillText(selected ? `speed (peak ${Math.round(max)} u/s)${band ? " · health · action: attack, hit, guard, move" : ""}` : `moving entities, peak ${max}`, pad + 2, 11);
+  g.fillText(selected ? `speed (peak ${Math.round(max)} u/s)${band ? " · health · action: attack, hit, guard, move" : ""}${selected.cls === "player" && rec.version >= 7 ? " · adrenaline (dashed)" : ""}` : `moving entities, peak ${max}`, pad + 2, 11);
   const secs = dtSeconds(0, n - 1), every = secs > 60 ? 10 : secs > 20 ? 5 : 1;
   for (let s = 0; s <= secs; s += every) { const fi = Math.round(s / secs * (n - 1)); g.fillText(`${s}s`, X(fi) + 2, h - 4); g.fillRect(X(fi), bottom, 1, 4); }
   const px = X(cur);
@@ -721,10 +769,20 @@ function seqStartTicks(t, k) {
   while (j > 0 && t.seq[j - 1] === t.seq[k] && t.cycle[j - 1] <= t.cycle[j] + 0.5) j--;
   return rec.frames[t.f[k]].tick - rec.frames[t.f[j]].tick;
 }
+// v7: game time over wall time across the last half second, when it isn't 1.
+function timeScaleText(fi) {
+  const f = rec.frames[fi];
+  if (!(f.wall >= 0)) return "";
+  let j = fi; while (j > 0 && f.wall - rec.frames[j - 1].wall < 0.5) j--;
+  const a = rec.frames[j], wall = f.wall - a.wall;
+  if (wall <= 0.05) return "";
+  const scale = (f.curtime - a.curtime) / wall;
+  return Math.abs(scale - 1) > 0.05 ? ` · game time ×${scale.toFixed(2)}` : "";
+}
 function fmt(n, d = 1) { return (Math.abs(n) < 1e-9 ? 0 : n).toFixed(d); }
 function drawDetail() {
   const f = rec?.frames[cur];
-  $("clock").textContent = f ? `tick ${f.tick} · ${fmt(dtSeconds(0, cur), 3)} s · frame ${cur + 1}/${rec.frames.length}` : "tick –";
+  $("clock").textContent = f ? `tick ${f.tick} · ${fmt(dtSeconds(0, cur), 3)} s · frame ${cur + 1}/${rec.frames.length}${timeScaleText(cur)}` : "tick –";
   const dl = $("d-values");
   if (!selected || !rec) { $("d-name").textContent = "Nothing selected"; $("d-model").textContent = "Click an entity on the map or in the list."; dl.textContent = ""; return; }
   const t = selected, k = sampleAt(t, cur);
@@ -746,6 +804,9 @@ function drawDetail() {
     ...(t.seq[k] >= 0 ? [["sequence", `${seqName(t, k)} (#${t.seq[k]})`], ["cycle", `${(t.cycle[k] * 100).toFixed(1)} % at ${fmt(t.rate[k], 2)}×`], ["in sequence since", `${seqStartTicks(t, k)} ticks`]] : []),
     ...layersAt(t, cur).sort((a, b) => a.order - b.order).map((l) => [`layer ${l.slot}`, `${layerName(t, l)} ${(l.cycle * 100).toFixed(0)}% ×${l.weight.toFixed(2)}`]),
     ...lastHits(t),
+    ...(t.link[k] ? [[/^npc_/.test(t.cls) ? "knocked down, ragdoll" : "ragdoll of", rec.bySerial.get(t.link[k]) ? label(rec.bySerial.get(t.link[k])) : `#${t.link[k].split(":")[0]}`]] : []),
+    ...(t.cls === "player" && f.player ? [["adrenaline", `${fmt(f.player.adrenaline)} / ${fmt(f.player.maxAdrenaline)}`],
+      ...(f.player.inSlow ? [["slow motion", `×${fmt(f.player.factor, 2)} for ${fmt(f.player.duration, 2)} s from ${fmt(f.player.start, 2)}`]] : [])] : []),
     ["last change", `tick ${rec.frames[t.f[k]].tick}`],
     ["travelled", `${Math.round(t.dist)} u total`],
   ];

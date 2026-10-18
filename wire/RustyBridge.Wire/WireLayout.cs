@@ -2,12 +2,12 @@ using System.Runtime.InteropServices;
 
 namespace RustyBridge.Wire;
 
-// Mirror of tap/darkmessiah/src/wire.h (Wire v6). Layout and protocol:
+// Mirror of tap/darkmessiah/src/wire.h (Wire v7). Layout and protocol:
 // docs/wire.md. Keep the two in step.
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 6;
+    public const uint Version = 7;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -18,6 +18,7 @@ public static class WireLayout
     public const int MaxDamage = 64;
     public const int MaxDefense = 32;
     public const int MaxLayers = 256;
+    public const int MaxSlowTime = 16;
     public const ushort NoEntity = 0xFFFF;
 
     public const int ClassesOffset = 256;
@@ -26,7 +27,8 @@ public static class WireLayout
     public static readonly int DamageOffset = Marshal.SizeOf<WireSlotHeader>() + MaxEntities * Marshal.SizeOf<WireEntity>();
     public static readonly int DefenseOffset = DamageOffset + MaxDamage * Marshal.SizeOf<WireDamage>();
     public static readonly int LayersOffset = DefenseOffset + MaxDefense * Marshal.SizeOf<WireDefense>();
-    public static readonly int SlotBytes = LayersOffset + MaxLayers * Marshal.SizeOf<WireLayer>();
+    public static readonly int SlowTimeOffset = LayersOffset + MaxLayers * Marshal.SizeOf<WireLayer>();
+    public static readonly int SlotBytes = SlowTimeOffset + MaxSlowTime * Marshal.SizeOf<WireSlowTime>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -71,6 +73,59 @@ public struct WireSlotHeader
     public uint LayerCount;
     /// <summary>Active layers that didn't fit in the slot (over MaxLayers).</summary>
     public uint LayerDropped;
+    // v7
+    /// <summary>The tap's wall clock at the write (seconds since it loaded); against Curtime it shows the donor's time scale.</summary>
+    public double WallSeconds;
+    public uint SlowTimeCount;
+    public uint SlowTimeDropped;
+    public WirePlayerState Player;
+}
+
+/// <summary>
+/// The player's slow motion and adrenaline at a tick (CMM_Player fields; Wire v7).
+/// <see cref="Index"/> is <see cref="WireLayout.NoEntity"/> when there is no player.
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WirePlayerState
+{
+    public ushort Index;
+    /// <summary>m_bInBulletTime: slow motion is on.</summary>
+    public byte InBulletTime;
+    public byte BulletTimeSound;
+    /// <summary>m_fBulletTimeStart: the curtime slow motion starts at; at or below 0 when none is pending.</summary>
+    public float BulletTimeStart;
+    public float BulletTimeDuration;
+    /// <summary>m_fBulletTimeFactor: the time scale it sets.</summary>
+    public float BulletTimeFactor;
+    public float Adrenaline;
+    public float MaxAdrenaline;
+}
+
+/// <summary>Which bullet-time function a <see cref="WireSlowTime"/> record caught.</summary>
+public enum SlowTimeSource : byte
+{
+    /// <summary>CMM_Player's bullet-time virtual (server.dll+0x146E80): Start is absolute.</summary>
+    Setter = 0,
+    /// <summary>The static request (server.dll+0x147560): Start is a delay, and the game stores Duration × Factor.</summary>
+    Request = 1,
+}
+
+/// <summary>One bullet-time call (Wire v7): the slow motion asked for and the server.dll RVA that asked.</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireSlowTime
+{
+    public int Tick;
+    public ushort Player;
+    public byte Sound;
+    /// <summary>Which function was called: the player's setter or the static request (<see cref="SlowTimeSource"/>).</summary>
+    public SlowTimeSource Source;
+    /// <summary>Setter: the curtime slow motion starts at. Request: the delay from now.</summary>
+    public float Start;
+    public float Duration;
+    public float Factor;
+    public uint Caller;
+    public uint PlayerSerial;
+    public uint Reserved2;
 }
 
 [Flags]
@@ -105,6 +160,15 @@ public struct WireEntity
     /// <summary>The entity's EHANDLE serial (handle >> 12). With <c>Index</c> it identifies the
     /// entity: an index reused by a new entity gets a new serial.</summary>
     public uint Serial;
+    // v7
+    /// <summary>
+    /// The entity this one stands in for or with: an NPC's knockdown ragdoll
+    /// (m_hRagdollFall), a prop_ragdoll's NPC (m_hUnragdoll).
+    /// <see cref="WireLayout.NoEntity"/> when none.
+    /// </summary>
+    public ushort Link;
+    public ushort Reserved;
+    public uint LinkSerial;
 }
 
 /// <summary>

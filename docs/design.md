@@ -170,7 +170,7 @@ answer drives the order in the next section.
 | Character animation pose | Server: main sequence, cycle, playback rate; overlay layers (gestures, parries) not yet streamed | Yes: melee traces start from the weapons, which follow the hands | None while the donor keeps its own animation for hit detection | `AnimationPlaybackRequest` with a `Sample` command (normalized point in one clip); `JointOverride` | 1 |
 | Held weapons and armour | Server entities following the holder's hand | Yes (they are what a swing traces, and what a block strikes) | None while the donor keeps hit detection | Joint attachments, `HandRig` | 1 |
 | First-person weapon model and camera | Client | No | None | Viewmodel fitting, camera control | 1 |
-| Effects, decals, sound, screen feedback, hit slow-motion | Client (some server events; slow-mo parameters arrive with each damage record) | No | None | Presentation services, recorded audio | 1 |
+| Effects, decals, sound, screen feedback, hit slow-motion | Client (some server events; slow motion is requested on the server and streamed as Wire v7 slow-time records) | No | None | Presentation services, recorded audio | 1 |
 | Combat decisions: damage, defense verdicts, player parry outcomes | Server, at hooked decision points ([wire.md](wire.md)) | Yes | The verdict or damage, returned from the existing detours | Product code | 2 |
 | Kick, adrenaline, other combat rules | Server | Yes | Effects on entities (kicks also push physics) | Product code | 2–3 |
 | Ragdolls (deaths and knockdowns) | **Server** in Dark Messiah: a separate `prop_ragdoll` entity, swapped in and out (see below) | Yes: they collide, take hits, deal impact damage and can be kicked or grabbed | Bone transforms every tick | `DynamicsRagdollRequest`, `ApplyRagdollImpulse`, `ReadRagdoll`, ragdoll layer blend; needs bodies that follow external targets | 3 |
@@ -299,11 +299,13 @@ the live path. It stays as an oracle for recorded segments.
   - The Frontend interpolates each entity across its own last two updates,
     not across one tick.
   - Velocities measured from the stream need a window at least that long.
-- **Donor time is not wall time.** During the game's hit slow-motion the
-  donor runs fewer ticks per wall second (about 44 instead of 66 in a
-  recorded fight). The Frontend's presentation clock follows donor
-  curtime, so slow-motion arrives for free in Donor mode. In Rusty mode it
-  becomes something Rusty produces.
+- **Donor time is not wall time** when slow motion runs: the game frame
+  sends `mm_host_timescale` (docs/wire.md, "Slow motion"). The Frontend's
+  presentation clock follows donor curtime, so slow motion arrives for free
+  in Donor mode. In Rusty mode it becomes something Rusty produces. Since
+  Wire v7 each frame carries the tap's wall clock. In about 10 minutes of
+  recorded l01_a fights game time kept to 1.00× wall time: the shipped
+  settings make critical hits ask for ×1 for 0 s.
 - Events carry the tick they happened in and are delivered with the next
   snapshot. Don't copy the stock client's 100 ms interpolation delay. One
   NPC update interval plus transport is the floor on shared memory.

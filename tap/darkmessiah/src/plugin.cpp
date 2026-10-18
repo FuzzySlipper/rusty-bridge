@@ -20,6 +20,8 @@
 #include <cstdarg>
 #include <cstring>
 #include <share.h>
+#include <intrin.h>
+#pragma intrinsic(_ReturnAddress)
 
 #include "wire.h"
 
@@ -331,6 +333,11 @@ static uint32_t g_pendingCount, g_pendingDropped, g_damageTotal;
 // Defense checks captured since the last frame.
 static wire::Defense g_pendingDefense[wire::kMaxDefense];
 static uint32_t g_defenseCount, g_defenseDropped, g_defenseTotal;
+// Bullet-time setter calls since the last frame.
+static wire::SlowTime g_pendingSlowTime[wire::kMaxSlowTime];
+static uint32_t g_slowTimeCount, g_slowTimeDropped, g_slowTimeTotal;
+// The wall clock frames are stamped with (seconds since Load).
+static LARGE_INTEGER g_qpcStart, g_qpcFreq;
 
 // --- Netprop offsets from send tables ----------------------------------------
 // Each ServerClass carries the SendTable the engine networks it with, and
@@ -569,6 +576,78 @@ static void WriteLayers(unsigned char* entity, uint16_t index, wire::Layer* out,
 // The per-tick walk trusts the layout DumpEntities confirmed at
 // ServerActivate, so it skips the VirtualQuery checks; one SEH frame per
 // entity still turns a bad pointer into a counted fault.
+static uint32_t SerialAt(uint16_t index);
+static uint16_t HandleIndex(uint32_t h);
+
+// --- Links and player state (v7) ------------------------------------------------------
+// Offsets from server.dll's data descriptions and send props (docs/wire.md
+// "Knockdowns and slow motion"). Each is checked at run time: a link counts
+// only when its handle names a live entity of the expected class with the
+// handle's serial, and player fields are read only from the "player" class.
+static const int kRagdollFallOffset = 0x29E4;   // CNPC_BaseArx::m_hRagdollFall (EHANDLE)
+static const int kUnragdollOffset = 0x16A0;     // prop_ragdoll m_hUnragdoll (EHANDLE), the NPC it stands in for
+static const int kBulletTimeStartOffset = 0x20A4, kBulletTimeDurationOffset = 0x20A8, kBulletTimeFactorOffset = 0x20AC;
+static const int kInBulletTimeOffset = 0x20B0, kBulletTimeSoundOffset = 0x20B1;
+static const int kMaxAdrenalineOffset = 0x29D4, kAdrenalineOffset = 0x29D8;
+
+static const char* ClassNameAt(uint16_t index) {
+    if (index == wire::kNoEntity || !g_edicts) return nullptr;
+    unsigned char* e = g_edicts + index * g_stride;
+    if (*(int*)e & kEdictFree) return nullptr;
+    IServerNetworkable* n = NetworkableAt(e, g_netOff);
+    return n ? n->GetClassName() : nullptr;
+}
+
+// The entity a handle field names, if it is live, has the handle's serial and
+// a class starting with prefix.
+static uint16_t LinkedEntity(const unsigned char* ent, int offset, const char* prefix, uint32_t& serial) {
+    serial = 0;
+    uint32_t h = *(const uint32_t*)(ent + offset);
+    uint16_t index = HandleIndex(h);
+    if (index == wire::kNoEntity || SerialAt(index) != h >> 12) return wire::kNoEntity;
+    const char* cls = ClassNameAt(index);
+    if (!cls || strncmp(cls, prefix, strlen(prefix)) != 0) return wire::kNoEntity;
+    serial = h >> 12;
+    return index;
+}
+
+static void WriteLink(const char* cls, const unsigned char* ent, wire::Entity& w) {
+    w.link = wire::kNoEntity;
+    w.link_serial = 0;
+    w.reserved = 0;
+    if (!cls) return;
+    __try {
+        if (!strncmp(cls, "npc_", 4)) w.link = LinkedEntity(ent, kRagdollFallOffset, "prop_ragdoll", w.link_serial);
+        else if (!strcmp(cls, "prop_ragdoll")) w.link = LinkedEntity(ent, kUnragdollOffset, "npc_", w.link_serial);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        w.link = wire::kNoEntity;
+        w.link_serial = 0;
+    }
+}
+
+static void WritePlayerState(wire::SlotHeader* s) {
+    s->player = wire::kNoEntity;
+    s->in_bullet_time = s->bullet_time_sound = 0;
+    s->bullet_time_start = s->bullet_time_duration = s->bullet_time_factor = 0;
+    s->adrenaline = s->max_adrenaline = 0;
+    const char* cls = ClassNameAt(1);
+    if (!cls || strcmp(cls, "player") != 0) return;
+    __try {
+        const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+        if (!p) return;
+        s->in_bullet_time = p[kInBulletTimeOffset];
+        s->bullet_time_sound = p[kBulletTimeSoundOffset];
+        s->bullet_time_start = *(const float*)(p + kBulletTimeStartOffset);
+        s->bullet_time_duration = *(const float*)(p + kBulletTimeDurationOffset);
+        s->bullet_time_factor = *(const float*)(p + kBulletTimeFactorOffset);
+        s->adrenaline = *(const float*)(p + kAdrenalineOffset);
+        s->max_adrenaline = *(const float*)(p + kMaxAdrenalineOffset);
+        s->player = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+    }
+}
+
 static void WireWrite() {
     wire::Header* h = WireHeader();
     uint64_t f = h->frames_written;
@@ -619,6 +698,7 @@ static void WireWrite() {
                 w.playback_rate = cls.props.rate >= 0 ? *(const float*)(ent + cls.props.rate) : 1.0f;
                 w.flags |= wire::kHasAnimation;
             }
+            WriteLink(cls.ptr, ent, w);
             ++count;
             // After the entity is counted: a fault here loses only its layers.
             if (cls.props.overlay) WriteLayers((unsigned char*)ent, (uint16_t)i, layers, layerCount, layerDropped);
@@ -639,6 +719,15 @@ static void WireWrite() {
     s->layer_dropped = layerDropped;
     g_defenseCount = 0;
     g_defenseDropped = 0;
+    memcpy(slotBase + wire::kSlowTimeOffset, g_pendingSlowTime, g_slowTimeCount * sizeof(wire::SlowTime));
+    s->slow_time_count = g_slowTimeCount;
+    s->slow_time_dropped = g_slowTimeDropped;
+    g_slowTimeCount = 0;
+    g_slowTimeDropped = 0;
+    WritePlayerState(s);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    s->wall_seconds = (double)(now.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;
     s->frame = f;
     s->tick = g_globals->tickcount;
     s->curtime = g_globals->curtime;
@@ -731,7 +820,7 @@ static uint32_t WielderOf(uint16_t index) {
     return owner;
 }
 
-static void ClearPendingDamage() { g_pendingCount = 0; g_pendingDropped = 0; g_defenseCount = 0; g_defenseDropped = 0; }
+static void ClearPendingDamage() { g_pendingCount = 0; g_pendingDropped = 0; g_defenseCount = 0; g_defenseDropped = 0; g_slowTimeCount = 0; g_slowTimeDropped = 0; }
 
 static void OnDamage(void* victim, const void* info, float before, float after) {
     ++g_damageTotal;
@@ -1025,6 +1114,168 @@ static void RemoveDamageHook() {
     Log("damage hook: removed");
 }
 
+// --- Bullet-time hook ------------------------------------------------------------
+// The player's slow motion is armed through a CMM_Player virtual at
+// server.dll+0x146E80: thiscall (float start, float duration, float factor,
+// bool sound), ret 0x10. It stores them at +0x20A4/+0x20A8/+0x20AC/+0x20B1;
+// the game frame then sends mm_host_timescale <factor> once curtime passes
+// start (server.dll+0x147610). The hook records each call with the RVA it
+// returns to, which names the code path that asked for slow motion. Its
+// first two instructions (mov eax,[esp+4]; mov edx,[esp+8]; 8 bytes) move to
+// a trampoline.
+
+static const uint32_t kSetBulletTimeRva = 0x146E80;
+static const unsigned char kSetBulletTimeBytes[] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x89, 0x81, 0xA4, 0x20, 0x00, 0x00 };
+typedef void (__thiscall* SetBulletTimeFn)(void* self, float start, float duration, float factor, int sound);
+static SetBulletTimeFn g_setBulletTime;   // trampoline
+static unsigned char* g_setBulletTimeSite;
+
+static void __fastcall SetBulletTimeHook(void* self, void* /*edx*/, float start, float duration, float factor, int sound) {
+    unsigned char* ret = (unsigned char*)_ReturnAddress();
+    if (g_streamOk) {
+        __try {
+            ++g_slowTimeTotal;
+            if (g_slowTimeCount == wire::kMaxSlowTime) {
+                ++g_slowTimeDropped;
+            } else {
+                wire::SlowTime& t = g_pendingSlowTime[g_slowTimeCount++];
+                t.tick = g_globals->tickcount;
+                t.player = IndexOrNone(self);
+                t.player_serial = SerialOf(self);
+                t.sound = (uint8_t)(sound & 0xFF);
+                t.source = wire::kSlowTimeSetter;
+                t.start = start;
+                t.duration = duration;
+                t.factor = factor;
+                t.caller = (uint32_t)(ret - g_serverBase);
+                t.reserved2 = 0;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ++g_faults;
+        }
+    }
+    g_setBulletTime(self, start, duration, factor, sound);
+}
+
+static void InstallBulletTimeHook() {
+    if (!g_serverBase) g_serverBase = (unsigned char*)GetModuleHandleA("server.dll");
+    if (!g_serverBase) return;
+    unsigned char* site = g_serverBase + kSetBulletTimeRva;
+    if (memcmp(site, kSetBulletTimeBytes, sizeof kSetBulletTimeBytes) != 0) {
+        Log("bullet-time hook: unexpected bytes at server.dll+0x%X, not hooking", kSetBulletTimeRva);
+        return;
+    }
+    unsigned char* tramp = (unsigned char*)VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return;
+    memcpy(tramp, site, 8);
+    tramp[8] = 0xE9;
+    *(int32_t*)(tramp + 9) = (int32_t)((site + 8) - (tramp + 13));
+    g_setBulletTime = (SetBulletTimeFn)tramp;
+    DWORD old;
+    VirtualProtect(site, 8, PAGE_EXECUTE_READWRITE, &old);
+    site[0] = 0xE9;
+    *(int32_t*)(site + 1) = (int32_t)((unsigned char*)&SetBulletTimeHook - (site + 5));
+    site[5] = site[6] = site[7] = 0x90;
+    VirtualProtect(site, 8, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 8);
+    g_setBulletTimeSite = site;
+    Log("bullet-time hook: CMM_Player bullet-time setter at %p hooked", site);
+}
+
+static void RemoveBulletTimeHook() {
+    if (!g_setBulletTimeSite) return;
+    DWORD old;
+    VirtualProtect(g_setBulletTimeSite, 8, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_setBulletTimeSite, kSetBulletTimeBytes, 8);
+    VirtualProtect(g_setBulletTimeSite, 8, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), g_setBulletTimeSite, 8);
+    g_setBulletTimeSite = nullptr;
+    Log("bullet-time hook: removed");
+}
+
+// The static bullet-time request at server.dll+0x147560, (float delay, float
+// duration, float factor, bool sound), __stdcall, ret 0x10. It returns at
+// once unless mm_ai_bullet_time is set, finds the local player, and writes
+// its fields directly (start = curtime + delay, duration * factor, factor,
+// sound) without the setter. Found from the writers of +0x20A4: one is the
+// setter, this is the other. Its first two instructions are
+// mov eax,[0x22816ea8] (the cvar; the address is relocated) and
+// cmp dword [eax+0x2c],0, 9 bytes, which move to a trampoline. The check
+// requires the relocated address to point at the same cvar.
+
+static const uint32_t kRequestSlowTimeRva = 0x147560, kBulletTimeCvarRva = 0x816EA8;
+static const unsigned char kRequestSlowTimeTail[] = { 0x83, 0x78, 0x2C, 0x00, 0x0F, 0x84 };
+typedef void (__stdcall* RequestSlowTimeFn)(float delay, float duration, float factor, int sound);
+static RequestSlowTimeFn g_requestSlowTime;   // trampoline
+static unsigned char* g_requestSlowTimeSite;
+static unsigned char g_requestSlowTimeSaved[9];
+
+static void __stdcall RequestSlowTimeHook(float delay, float duration, float factor, int sound) {
+    unsigned char* ret = (unsigned char*)_ReturnAddress();
+    if (g_streamOk) {
+        __try {
+            ++g_slowTimeTotal;
+            if (g_slowTimeCount == wire::kMaxSlowTime) {
+                ++g_slowTimeDropped;
+            } else {
+                wire::SlowTime& t = g_pendingSlowTime[g_slowTimeCount++];
+                const char* cls = ClassNameAt(1);
+                void* player = cls && strcmp(cls, "player") == 0 ? *(void**)(g_edicts + 1 * g_stride + g_unkOff) : nullptr;
+                t.tick = g_globals->tickcount;
+                t.player = player ? 1 : wire::kNoEntity;
+                t.player_serial = player ? SerialOf(player) : 0;
+                t.sound = (uint8_t)(sound & 0xFF);
+                t.source = wire::kSlowTimeRequest;
+                t.start = delay;
+                t.duration = duration;
+                t.factor = factor;
+                t.caller = (uint32_t)(ret - g_serverBase);
+                t.reserved2 = 0;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ++g_faults;
+        }
+    }
+    g_requestSlowTime(delay, duration, factor, sound);
+}
+
+static void InstallRequestSlowTimeHook() {
+    if (!g_serverBase) return;
+    unsigned char* site = g_serverBase + kRequestSlowTimeRva;
+    if (site[0] != 0xA1 || *(uint32_t*)(site + 1) != (uint32_t)(g_serverBase + kBulletTimeCvarRva)
+        || memcmp(site + 5, kRequestSlowTimeTail, sizeof kRequestSlowTimeTail) != 0) {
+        Log("slow-time request hook: unexpected bytes at server.dll+0x%X, not hooking", kRequestSlowTimeRva);
+        return;
+    }
+    unsigned char* tramp = (unsigned char*)VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return;
+    memcpy(g_requestSlowTimeSaved, site, 9);
+    memcpy(tramp, site, 9);
+    tramp[9] = 0xE9;
+    *(int32_t*)(tramp + 10) = (int32_t)((site + 9) - (tramp + 14));
+    g_requestSlowTime = (RequestSlowTimeFn)tramp;
+    DWORD old;
+    VirtualProtect(site, 9, PAGE_EXECUTE_READWRITE, &old);
+    site[0] = 0xE9;
+    *(int32_t*)(site + 1) = (int32_t)((unsigned char*)&RequestSlowTimeHook - (site + 5));
+    site[5] = site[6] = site[7] = site[8] = 0x90;
+    VirtualProtect(site, 9, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 9);
+    g_requestSlowTimeSite = site;
+    Log("slow-time request hook: static bullet-time request at %p hooked", site);
+}
+
+static void RemoveRequestSlowTimeHook() {
+    if (!g_requestSlowTimeSite) return;
+    DWORD old;
+    VirtualProtect(g_requestSlowTimeSite, 9, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_requestSlowTimeSite, g_requestSlowTimeSaved, 9);
+    VirtualProtect(g_requestSlowTimeSite, 9, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), g_requestSlowTimeSite, 9);
+    g_requestSlowTimeSite = nullptr;
+    Log("slow-time request hook: removed");
+}
+
 // --- The plugin ----------------------------------------------------------------
 
 class RustyBridgePlugin {
@@ -1045,13 +1296,17 @@ public:
                 g_globals = (GlobalVars*)((IPlayerInfoManager*)p)->GetGlobalVars();
         }
         Log("  gpGlobals -> %p", g_globals);
+        QueryPerformanceFrequency(&g_qpcFreq);
+        QueryPerformanceCounter(&g_qpcStart);
         WireOpen();
         InstallDamageHook();
         InstallDefenseHook();
         InstallParryHook();
+        InstallBulletTimeHook();
+        InstallRequestSlowTimeHook();
         return true;
     }
-    virtual void Unload() { Log("Unload"); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); WireClose(); }
+    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); WireClose(); }
     virtual void Pause() { Log("Pause"); }
     virtual void UnPause() { Log("UnPause"); }
     virtual const char* GetPluginDescription() { return "Rusty Bridge tap"; }
@@ -1101,8 +1356,9 @@ public:
                 wire::Header* h = WireHeader();
                 const wire::SlotHeader* last = (const wire::SlotHeader*)(g_wire + wire::kSlotsOffset +
                     ((h->frames_written - 1) % wire::kSlotCount) * wire::kSlotBytes);
-                Log("wire: %llu frames, tick %d, %u entities, %u layers, %u classes, %u damage calls, %u defense checks, %u layer rejects, avg write %.1f us, %u faults",
-                    h->frames_written, last->tick, last->entity_count, last->layer_count, g_classCount, g_damageTotal, g_defenseTotal, g_layerRejects,
+                Log("wire: %llu frames, tick %d, %u entities, %u layers, %u classes, %u damage calls, %u defense checks, %u bullet-time calls, %u layer rejects, adrenaline %.1f/%.1f, avg write %.1f us, %u faults",
+                    h->frames_written, last->tick, last->entity_count, last->layer_count, g_classCount, g_damageTotal, g_defenseTotal, g_slowTimeTotal, g_layerRejects,
+                    last->adrenaline, last->max_adrenaline,
                     1e6 * m_writeTicks / freq.QuadPart / 660, g_faults);
                 m_writeTicks = 0;
             }

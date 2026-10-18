@@ -94,7 +94,7 @@ public sealed class RecordingTests : IDisposable
         // Record header (5) + frame fields (21) + one changed entity (64) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8).
-        Assert.Equal(158, recorder.Bytes - afterKey);
+        Assert.Equal(238, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -283,13 +283,18 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version7CarriesWallClockPlayerStateSlowTimeAndLinks()
+    public void Version8CarriesWallClockPlayerStateSlowTimeLinksAndTheClientView()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
         writer.Class(0, "npc_orc_sword");
         writer.Class(1, "prop_ragdoll");
         writer.Class(2, "player");
+        writer.Client(new WireClientView
+        {
+            Player = 1, Viewmodel = 7, Flags = ClientViewFlags.ViewAngles | ClientViewFlags.Player | ClientViewFlags.Viewmodel,
+            ViewPitch = 12, ViewYaw = 90, OriginX = 100, ViewmodelX = 101,
+        });
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
         writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
         writer.FrameEntities(10,
@@ -311,7 +316,10 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(buffer));
-        Assert.Equal(7u, f.Version);
+        Assert.Equal(8u, f.Version);
+        Assert.Equal(90f, f.ClientView.ViewYaw);
+        Assert.Equal((ushort)7, f.ClientView.Viewmodel);
+        Assert.Equal(101f, f.ClientView.ViewmodelX);
         Assert.Equal(12.5, f.WallSeconds);
         Assert.Equal((byte)1, f.Player.InBulletTime);
         Assert.Equal(40f, f.Player.Adrenaline);

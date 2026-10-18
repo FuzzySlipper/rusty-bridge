@@ -38,6 +38,8 @@ public sealed class WireSnapshot
     public uint SlowTimeDropped;
     public readonly WireSlowTime[] SlowTime = new WireSlowTime[WireLayout.MaxSlowTime];
     public ReadOnlySpan<WireSlowTime> SlowTimeSpan => SlowTime.AsSpan(0, SlowTimeCount);
+    /// <summary>v8: the client's view of the local player.</summary>
+    public WireClientView ClientView = WireClientView.None;
 }
 
 /// <summary>
@@ -119,6 +121,7 @@ public sealed unsafe class WireReader : IDisposable
         int slow = (int)Math.Min(header->SlowTimeCount, (uint)WireLayout.MaxSlowTime);
         snapshot.SlowTimeDropped = header->SlowTimeDropped;
         new ReadOnlySpan<WireSlowTime>(slot + WireLayout.SlowTimeOffset, slow).CopyTo(snapshot.SlowTime);
+        snapshot.ClientView = *(WireClientView*)(slot + WireLayout.ClientViewOffset);
         snapshot.WallSeconds = header->WallSeconds;
         snapshot.Player = header->Player;
 

@@ -10,6 +10,11 @@
 //                                               an attack, turn to, approach and swing at it
 //                                               otherwise (needs rbbot.cfg and the
 //                                               den-win11 playtest agent's desktop lease)
+//   rbwire hold                                 hold the live donor after its next tick
+//   rbwire step [N]                             release N ticks (default 1), then hold again
+//   rbwire run                                  let the donor run
+//   rbwire exec COMMAND...                      run a console command in the donor (staging a
+//                                               hidden donor, which takes no keyboard input)
 //
 // record and sequences read model files from the game's VPKs; --game defaults
 // to the game folder the Wire file sits in (<game>\mm\addons\rustybridge.wire).
@@ -46,8 +51,12 @@ switch (command)
     case "info" when positional.Count == 1: return Info(positional[0]);
     case "sequences" when positional.Count == 1: return Sequences(positional[0]);
     case "parrybot": return ParryBot.Run(OpenLive(), SequenceResolver(), agentUrl, seconds);
+    case "hold": return Control(c => c.Hold());
+    case "step": return Control(c => c.Step(positional.Count > 0 ? int.Parse(positional[0]) : 1));
+    case "run": return Control(c => { c.Run(); return -1; });
+    case "exec" when positional.Count > 0: return Control(c => { c.Command(string.Join(' ', positional)); Console.WriteLine($"sent: {string.Join(' ', positional)}"); return -2; });
     default:
-        Console.Error.WriteLine("usage: rbwire tail|dump|record OUT.rbrec|info IN.rbrec|sequences MODEL.mdl [--wire PATH] [--game DIR] [--seconds N]");
+        Console.Error.WriteLine("usage: rbwire tail|dump|record OUT.rbrec|info IN.rbrec|sequences MODEL.mdl|hold|step [N]|run|exec COMMAND [--wire PATH] [--game DIR] [--seconds N]");
         return 2;
 }
 
@@ -92,6 +101,24 @@ WireReader OpenLive()
     return reader;
 }
 
+// hold, step and run: the live donor through the control file beside the Wire.
+int Control(Func<TapControl, int> act)
+{
+    using var reader = OpenLive();
+    using var control = new TapControl(TapControl.PathBeside(wirePath));
+    if (!control.IsLive) { Console.Error.WriteLine("no control file from the tap; is this tap older than the hold?"); return 1; }
+    int tick = act(control);
+    if (tick == -2) return 0;
+    if (tick < 0) { Console.WriteLine($"running (holds lapsed so far: {control.HoldsLapsed})"); return 0; }
+    var snap = new WireSnapshot();
+    if (!reader.TryReadLatest(snap)) { Console.WriteLine($"held at tick {tick}"); return 0; }
+    string player = "";
+    foreach (ref readonly var e in snap.Span)
+        if (reader.ClassName(snap, e.ClassId) == "player") player = $"; player ({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) yaw {e.Yaw:F1}";
+    Console.WriteLine($"held at tick {tick}; Wire frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3}, {snap.Count} entities{player}");
+    return 0;
+}
+
 int Dump()
 {
     using var reader = OpenLive();
@@ -100,6 +127,8 @@ int Dump()
     Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} wall {snap.WallSeconds:F3} entities {snap.Count} layers {snap.LayerCount}");
     if (snap.Player.Index != WireLayout.NoEntity)
         Console.WriteLine($"  player #{snap.Player.Index}: {PlayerState(snap.Player)}");
+    if (snap.ClientView.Flags != ClientViewFlags.None)
+        Console.WriteLine($"  client: {ClientView(snap.ClientView)}");
     var layersOf = snap.LayerSpan.ToArray().ToLookup(l => l.Index);
     var resolve = SequenceResolver();
     foreach (ref readonly var e in snap.Span)
@@ -279,3 +308,9 @@ int Info(string path)
 static string PlayerState(WirePlayerState p) =>
     $"adrenaline {p.Adrenaline:F1}/{p.MaxAdrenaline:F1}" +
     (p.InBulletTime != 0 ? $" slow motion x{p.BulletTimeFactor:F2} from {p.BulletTimeStart:F2} for {p.BulletTimeDuration:F2} s" : "");
+
+static string ClientView(in WireClientView c) =>
+    $"flags {c.Flags}; view ({c.ViewPitch:F1} {c.ViewYaw:F1} {c.ViewRoll:F1})" +
+    (c.Flags.HasFlag(ClientViewFlags.Player) ? $"; player #{c.Player} ({c.OriginX:F1} {c.OriginY:F1} {c.OriginZ:F1})" : "") +
+    (c.Flags.HasFlag(ClientViewFlags.ViewOffset) ? $" eye +({c.ViewOffsetX:F1} {c.ViewOffsetY:F1} {c.ViewOffsetZ:F1})" : "") +
+    (c.Flags.HasFlag(ClientViewFlags.Viewmodel) ? $"; viewmodel #{c.Viewmodel} ({c.ViewmodelX:F1} {c.ViewmodelY:F1} {c.ViewmodelZ:F1}) ({c.ViewmodelPitch:F1} {c.ViewmodelYaw:F1})" : "");

@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 7;
+    public const uint Version = 8;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -28,7 +28,8 @@ public static class WireLayout
     public static readonly int DefenseOffset = DamageOffset + MaxDamage * Marshal.SizeOf<WireDamage>();
     public static readonly int LayersOffset = DefenseOffset + MaxDefense * Marshal.SizeOf<WireDefense>();
     public static readonly int SlowTimeOffset = LayersOffset + MaxLayers * Marshal.SizeOf<WireLayer>();
-    public static readonly int SlotBytes = SlowTimeOffset + MaxSlowTime * Marshal.SizeOf<WireSlowTime>();
+    public static readonly int ClientViewOffset = SlowTimeOffset + MaxSlowTime * Marshal.SizeOf<WireSlowTime>();
+    public static readonly int SlotBytes = ClientViewOffset + Marshal.SizeOf<WireClientView>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -99,6 +100,39 @@ public struct WirePlayerState
     public float BulletTimeFactor;
     public float Adrenaline;
     public float MaxAdrenaline;
+}
+
+/// <summary>What the client's view flags say was read.</summary>
+[Flags]
+public enum ClientViewFlags : uint
+{
+    None = 0,
+    ViewAngles = 1,
+    Player = 2,
+    Viewmodel = 4,
+    ViewOffset = 8,
+}
+
+/// <summary>
+/// The client's view of the local player (Wire v8): read from client.dll and
+/// engine.dll in the donor's process, as of the client's last frame. The eye
+/// is <see cref="Origin"/> + <see cref="ViewOffset"/>, looking along
+/// <see cref="ViewAngles"/>. docs/wire.md, "The client's view".
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireClientView
+{
+    public ushort Player;
+    public ushort Viewmodel;
+    public ClientViewFlags Flags;
+    public float ViewPitch, ViewYaw, ViewRoll;
+    public float OriginX, OriginY, OriginZ;
+    public float Pitch, Yaw, Roll;
+    public float ViewOffsetX, ViewOffsetY, ViewOffsetZ;
+    public float ViewmodelX, ViewmodelY, ViewmodelZ;
+    public float ViewmodelPitch, ViewmodelYaw, ViewmodelRoll;
+
+    public static WireClientView None => new() { Player = WireLayout.NoEntity, Viewmodel = WireLayout.NoEntity };
 }
 
 /// <summary>Which bullet-time function a <see cref="WireSlowTime"/> record caught.</summary>

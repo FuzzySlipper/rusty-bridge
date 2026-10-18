@@ -8,8 +8,8 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 7;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
-                                        // v7: 64-byte entities (links), wall clock, player state, slow-time events
+    public const uint Version = 8;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+                                        // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, _ => Marshal.SizeOf<WireEntity>() };
@@ -148,6 +148,8 @@ public sealed class Recorder : IDisposable
             w.Write(snap.SlowTimeDropped);
             w.Write(snap.SlowTimeCount);
             w.Write(MemoryMarshal.AsBytes(snap.SlowTimeSpan));
+            // v8: the client's view.
+            w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WireClientView>(in snap.ClientView)));
         });
         FramesWritten++;
     }
@@ -205,6 +207,8 @@ public sealed class RecordedFrame
     /// <summary>v7: bullet-time setter calls since the previous frame.</summary>
     public readonly List<WireSlowTime> SlowTime = new();
     public uint SlowTimeDropped;
+    /// <summary>v8: the client's view of the local player; <see cref="WireClientView.None"/> in older recordings.</summary>
+    public WireClientView ClientView = WireClientView.None;
     public readonly Dictionary<ushort, string> Classes = new();
     public readonly Dictionary<int, string> Models = new();
     /// <summary>Sequence names by model index, in m_nSequence order.</summary>
@@ -309,6 +313,7 @@ public static class RecordingReader
                         int slow = r.ReadInt32();
                         state.SlowTime.AddRange(MemoryMarshal.Cast<byte, WireSlowTime>(r.ReadBytes(slow * Marshal.SizeOf<WireSlowTime>())).ToArray());
                     }
+                    state.ClientView = version >= 8 ? MemoryMarshal.Read<WireClientView>(r.ReadBytes(Marshal.SizeOf<WireClientView>())) : WireClientView.None;
                     yield return state;
                     break;
             }

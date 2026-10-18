@@ -75,6 +75,7 @@ sealed unsafe class TestWriter : IDisposable
         _slowTime.CopyTo(new Span<WireSlowTime>((byte*)s + WireLayout.SlowTimeOffset, _slowTime.Length));
         s->SlowTimeCount = (uint)_slowTime.Length;
         _slowTime = Array.Empty<WireSlowTime>();
+        *(WireClientView*)((byte*)s + WireLayout.ClientViewOffset) = _client;
         _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
         s->LayerCount = (uint)_layers.Length;
         _layers = Array.Empty<WireLayer>();
@@ -87,6 +88,8 @@ sealed unsafe class TestWriter : IDisposable
 
     /// <summary>Bullet-time calls for the next frame written by <see cref="FrameEntities"/>.</summary>
     public void SlowTime(params WireSlowTime[] calls) => _slowTime = calls;
+    public void Client(WireClientView view) => _client = view;
+    WireClientView _client = WireClientView.None;
 
     WirePlayerState _player = new() { Index = WireLayout.NoEntity };
     double _wall;

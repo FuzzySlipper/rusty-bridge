@@ -311,9 +311,11 @@ the live path. It stays as an oracle for recorded segments.
   NPC update interval plus transport is the floor on shared memory.
 - The local player is the exception. Take the donor client's predicted state
   for the player, not the server's, or every input lags by a tick or more.
-- Stepping in the stepper means fixing the donor's frame rate and holding its
-  frame from the Tap. Scrubbing reads the Recorder, not a donor replay: the
-  donor's Havok simulation shouldn't be assumed deterministic.
+- Stepping the live donor holds its frame from the Tap: `rbwire hold`,
+  `step [N]` and `run`. The tap holds inside its own `GameFrame`, one tick
+  per call, so no frame rate needs fixing ([wire.md](wire.md), "Holding the
+  donor"). Scrubbing reads the Recorder, not a donor replay: the donor's
+  Havok simulation shouldn't be assumed deterministic.
 
 ## Upstream asks for Rusty Engine
 
@@ -391,8 +393,11 @@ metrics, the Recorder and the stepper. Those belong to the bridge.
   interface. Server-side covers more than expected: damage, defense, parry
   outcomes and slow-motion parameters are all server-side. What remains on
   the client is the predicted player, the camera and view angles, and the
-  viewmodel. Reading them means hooking `client.dll`, still the most fragile
-  part of the Tap. Input doesn't fill the gap: the parry bot turns the view
+  viewmodel. Wire v8 reads the view angles, the predicted transform, the eye
+  offset and the viewmodel's transform from `client.dll` and `engine.dll`
+  through vtable slots checked against their code ([wire.md](wire.md), "The
+  client's view"). Camera effects (bob, punch, third person) and client-side
+  viewmodel animation are still unread. Input doesn't fill the gap: the parry bot turns the view
   with keys bound to `+left`/`+right`, since relative mouse motion through
   the playtest agent doesn't turn it.
 - **Overlay layers.** The parry and gesture layers have been on the Wire
@@ -405,10 +410,11 @@ metrics, the Recorder and the stepper. Those belong to the bridge.
   health (`m_fHealth`), a `DPT_VectorXY` send-prop type, and an extended
   `CTakeDamageInfo`. Expect map (BSP) and model-geometry surprises when the
   Import starts.
-- **Hidden donor.** `shaderapiempty.dll` ships with the game, which suggests
-  it can run without rendering. Unverified. For now the donor needs the
-  shared Windows box's console session, and it changes the desktop
-  resolution.
+- **Hidden donor.** `-noshaderapi -rbhidden` runs the donor without drawing
+  and without touching the desktop: the tap restores the display mode and
+  hides the window ([wire.md](wire.md), "A hidden donor"). It still needs
+  the shared Windows box's console session (Steam launches it there) and
+  takes no keyboard input, so it is staged with `rbwire exec`.
 - **The last 20%.** Phase 3 onward requires a donor kept consistent with
   Rusty-owned state every tick. The cost grows with every channel handed
   over. Plan for Phase 5 to be a re-implementation, not a handover.

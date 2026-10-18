@@ -1,4 +1,4 @@
-// Wire v7: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v8: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 7;
+const uint32_t kVersion = 8;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -197,8 +197,25 @@ struct SlowTime {
     uint32_t reserved2;
 };
 
+// The client's view of the local player (v8), read from client.dll and
+// engine.dll in the same process: what the server doesn't know. One per slot,
+// after the slow-time records. Read in the server frame, so it is the client's
+// state as of its last frame.
+struct ClientView {
+    uint16_t player;            // the client's local player index; kNoEntity when the client isn't read
+    uint16_t viewmodel;         // the client entity read as the viewmodel (the server viewmodel's index); kNoEntity if none
+    uint32_t flags;             // 1 view angles, 2 player transform, 4 viewmodel transform, 8 view offset
+    float view_angles[3];       // the client's view: pitch, yaw, roll (IVEngineClient::GetViewAngles)
+    float origin[3];            // the client's local player abs origin (predicted)
+    float angles[3];            // its abs angles
+    float view_offset[3];       // the server player's m_vecViewOffset; the eye is origin + view_offset
+    float viewmodel_origin[3];  // the client viewmodel's abs origin (the server's is stale)
+    float viewmodel_angles[3];
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(ClientView) == 80, "ClientView layout");
 static_assert(sizeof(Header) == 144, "Header layout");
 static_assert(sizeof(SlotHeader) == 96, "SlotHeader layout");
 static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
@@ -214,7 +231,35 @@ const uint32_t kDamageOffset = sizeof(SlotHeader) + kMaxEntities * sizeof(Entity
 const uint32_t kDefenseOffset = kDamageOffset + kMaxDamage * sizeof(Damage);
 const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
 const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
-const uint32_t kSlotBytes = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
+const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
+const uint32_t kSlotBytes = kClientViewOffset + sizeof(ClientView);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
+
+// The control file, rustybridge.control beside the Wire: a reader holds the
+// donor's frame and steps it tick by tick. The tap creates it and polls it
+// once per tick; a reader maps it read-write. docs/wire.md, "Holding the
+// donor". The C# mirror is wire/RustyBridge.Wire/TapControl.cs.
+const uint64_t kControlMagic = 0x31304C5254434252ull; // "RBCTRL01", little-endian
+const uint32_t kControlVersion = 1;
+const uint32_t kControlFileBytes = 4096;
+
+#pragma pack(push, 4)
+struct Control {
+    uint64_t magic;
+    uint32_t version;
+    uint32_t writer_pid;
+    int32_t hold;               // reader: 1 holds the donor after each tick, 0 runs it
+    uint32_t step_requests;     // reader: ticks asked for while held, a running count
+    uint32_t steps_done;        // tap: ticks released while held, a running count
+    int32_t held_tick;          // tap: the tick it's holding at, or -1 while running
+    uint64_t lease_until_ms;    // reader: a hold lapses at this GetTickCount64 time
+    uint32_t holds_lapsed;      // tap: holds released because their lease ran out
+    uint32_t reserved;
+    uint32_t command_seq;       // reader: bumped after writing command
+    uint32_t command_done;      // tap: the command_seq it last ran
+    char command[256];          // reader: a console command, NUL-terminated, run through IVEngineClient::ClientCmd
+};
+#pragma pack(pop)
+static_assert(sizeof(Control) == 312, "Control layout");
 
 } // namespace wire

@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 7) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 7).`);
+  if (version < 1 || version > 8) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 8).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : 64;
   const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
@@ -325,6 +325,13 @@ function parseRecording(buf) {
         for (let i = 0; i < n; i++, p += 32)
           slowTime.push({ fi, tick: v.getInt32(p, true), player: v.getUint16(p + 4, true), playerSerial: v.getUint32(p + 24, true), request: v.getUint8(p + 7) === 1, start: v.getFloat32(p + 8, true),
                           duration: v.getFloat32(p + 12, true), factor: v.getFloat32(p + 16, true), caller: v.getUint32(p + 20, true) });
+      }
+      if (version >= 8) {
+        // The client's view of the local player: flags 1 view angles, 2 player transform, 4 viewmodel, 8 view offset.
+        const f3 = (o) => [v.getFloat32(p + o, true), v.getFloat32(p + o + 4, true), v.getFloat32(p + o + 8, true)];
+        const flags = v.getUint32(p + 4, true);
+        if (flags) fr.client = { flags, view: f3(8), origin: f3(20), angles: f3(32), viewOffset: f3(44), viewmodel: f3(56), viewmodelAngles: f3(68) };
+        p += 80;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -769,6 +776,14 @@ function seqStartTicks(t, k) {
   while (j > 0 && t.seq[j - 1] === t.seq[k] && t.cycle[j - 1] <= t.cycle[j] + 0.5) j--;
   return rec.frames[t.f[k]].tick - rec.frames[t.f[j]].tick;
 }
+// v8: what the client saw: its view angles, its eye, and how far its (predicted) player is from the server's.
+function clientRows(c, t, k) {
+  const rows = [];
+  if (c.flags & 1) rows.push(["client view", `${fmt(c.view[0])} ${fmt(c.view[1])} pitch, yaw`]);
+  if (c.flags & 2) rows.push(["client player", `${fmt(Math.hypot(c.origin[0] - t.x[k], c.origin[1] - t.y[k], c.origin[2] - t.z[k]), 1)} u from the server's`]);
+  if ((c.flags & 2) && (c.flags & 8)) rows.push(["eye", `${fmt(c.origin[0] + c.viewOffset[0])} ${fmt(c.origin[1] + c.viewOffset[1])} ${fmt(c.origin[2] + c.viewOffset[2])}`]);
+  return rows;
+}
 // v7: game time over wall time across the last half second, when it isn't 1.
 function timeScaleText(fi) {
   const f = rec.frames[fi];
@@ -805,6 +820,7 @@ function drawDetail() {
     ...layersAt(t, cur).sort((a, b) => a.order - b.order).map((l) => [`layer ${l.slot}`, `${layerName(t, l)} ${(l.cycle * 100).toFixed(0)}% ×${l.weight.toFixed(2)}`]),
     ...lastHits(t),
     ...(t.link[k] ? [[/^npc_/.test(t.cls) ? "knocked down, ragdoll" : "ragdoll of", rec.bySerial.get(t.link[k]) ? label(rec.bySerial.get(t.link[k])) : `#${t.link[k].split(":")[0]}`]] : []),
+    ...(t.cls === "player" && f.client ? clientRows(f.client, t, k) : []),
     ...(t.cls === "player" && f.player ? [["adrenaline", `${fmt(f.player.adrenaline)} / ${fmt(f.player.maxAdrenaline)}`],
       ...(f.player.inSlow ? [["slow motion", `×${fmt(f.player.factor, 2)} for ${fmt(f.player.duration, 2)} s from ${fmt(f.player.start, 2)}`]] : [])] : []),
     ["last change", `tick ${rec.frames[t.f[k]].tick}`],

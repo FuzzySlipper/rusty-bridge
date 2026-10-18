@@ -37,7 +37,7 @@ function recording(frames, version = 6) {
   u32(0x45524252); u32(0x31303043); u32(version); u32(0);
   record(1, () => { u32(1); f32(0.015); str('l01_a'); });
   ['npc_orc_sword', 'prop_ragdoll', 'player'].forEach((name, id) => record(2, () => { u16(id); str(name); }));
-  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [] }, i) => record(4, () => {
+  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null }, i) => record(4, () => {
     u32(i); u32(0); u32(tick); f32(tick * 0.015); u8(1);           // frame, tick, curtime, key flag
     u32(entities.length);
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
@@ -63,6 +63,10 @@ function recording(frames, version = 6) {
       u16(1); u8(slow ? 1 : 0); u8(0); f32(slow?.start ?? 0); f32(slow?.duration ?? 0); f32(slow?.factor ?? 0); f32(42); f32(100);  // player state
       u32(0); u32(slowCalls.length);
       for (const b of slowCalls) { u32(tick); u16(1); u8(1); u8(b.request ? 1 : 0); f32(b.start); f32(b.duration); f32(b.factor); u32(b.caller); u32(1); u32(0); }
+    }
+    if (version >= 8) {                                              // client view, 80 bytes
+      u16(1); u16(7); u32(client ? 15 : 0);
+      for (const x of client ? [...client.view, ...client.origin, 0, 90, 0, 0, 0, 64, 1, 2, 3, 0, 0, 0] : new Array(18).fill(0)) f32(x);
     }
   }));
   return new Uint8Array(bytes).buffer;
@@ -112,4 +116,15 @@ test('v7: slow motion, adrenaline, the wall clock and a knocked-down orc\'s ragd
   const knock = rec.events.find((e) => e.kind === 'knock');
   assert.equal(knock.track.cls, 'npc_orc_sword');
   assert.equal(knock.other.cls, 'prop_ragdoll');
+});
+
+test('v8: the client\'s view rides each frame', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, client: { view: [12, 90, 0], origin: [5, 6, 7] } },
+    { tick: 11, entities: [player, orc], wall: 1.015 },
+  ], 8));
+  assert.equal(rec.version, 8);
+  assert.deepEqual(Array.from(rec.frames[0].client.view), [12, 90, 0]);
+  assert.equal(rec.frames[0].client.viewOffset[2], 64);
+  assert.equal(rec.frames[1].client, undefined);
 });

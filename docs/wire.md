@@ -1,4 +1,4 @@
-# Wire v7
+# Wire v8
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -17,15 +17,19 @@ also carries every active animation overlay layer: the gestures, parries,
 blocks and hit reactions that play over an entity's main sequence. Since v7
 each tick carries the tap's wall clock, the player's slow-motion and
 adrenaline state and every bullet-time call, and every entity its link: a
-knocked-down NPC's ragdoll and back. There's no input or write-back yet.
+knocked-down NPC's ragdoll and back. Since v8 each tick carries the client's
+view of the local player: its view angles, predicted transform, eye offset
+and first-person viewmodel. A control file beside the Wire holds the donor
+on a tick, steps it, and runs console commands; there's no other input or
+write-back yet.
 
-v2–v7 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v8 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 19,542,272 bytes and maps it read-write; readers open
+creates it, sizes it to 19,552,512 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -42,7 +46,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 148,064 | Ring of slots |
+| 590,080 | 128 × 148,144 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -61,6 +65,7 @@ at 72), then:
 - at 140,896, up to 32 defense records of 48 bytes
 - at 142,432, up to 256 overlay layer records of 20 bytes
 - at 147,552, up to 16 slow-time records of 32 bytes
+- at 148,064, the 80-byte client view (v8)
 
 Entities:
 
@@ -420,15 +425,112 @@ The tap is the only writer and never waits for readers.
 - `rbwire tail`, polling every 1 ms from an SSH session, read every frame in
   order: 0 lost, 0 retries.
 
+## The client's view
+
+In single player `client.dll` and `engine.dll` run in the tap's process. v8
+reads from them what the server doesn't have, into one 80-byte record per
+slot:
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16 | the client's local player index (`GetLocalPlayer`); 0xFFFF when not read |
+| 2 | `viewmodel` u16 | the client entity read as the viewmodel: the server viewmodel's index |
+| 4 | `flags` u32 | 1 view angles, 2 player transform, 4 viewmodel transform, 8 view offset |
+| 8 | `view_angles` 3×f32 | the client's view, `cl.viewangles` (pitch, yaw, roll) |
+| 20 | `origin` 3×f32 | the client's local player abs origin (predicted) |
+| 32 | `angles` 3×f32 | its abs angles |
+| 44 | `view_offset` 3×f32 | the server player's `m_vecViewOffset` (+0x774, a send prop); the eye is `origin + view_offset` |
+| 56 | `viewmodel_origin`, `viewmodel_angles` 3×f32 each | the client viewmodel's abs transform, which the server's `viewmodel` entity doesn't keep |
+
+It is read in the server frame, so it is the client's state as of its last
+frame.
+
+**How the interfaces were read (2026-10-18).** A one-off probe logged the
+live vtables of `VEngineClient012` (engine.dll), `VClientEntityList003` and
+`VClient013` (client.dll), and their slots were read in a disassembly:
+
+- **`IVEngineClient`:** the 2006 SDK's layout with two extra slots near the start.
+  - **`ClientCmd` is slot 9:** `mov eax,[esp+4]; push eax; call Cbuf_AddText`, then a newline.
+  - **`GetLocalPlayer` is slot 14:** `mov eax,[abs]; add eax,1; ret`.
+  - **`GetViewAngles` is slot 21:** it copies three floats from `cl.viewangles` at a fixed address.
+  - **How the tap uses them:** it reads the two addresses out of that code, and calls only `ClientCmd`.
+- **`IClientEntityList`:** the SDK's order.
+  - **`GetClientEntity` is slot 3:** `add ecx,-0x10014`, then `GetClientUnknown`, then `IClientUnknown` slot 6, `GetIClientEntity`.
+- **`IClientEntity`:** no `Release` before the getters, unlike the SDK.
+  - **`GetAbsOrigin` is slot 9:** `CalcAbsolutePosition`, then `this+0x440`.
+  - **`GetAbsAngles` is slot 10:** `CalcAbsolutePosition`, then `this+0x458` or `this+0x324` by an entity flag (0x200).
+- **Before use:** each function's code is checked against these patterns (relocated addresses masked) before it is read or called. A mismatch turns that part off and logs why. engine.dll loads at different bases between runs, which the checks allow.
+
+**Checked against the screen.** With the view set by
+`rbwire exec setang 0 190 0` and the donor held, l01_a's gate guard
+(#361, 125 units away) projected through the streamed eye and angles
+(75° 4:3 FOV, widened to 91° for 16:9) falls 6° left of centre, x ≈ 573
+of 1280. The capture of that held tick shows the guard there. Standing, the client's player sits on the
+server's; on the opening horse ride it is about 3 units off.
+
+## Holding the donor
+
+`rustybridge.control` beside the Wire (4,096 bytes; the tap creates it, a
+reader maps it read-write) holds the donor on a tick and steps it:
+
+| Offset | Field | Who writes it |
+| --- | --- | --- |
+| 0 | `magic` u64 `"RBCTRL01"`, `version` u32 (1), `writer_pid` u32 | tap |
+| 16 | `hold` i32 | reader: 1 holds the donor after each tick, 0 runs it |
+| 20 | `step_requests` u32 | reader: ticks asked for, a running count |
+| 24 | `steps_done` u32 | tap: ticks released while held |
+| 28 | `held_tick` i32 | tap: the tick it is holding at, or -1 |
+| 32 | `lease_until_ms` u64 | reader: the hold lapses at this `GetTickCount64` time |
+| 40 | `holds_lapsed` u32, reserved u32 | tap |
+| 48 | `command_seq` u32 | reader: bumped after writing `command` |
+| 52 | `command_done` u32 | tap: the `command_seq` it last ran |
+| 56 | `command` char[256] | reader: a console command |
+
+- **Where it holds:** the tap holds inside its own `GameFrame`, right after writing a tick's
+  Wire frame. The whole host frame waits there, the client too in single
+  player, so the game shows that tick and the Wire's latest frame is it.
+- **Exact steps:** each `GameFrame` is one server tick, so releasing one call steps exactly one
+  tick, even when the engine runs several ticks in a frame to catch up after a hold.
+- **While held:** the tap peeks the message queue without removing anything, so Windows
+  doesn't mark the window as not responding. The window shows the held frame.
+- **Lease:** a hold lapses at its lease, ten minutes after each `rbwire` command, so a reader that
+  went away can't freeze the game for good.
+- **Commands:** a command is passed to `IVEngineClient::ClientCmd` and runs on the next
+  frame. That is how a hidden donor, which takes no keyboard input, is staged.
+
+Measured on l01_a (2026-10-18):
+- **Holding:** a hold at tick 399 stayed there 8 s with the process responding.
+- **Stepping:** `step`, `step 10` and `step 66` advanced exactly 1, 10 and 66 ticks, one Wire frame each.
+- **Resuming:** `run` resumed without a catch-up burst; the engine clamps the time lost.
+
+## A hidden donor
+
+`-noshaderapi` loads `shaderapiempty.dll`: the game draws nothing (a black
+screen saying "Running with -noshaderapi"), but it still opens a fullscreen
+window and switches the desktop to 1024×768. It ignores `-window`, `-w` and `-h`.
+With `-rbhidden` as well, the tap puts the desktop's display mode back
+(`ChangeDisplaySettings(NULL, 0)`) and hides the game's windows once a level
+has run 5 s.
+
+With `-condebug -console -noshaderapi -rbhidden -novid +map l01_a`:
+- **Still works:** the server simulation, the plugin, the Wire (66.9 ticks/s, nothing lost) and
+  holding and stepping. The process used about a third of a core.
+- **Breaks:**
+  - Input through the playtest agent: the hidden window is never in front, so the parry bot and console typing can't reach it. Stage with `rbwire exec`.
+  - The client view's eye and viewmodel are still computed, but nothing draws them.
+- **Still needed:** the console session on den-win11, because Steam launches the game there.
+- **Stopping:** killing a hidden donor with `Stop-Process` doesn't put the desktop back if the tap hadn't yet. `ChangeDisplaySettings(NULL, 0)` from the console desktop does.
+
 ## Known gaps
 
 - Slow motion is streamed as the game's requests and its flag, not as
   `host_timescale` itself; a time scale set by a map script through the
   console would show only in the wall clock.
 
-- Server state only. The `viewmodel` entity's server origin is stale; the
-  first-person weapon and the predicted player live in `client.dll` (see
-  "Client-side state" in the design).
+- The server `viewmodel` entity's origin is stale; read the client view's
+  viewmodel transform instead. The client view carries no camera effects
+  (view bob, punch angles, third-person cameras) and no client-side
+  animation of the viewmodel; its sequence and layers are the server's.
 - Angles are `m_angAbsRotation` for every entity, including non-rotating
   solids, whose collision angles would be zero.
 - Every live edict is sent, triggers and logic entities included. Filtering
@@ -440,8 +542,9 @@ The tap is the only writer and never waits for readers.
 dotnet test wire/RustyBridge.Wire.slnx
 ```
 
-`rbwire` (`wire/RustyBridge.Wire.Cli`) has four subcommands: `tail`, `dump`,
-`record` and `info` (see [recording.md](recording.md)). On den-win11,
+`rbwire` (`wire/RustyBridge.Wire.Cli`) reads the Wire with `tail`, `dump`,
+`record` and `info` (see [recording.md](recording.md)), and drives the donor
+with `hold`, `step [N]`, `run` and `exec COMMAND`. On den-win11,
 publish it once through `run-on-desktop.ps1`, because `P:` exists only on
 the desktop. Then run it from SSH while the game runs:
 

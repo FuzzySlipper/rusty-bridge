@@ -85,6 +85,15 @@ The Steam launch options for 2100 are
 `-condebug -console -window -w 1280 -h 720 -novid +map l01_a`. Steam only
 keeps launch options written to `userdata\<steam-id>\config\localconfig.vdf`
 while Steam is shut down; a backup is at `localconfig.vdf.rb-backup`.
+Write them from the console desktop (`run-on-desktop.ps1`); `steam -shutdown`
+from plain SSH doesn't reach the desktop's Steam. For a donor that draws
+nothing and leaves the desktop alone, use
+`-condebug -console -noshaderapi -rbhidden -novid +map l01_a` and stage it
+with `rbwire exec` (docs/wire.md, "A hidden donor").
+
+**Holding and stepping:** `rbwire hold`, `rbwire step [N]` and `rbwire run`
+hold the live donor on a tick (docs/wire.md, "Holding the donor").
+`rbwire exec COMMAND` runs a console command without typing into the game.
 
 **Session sequence:**
 

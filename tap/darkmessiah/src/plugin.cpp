@@ -324,6 +324,8 @@ static bool DumpEntities(const char* reason) {
 static GlobalVars* g_globals;
 static unsigned char* g_wire;
 static HANDLE g_wireFile, g_wireMap;
+static wire::Control* g_control;
+static HANDLE g_controlFile, g_controlMap;
 static bool g_streamOk;
 static int g_lastTick = -1;
 static uint32_t g_faults;  // SEH faults in the tick walk and the damage hook
@@ -362,6 +364,7 @@ static int g_sendLayout;              // 0 unchecked, 1 ok, -1 wrong
 static int g_healthOff = -1, g_maxHealthOff = -1, g_lifeStateOff = -1;
 static int g_ownerOff = -1;           // CBaseEntity::m_hOwnerEntity
 static int g_weaponOwnerOff = -1;     // CBaseCombatWeapon::m_hOwner
+static int g_viewOffsetOff = -1;      // CBasePlayer::m_vecViewOffset (sent as three floats, [0] first)
 
 static bool IsText(const char* p) { return p && SafeStr(p) == p; }
 
@@ -400,6 +403,7 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         else if (!strcmp(name, "m_fMaxHealth") && g_maxHealthOff < 0) { g_maxHealthOff = off; Log("netprops: m_fMaxHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_hOwner") && g_weaponOwnerOff < 0) { g_weaponOwnerOff = off; Log("netprops: m_hOwner @+0x%X (CBaseCombatWeapon)", off); }
         else if (!strcmp(name, "m_hOwnerEntity") && g_ownerOff < 0) { g_ownerOff = off; Log("netprops: m_hOwnerEntity @+0x%X (CBaseEntity, all classes)", off); }
+        else if (!strcmp(name, "m_vecViewOffset[0]") && g_viewOffsetOff < 0) { g_viewOffsetOff = off; Log("netprops: m_vecViewOffset @+0x%X (CBasePlayer)", off); }
         else if (!strcmp(name, "m_lifeState") && g_lifeStateOff < 0) { g_lifeStateOff = off; Log("netprops: m_lifeState @+0x%X (CBaseEntity, all classes)", off); }
     }
 }
@@ -472,6 +476,98 @@ static void WireClose() {
     if (g_wireMap) CloseHandle(g_wireMap);
     if (g_wireFile && g_wireFile != INVALID_HANDLE_VALUE) CloseHandle(g_wireFile);
     g_wire = nullptr; g_wireMap = nullptr; g_wireFile = nullptr;
+}
+
+// --- Holding the donor --------------------------------------------------------
+//
+// A reader holds the donor's frame through rustybridge.control. The tap holds
+// inside its own GameFrame, right after writing a tick's Wire frame: the
+// whole host frame waits there (the client too, in single player), so the
+// game shows that tick and the Wire's latest frame is it. Each GameFrame is
+// one server tick, so releasing one call steps exactly one tick, even when
+// the engine runs several ticks in a frame to catch up after a hold. While
+// held the tap peeks the message queue (without removing anything) so
+// Windows doesn't mark the window as not responding. A hold lapses at its
+// lease, so a reader that went away can't freeze the game for good.
+
+static void ControlOpen() {
+    char path[MAX_PATH];
+    snprintf(path, sizeof path, "%s\\rustybridge.control", g_dir);
+    g_controlFile = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (g_controlFile == INVALID_HANDLE_VALUE) { Log("control: CreateFile failed (%lu)", GetLastError()); g_controlFile = nullptr; return; }
+    g_controlMap = CreateFileMappingA(g_controlFile, nullptr, PAGE_READWRITE, 0, wire::kControlFileBytes, nullptr);
+    if (!g_controlMap) { Log("control: CreateFileMapping failed (%lu)", GetLastError()); return; }
+    g_control = (wire::Control*)MapViewOfFile(g_controlMap, FILE_MAP_WRITE, 0, 0, wire::kControlFileBytes);
+    if (!g_control) { Log("control: MapViewOfFile failed (%lu)", GetLastError()); return; }
+    memset(g_control, 0, wire::kControlFileBytes);
+    g_control->version = wire::kControlVersion;
+    g_control->writer_pid = GetCurrentProcessId();
+    g_control->held_tick = -1;
+    InterlockedExchange64((volatile LONG64*)&g_control->magic, (LONG64)wire::kControlMagic);
+    Log("control: %s", path);
+}
+
+static void ControlClose() {
+    if (g_control) { g_control->hold = 0; UnmapViewOfFile(g_control); }
+    if (g_controlMap) CloseHandle(g_controlMap);
+    if (g_controlFile) CloseHandle(g_controlFile);
+    g_control = nullptr; g_controlMap = nullptr; g_controlFile = nullptr;
+}
+
+static bool HoldLapsed() {
+    if (GetTickCount64() <= g_control->lease_until_ms) return false;
+    InterlockedExchange((volatile LONG*)&g_control->hold, 0);
+    ++g_control->holds_lapsed;
+    Log("control: hold lapsed at tick %d", g_globals->tickcount);
+    return true;
+}
+
+// Called once per server tick, after its Wire frame is written.
+static void HoldIfAsked() {
+    volatile wire::Control* c = g_control;
+    if (!c || !c->hold || HoldLapsed()) return;
+    if (c->step_requests != c->steps_done) { ++c->steps_done; return; }  // a step released this tick
+    InterlockedExchange((volatile LONG*)&c->held_tick, g_globals->tickcount);
+    MSG msg;
+    while (c->hold && c->step_requests == c->steps_done && !HoldLapsed()) {
+        PeekMessageA(&msg, nullptr, 0, 0, PM_NOREMOVE);
+        Sleep(1);
+    }
+    if (c->hold) ++c->steps_done;
+    InterlockedExchange((volatile LONG*)&c->held_tick, -1);
+}
+
+// client.dll and engine.dll export their factories as CreateInterface.
+typedef void* (*CreateInterfaceFnRaw)(const char*, int*);
+
+// --- A hidden donor -----------------------------------------------------------
+//
+// Launched with -noshaderapi the game draws nothing (shaderapiempty.dll), but
+// it still opens a fullscreen window and switches the desktop to 1024x768,
+// ignoring -window, -w and -h. With -rbhidden on its command line as well, the
+// tap puts the desktop's own display mode back and hides the game's windows
+// once a level is running. The server simulation, the plugin and the Wire
+// don't need either.
+
+static BOOL CALLBACK HideOwnWindow(HWND hwnd, LPARAM count) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId() && IsWindowVisible(hwnd)) {
+        ShowWindow(hwnd, SW_HIDE);
+        ++*(int*)count;
+    }
+    return TRUE;
+}
+
+static void HideIfAsked() {
+    const char* line = GetCommandLineA();
+    if (!line || !strstr(line, "-rbhidden")) return;
+    LONG mode = ChangeDisplaySettingsA(nullptr, 0);
+    int hidden = 0;
+    EnumWindows(HideOwnWindow, (LPARAM)&hidden);
+    Log("hidden donor: display mode restored (%ld), %d window(s) hidden%s", mode, hidden,
+        strstr(line, "-noshaderapi") ? "" : "; without -noshaderapi the game still renders");
 }
 
 // New level: model indices and class name pointers are only valid per level.
@@ -648,6 +744,148 @@ static void WritePlayerState(wire::SlotHeader* s) {
     }
 }
 
+// --- The client's view (Wire v8) --------------------------------------------
+//
+// In single player client.dll and engine.dll run in the tap's process. Their
+// interfaces keep the 2006 SDK's layouts with Arkane's changes, read from a
+// probe of the live vtables and their code (docs/wire.md, "The client's
+// view"). Nothing here is called until its code is what was read:
+// - IVEngineClient (VEngineClient012) slot 21 is GetViewAngles. It loads
+//   cl.viewangles from a fixed address (fld dword [abs]; mov eax,[esp+4]), so
+//   the tap reads the three floats at that address instead of calling it.
+//   Slot 14 is GetLocalPlayer (mov eax,[abs]; add eax,1; ret), read the same way.
+//   Slot 9 is ClientCmd (mov eax,[esp+4]; push eax; call Cbuf_AddText ...).
+// - IClientEntityList (VClientEntityList003) slot 3 is GetClientEntity(i)
+//   (mov eax,[esp+4]; push eax; add ecx,-0x10014; call ...). It is called.
+// - An IClientEntity's slots 9 and 10 are GetAbsOrigin and GetAbsAngles (no
+//   Release before them, unlike the SDK). Each calls CalcAbsolutePosition and
+//   returns a field; GetAbsAngles picks one of two by an entity flag (0x200).
+//   They're called, per entity, only when their code is that.
+
+typedef void* (__thiscall* GetClientEntityFn)(void* self, int index);
+typedef void (__thiscall* ClientCmdFn)(void* self, const char* text);
+
+static const float* g_viewAngles;       // cl.viewangles
+static const int* g_playerSlot;         // GetLocalPlayer's slot: the local player is slot + 1
+static void* g_entityList;
+static GetClientEntityFn g_getClientEntity;
+static void* g_engineClient;
+static ClientCmdFn g_clientCmd;
+static bool g_clientTried;
+static uint16_t g_viewmodelIndex = wire::kNoEntity;
+
+static bool CodeIs(const unsigned char* code, const char* pattern) {  // pattern: hex bytes, ?? for any
+    for (int i = 0; pattern[0]; i++) {
+        while (*pattern == ' ') pattern++;
+        if (!*pattern) break;
+        if (pattern[0] != '?') {
+            unsigned v = 0;
+            sscanf_s(pattern, "%2x", &v);
+            if (code[i] != (unsigned char)v) return false;
+        }
+        pattern += 2;
+    }
+    return true;
+}
+
+static void ClientOpen() {
+    g_clientTried = true;
+    HMODULE client = GetModuleHandleA("client.dll"), engine = GetModuleHandleA("engine.dll");
+    if (!client || !engine) { Log("client view: client.dll or engine.dll not loaded"); return; }
+    auto clientFactory = (CreateInterfaceFnRaw)GetProcAddress(client, "CreateInterface");
+    auto engineFactory = (CreateInterfaceFnRaw)GetProcAddress(engine, "CreateInterface");
+    __try {
+        void* engineClient = engineFactory ? engineFactory("VEngineClient012", nullptr) : nullptr;
+        void* entityList = clientFactory ? clientFactory("VClientEntityList003", nullptr) : nullptr;
+        if (!engineClient || !entityList) { Log("client view: interfaces missing"); return; }
+        unsigned char** ev = *(unsigned char***)engineClient;
+        unsigned char** lv = *(unsigned char***)entityList;
+        if (CodeIs(ev[21], "D9 05 ?? ?? ?? ?? 8B 44 24 04 D9 18"))
+            g_viewAngles = *(const float**)(ev[21] + 2);
+        else
+            Log("client view: IVEngineClient slot 21 isn't GetViewAngles as read; no view angles");
+        if (CodeIs(ev[14], "A1 ?? ?? ?? ?? 83 C0 01 C3"))
+            g_playerSlot = *(const int**)(ev[14] + 1);
+        else
+            Log("client view: IVEngineClient slot 14 isn't GetLocalPlayer as read; no client player");
+        if (CodeIs(ev[9], "8B 44 24 04 50 E8")) { g_engineClient = engineClient; g_clientCmd = (ClientCmdFn)ev[9]; }
+        else Log("client view: IVEngineClient slot 9 isn't ClientCmd as read; no console commands");
+        if (CodeIs(lv[3], "8B 44 24 04 50 81 C1 EC FF FE FF E8")) { g_entityList = entityList; g_getClientEntity = (GetClientEntityFn)lv[3]; }
+        else Log("client view: IClientEntityList slot 3 isn't GetClientEntity as read; no client entities");
+        Log("client view: view angles %p, local player slot %p, entity list %s, ClientCmd %s",
+            g_viewAngles, g_playerSlot, g_getClientEntity ? "ok" : "off", g_clientCmd ? "ok" : "off");
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("client view: exception reading the interfaces");
+        g_viewAngles = nullptr; g_playerSlot = nullptr; g_getClientEntity = nullptr; g_clientCmd = nullptr;
+    }
+}
+
+// An entity's abs origin and angles, from the displacements in its GetAbsOrigin/GetAbsAngles code.
+typedef const float* (__thiscall* AbsGetterFn)(void* self);
+static bool g_absLogged;
+
+// An entity's abs origin and angles through its own getters, once their code
+// is what was read: CalcAbsolutePosition first, then the field.
+static bool ReadAbsTransform(void* entity, float* origin, float* angles) {
+    unsigned char** vt = *(unsigned char***)entity;
+    if (!CodeIs(vt[9], "56 8B F1 E8 ?? ?? ?? ?? 8D 86 ?? ?? ?? ?? 5E C3") || !CodeIs(vt[10], "56 8B F1 E8 ?? ?? ?? ?? 68 00 02 00 00")) {
+        if (!g_absLogged) {
+            g_absLogged = true;
+            HMODULE client = GetModuleHandleA("client.dll");
+            Log("client view: entity %p (vtable client.dll+0x%X): slots 9/10 aren't GetAbsOrigin/GetAbsAngles as read; not read",
+                entity, (unsigned)((unsigned char*)vt - (unsigned char*)client));
+        }
+        return false;
+    }
+    memcpy(origin, ((AbsGetterFn)vt[9])(entity), 12);
+    memcpy(angles, ((AbsGetterFn)vt[10])(entity), 12);
+    return true;
+}
+
+static void WriteClientView(wire::ClientView* v) {
+    memset(v, 0, sizeof *v);
+    v->player = v->viewmodel = wire::kNoEntity;
+    if (!g_clientTried) ClientOpen();
+    __try {
+        if (g_viewAngles) { memcpy(v->view_angles, g_viewAngles, 12); v->flags |= 1; }
+        if (g_playerSlot && g_getClientEntity) {
+            int local = *g_playerSlot + 1;
+            void* player = local > 0 && local < 64 ? g_getClientEntity(g_entityList, local) : nullptr;
+            if (player && ReadAbsTransform(player, v->origin, v->angles)) { v->player = (uint16_t)local; v->flags |= 2; }
+        }
+        if (g_viewmodelIndex == wire::kNoEntity)
+            for (uint16_t i = 1; i < 64; i++)
+                if (const char* c = ClassNameAt(i)) if (!strcmp(c, "viewmodel")) { g_viewmodelIndex = i; break; }
+        if (g_viewmodelIndex != wire::kNoEntity && g_getClientEntity) {
+            void* vm = g_getClientEntity(g_entityList, g_viewmodelIndex);
+            if (vm && ReadAbsTransform(vm, v->viewmodel_origin, v->viewmodel_angles)) { v->viewmodel = g_viewmodelIndex; v->flags |= 4; }
+        }
+        const char* cls = ClassNameAt(1);
+        if (g_viewOffsetOff >= 0 && cls && !strcmp(cls, "player")) {
+            const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+            if (p) { memcpy(v->view_offset, p + g_viewOffsetOff, 12); v->flags |= 8; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+        v->flags = 0;
+    }
+}
+
+// A console command from the control file, run through the client's command buffer (next frame).
+static void RunCommandIfAsked() {
+    volatile wire::Control* c = g_control;
+    if (!c || c->command_seq == c->command_done) return;
+    if (!g_clientTried) ClientOpen();
+    char text[sizeof c->command];
+    memcpy(text, (const void*)c->command, sizeof text);
+    text[sizeof text - 1] = 0;
+    if (g_clientCmd) {
+        __try { g_clientCmd(g_engineClient, text); Log("control: command \"%s\"", text); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { ++g_faults; }
+    }
+    c->command_done = c->command_seq;
+}
+
 static void WireWrite() {
     wire::Header* h = WireHeader();
     uint64_t f = h->frames_written;
@@ -725,6 +963,7 @@ static void WireWrite() {
     g_slowTimeCount = 0;
     g_slowTimeDropped = 0;
     WritePlayerState(s);
+    WriteClientView((wire::ClientView*)(slotBase + wire::kClientViewOffset));
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     s->wall_seconds = (double)(now.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;
@@ -1299,6 +1538,7 @@ public:
         QueryPerformanceFrequency(&g_qpcFreq);
         QueryPerformanceCounter(&g_qpcStart);
         WireOpen();
+        ControlOpen();
         InstallDamageHook();
         InstallDefenseHook();
         InstallParryHook();
@@ -1306,7 +1546,7 @@ public:
         InstallRequestSlowTimeHook();
         return true;
     }
-    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); WireClose(); }
+    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); ControlClose(); WireClose(); }
     virtual void Pause() { Log("Pause"); }
     virtual void UnPause() { Log("UnPause"); }
     virtual const char* GetPluginDescription() { return "Rusty Bridge tap"; }
@@ -1314,6 +1554,7 @@ public:
         Log("LevelInit: %s", SafeStr(mapName));
         g_edicts = nullptr;
         g_stride = 0;
+        g_viewmodelIndex = wire::kNoEntity;
         WireLevelInit(SafeStr(mapName));
     }
     virtual void ServerActivate(edict_t* edictList, int edictCount, int clientMax) {
@@ -1342,6 +1583,7 @@ public:
     }
     virtual void GameFrame(bool simulating) {
         ++m_frames;
+        RunCommandIfAsked();
         if (g_streamOk && g_globals->tickcount != g_lastTick) {
             g_lastTick = g_globals->tickcount;
             LARGE_INTEGER t0, t1;
@@ -1362,10 +1604,12 @@ public:
                     1e6 * m_writeTicks / freq.QuadPart / 660, g_faults);
                 m_writeTicks = 0;
             }
+            HoldIfAsked();
         }
         if (!m_delayedDumpDone && simulating && m_frames > 330) {
             m_delayedDumpDone = true;
             DumpEntities("level+5s");
+            HideIfAsked();
         }
         if (m_frames % 33 == 0) {
             char trigger[MAX_PATH];

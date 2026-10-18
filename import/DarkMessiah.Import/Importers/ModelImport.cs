@@ -6,29 +6,23 @@ using RustyBridge.Wire.Donor;
 
 namespace DarkMessiah.Import;
 
-/// <summary>What one model import produced: the primary GLB, then its clip packs in order.</summary>
-public sealed record ModelImportResult(string DonorPath, IReadOnlyList<string> Files, int Bones, int Triangles, int Clips, long Bytes, IReadOnlyList<string> Sequences);
+/// <summary>What one model import produced: its GLB.</summary>
+public sealed record ModelImportResult(string DonorPath, string File, int Bones, int Triangles, int Clips, long Bytes, IReadOnlyList<string> Sequences);
 
 /// <summary>
-/// A studio model (.mdl v44 + .vvd + .dx90.vtx) as skinned GLBs: every bone
+/// A studio model (.mdl v44 + .vvd + .dx90.vtx) as one skinned GLB: every bone
 /// a joint node, body part 0 of each group as primitives per material, and
 /// every sequence of the model and its $includemodel files as a clip named by
 /// its Source sequence name. Clips are in place: Source strips linear
 /// movement out of the root bone and moves the entity instead.
 ///
-/// The Engine admits at most 64 clips and 4,096 channels per GLB, and a
-/// character has hundreds of sequences. The first GLB holds the mesh and the
-/// first clips; the rest go into clip packs (same skeleton, a one-triangle
-/// stand-in mesh) that a product associates with it
-/// (<c>AnimationClipPackAssociationRequest</c>).
+/// The Engine bounds what one GLB's clips decode to, not how many there
+/// are: a 60-joint, 715-clip guard is about 2.6 M keyframes and 9.5 M values.
 /// </summary>
 public sealed class ModelImport
 {
-    /// <summary>The Engine's per-GLB import limits (voxel-convert animation.rs).</summary>
-    public const int MaxClips = 64, MaxChannels = 4_096, MaxKeyframes = 1_000_000, MaxValues = 4_000_000;
-
-    /// <summary>What packing fills a GLB to: one clip and its channel short of the limits, for an in-place anchor.</summary>
-    const int PackClips = MaxClips - 1, PackChannels = MaxChannels - 1, PackKeyframes = MaxKeyframes - 2, PackValues = MaxValues - 8;
+    /// <summary>The Engine's per-GLB animation decode budgets (voxel-convert animation.rs, rusty-engine #10072).</summary>
+    public const int MaxKeyframes = 16_000_000, MaxValues = 32_000_000;
 
     readonly DonorFiles _files;
     readonly Materials _materials;
@@ -45,8 +39,7 @@ public sealed class ModelImport
         public int Values => Channels.Sum(c => c.Values.Length);
     }
 
-    /// <param name="fileFor">Output file for GLB n: 0 is the model, 1.. its clip packs.</param>
-    public ModelImportResult Import(string donorPath, Func<int, string> fileFor)
+    public ModelImportResult Import(string donorPath, string file)
     {
         var bytes = _files.Read(donorPath) ?? throw new FileNotFoundException($"{donorPath}: not in the donor's files");
         var mdl = new StudioModelFile(donorPath, bytes);
@@ -62,93 +55,68 @@ public sealed class ModelImport
         var clips = new List<PendingClip>();
         for (int i = 0; i < sequences.Count; i++)
             if (Clip(mdl, sequences[i].File, sequences[i].Sequence, i) is PendingClip clip) clips.Add(clip);
+        clips = WithinBudget(clips, c => (c.Keyframes, c.Values), c => _log.Warn($"{donorPath}: clip {c.Name} is over the Engine's per-GLB animation budget; skipped"));
 
-        // Pack clips in sequence order, each GLB under the Engine's limits.
-        var packs = Pack(clips, c => (c.Channels.Count, c.Keyframes, c.Values), c => _log.Warn($"{donorPath}: clip {c.Name} alone exceeds the Engine's per-GLB animation limits; skipped"));
-
-        var files = new List<string>();
-        long total = 0;
-        int triangles = 0;
-        for (int p = 0; p < packs.Count; p++)
+        var gltf = new GltfBuilder();
+        var joints = Skeleton(gltf, mdl);
+        int skin = gltf.Skin(new JsonObject
         {
-            var gltf = new GltfBuilder();
-            var joints = Skeleton(gltf, mdl);
-            int skin = gltf.Skin(new JsonObject
-            {
-                ["joints"] = new JsonArray(joints.Select(j => (JsonNode)j).ToArray()),
-                ["inverseBindMatrices"] = gltf.Floats(mdl.Bones.SelectMany(b => SourceSpace.ColumnMajor(SourceSpace.Transform(b.PoseToBone))).ToArray(), "MAT4"),
-            });
-            string name = Path.GetFileName(stem).ToLowerInvariant();
-            var primitives = p == 0 ? Primitives(mdl, stem, gltf, ref triangles) : [];
-            if (primitives.Count == 0) primitives.Add(StandIn(gltf));
+            ["joints"] = new JsonArray(joints.Select(j => (JsonNode)j).ToArray()),
+            ["inverseBindMatrices"] = gltf.Floats(mdl.Bones.SelectMany(b => SourceSpace.ColumnMajor(SourceSpace.Transform(b.PoseToBone))).ToArray(), "MAT4"),
+        });
+        string name = Path.GetFileName(stem).ToLowerInvariant();
+        int triangles = 0;
+        var primitives = Primitives(mdl, stem, gltf, ref triangles);
+        if (primitives.Count > 0)
             gltf.Node(new JsonObject { ["name"] = name, ["mesh"] = gltf.Mesh(new JsonObject { ["name"] = name, ["primitives"] = primitives }), ["skin"] = skin });
-            foreach (var clip in packs[p]) Write(gltf, joints, clip);
-            if (packs[p].Count > 0 && packs[p].All(c => MovesRoot(mdl, c)))
-            {
-                // The Engine designates a motion root for a GLB whose every clip moves its root
-                // horizontally, and refuses to associate packs whose designation differs from the
-                // model's. Every Source clip is in place, so one still clip keeps every file alike.
-                Write(gltf, joints, InPlaceAnchor(mdl, p));
-                _log.Warn($"{donorPath}: GLB {p} moves its root in every clip; added @inplace.{p} so the Engine designates no motion root");
-            }
+        else
+            // Skeleton only: the Engine admits a skin no mesh references when the scene has no meshes.
+            _log.Warn($"{donorPath}: no triangles; written as a skeleton with clips");
+        foreach (var clip in clips) Write(gltf, joints, clip);
 
-            gltf.Extras["donorPath"] = donorPath;
-            gltf.Extras["convention"] = SourceSpace.Convention;
-            if (p == 0)
+        gltf.Extras["donorPath"] = donorPath;
+        gltf.Extras["convention"] = SourceSpace.Convention;
+        var eye = SourceSpace.Position(mdl.EyePosition);
+        gltf.Extras["eyePosition"] = GltfBuilder.FloatArray(eye.X, eye.Y, eye.Z);
+        gltf.Extras["sequences"] = new JsonArray(sequences.Select(s => (JsonNode)s.Sequence.Label).ToArray());
+        var attachments = new JsonArray();
+        foreach (var a in mdl.Attachments)
+            attachments.Add(new JsonObject
             {
-                var eye = SourceSpace.Position(mdl.EyePosition);
-                gltf.Extras["eyePosition"] = GltfBuilder.FloatArray(eye.X, eye.Y, eye.Z);
-                gltf.Extras["sequences"] = new JsonArray(sequences.Select(s => (JsonNode)s.Sequence.Label).ToArray());
-                gltf.Extras["clipPacks"] = packs.Count - 1;
-                var attachments = new JsonArray();
-                foreach (var a in mdl.Attachments)
-                    attachments.Add(new JsonObject
-                    {
-                        ["name"] = a.Name,
-                        ["joint"] = a.Bone >= 0 && a.Bone < mdl.Bones.Length ? mdl.Bones[a.Bone].Name : null,
-                        ["matrix"] = GltfBuilder.FloatArray(SourceSpace.ColumnMajor(SourceSpace.Transform(a.Local))),
-                    });
-                if (attachments.Count > 0) gltf.Extras["attachments"] = attachments;
-                if (mdl.FlexCount > 0) gltf.Extras["flexesNotImported"] = mdl.FlexCount;
-            }
-            else
-            {
-                gltf.Extras["clipPackOf"] = Path.GetFileName(fileFor(0));
-                gltf.Extras["clipPack"] = p;
-            }
+                ["name"] = a.Name,
+                ["joint"] = a.Bone >= 0 && a.Bone < mdl.Bones.Length ? mdl.Bones[a.Bone].Name : null,
+                ["matrix"] = GltfBuilder.FloatArray(SourceSpace.ColumnMajor(SourceSpace.Transform(a.Local))),
+            });
+        if (attachments.Count > 0) gltf.Extras["attachments"] = attachments;
+        if (mdl.FlexCount > 0) gltf.Extras["flexesNotImported"] = mdl.FlexCount;
 
-            var glb = gltf.ToGlb();
-            string file = fileFor(p);
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllBytes(file, glb);
-            files.Add(file);
-            total += glb.Length;
-        }
-        return new ModelImportResult(donorPath, files, mdl.Bones.Length, triangles, clips.Count, total, sequences.Select(s => s.Sequence.Label).ToList());
+        var glb = gltf.ToGlb();
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllBytes(file, glb);
+        return new ModelImportResult(donorPath, file, mdl.Bones.Length, triangles, clips.Count, glb.Length, sequences.Select(s => s.Sequence.Label).ToList());
     }
 
     /// <summary>
-    /// Splits items, in order, into groups under the Engine's per-GLB clip,
-    /// channel, keyframe and value limits, less room for one in-place anchor. An item over a limit on its own is
-    /// reported and left out. There is always at least one group.
+    /// The items, in order, that fit the Engine's per-GLB keyframe and value
+    /// budgets together. Once one doesn't fit it and every later one is
+    /// reported and left out, so the clips kept are a prefix of the model's.
     /// </summary>
-    internal static List<List<T>> Pack<T>(IEnumerable<T> items, Func<T, (int Channels, int Keyframes, int Values)> cost, Action<T> tooLarge)
+    internal static List<T> WithinBudget<T>(IEnumerable<T> items, Func<T, (int Keyframes, int Values)> cost, Action<T> over)
     {
-        var packs = new List<List<T>> { new() };
-        int channels = 0, keyframes = 0, values = 0;
+        var kept = new List<T>();
+        long keyframes = 0, values = 0;
+        bool full = false;
         foreach (var item in items)
         {
             var c = cost(item);
-            if (c.Channels > PackChannels || c.Keyframes > PackKeyframes || c.Values > PackValues) { tooLarge(item); continue; }
-            if (packs[^1].Count + 1 > PackClips || channels + c.Channels > PackChannels || keyframes + c.Keyframes > PackKeyframes || values + c.Values > PackValues)
+            if (!full && keyframes + c.Keyframes <= MaxKeyframes && values + c.Values <= MaxValues)
             {
-                packs.Add([]);
-                channels = keyframes = values = 0;
+                kept.Add(item);
+                keyframes += c.Keyframes; values += c.Values;
             }
-            packs[^1].Add(item);
-            channels += c.Channels; keyframes += c.Keyframes; values += c.Values;
+            else { full = true; over(item); }
         }
-        return packs;
+        return kept;
     }
 
     /// <summary>One node per bone, parent-relative rest transforms; returns node indices by bone.</summary>
@@ -169,18 +137,6 @@ public sealed class ModelImport
         }
         return joints;
     }
-
-    /// <summary>A clip pack's mesh: one centimetre triangle on the first joint, which the Engine's animated admission needs to find the rig.</summary>
-    static JsonObject StandIn(GltfBuilder gltf) => new()
-    {
-        ["attributes"] = new JsonObject
-        {
-            ["POSITION"] = gltf.Floats([0, 0, 0, 0.01f, 0, 0, 0, 0.01f, 0], "VEC3", bounds: true, vertexData: true),
-            ["JOINTS_0"] = gltf.Joints(new ushort[12], 1),
-            ["WEIGHTS_0"] = gltf.Floats([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], "VEC4", vertexData: true),
-        },
-        ["indices"] = gltf.Indices([0, 1, 2]),
-    };
 
     JsonArray Primitives(StudioModelFile mdl, string stem, GltfBuilder gltf, ref int triangles)
     {
@@ -405,21 +361,6 @@ public sealed class ModelImport
             ["weighted"] = seq.BoneWeights is not null && seq.BoneWeights.Any(w => w <= 0),
             ["empty"] = empty,
         });
-    }
-
-    /// <summary>Whether a clip moves a root bone horizontally (glTF x or z), as the Engine's motion-root test reads it.</summary>
-    static bool MovesRoot(StudioModelFile mdl, PendingClip clip) =>
-        clip.Channels.Any(c => c.Path == "translation" && mdl.Bones[c.Joint].Parent < 0 && !c.Constant
-            && Enumerable.Range(1, c.Values.Length / 3 - 1).Any(k =>
-                MathF.Abs(c.Values[3 * k] - c.Values[0]) > 1e-6f || MathF.Abs(c.Values[3 * k + 2] - c.Values[2]) > 1e-6f));
-
-    /// <summary>A still clip: the first root held at rest by one constant rotation channel.</summary>
-    static PendingClip InPlaceAnchor(StudioModelFile mdl, int pack)
-    {
-        int root = Array.FindIndex(mdl.Bones, b => b.Parent < 0);
-        var r = Quaternion.Normalize(SourceSpace.Rotation(mdl.Bones[root].Rotation));
-        return new PendingClip($"@inplace.{pack}", [0, 1 / 30f], [(root, "rotation", [r.X, r.Y, r.Z, r.W, r.X, r.Y, r.Z, r.W], true)],
-            new JsonObject { ["anchor"] = true, ["why"] = "keeps the Engine from designating a motion root for this GLB alone" });
     }
 
     static void Write(GltfBuilder gltf, int[] joints, PendingClip clip)

@@ -34,16 +34,15 @@ public sealed class LevelImport
         _materials = new Materials(files, log);
     }
 
-    /// <summary>GLB n of a model: 0 the model itself, 1.. its clip packs.</summary>
-    public static string ModelFile(string donorPath, int pack = 0) =>
-        Path.ChangeExtension(VpkIndex.Normalize(donorPath), pack == 0 ? ".glb" : $".clips{pack}.glb");
+    /// <summary>A model's GLB.</summary>
+    public static string ModelFile(string donorPath) => Path.ChangeExtension(VpkIndex.Normalize(donorPath), ".glb");
 
     public static string MapName(string donorPath) => Path.GetFileNameWithoutExtension(VpkIndex.Normalize(donorPath));
 
     public static string BrushFile(string map, int model) => model == 0 ? $"maps/{map}/world.glb" : $"maps/{map}/brush_{model}.glb";
 
     public ModelImportResult Model(string donorPath) =>
-        new ModelImport(_files, _materials, _log).Import(donorPath, pack => Path.Combine(_output, ModelFile(donorPath, pack)));
+        new ModelImport(_files, _materials, _log).Import(donorPath, Path.Combine(_output, ModelFile(donorPath)));
 
     public MapImportResult Map(string donorPath)
     {
@@ -108,13 +107,12 @@ public sealed class LevelImport
                     {
                         var result = Model(path);
                         file = done[path] = ModelFile(path);
-                        for (int pack = 1; pack < result.Files.Count; pack++) assets.Add(Asset($"{path}#clips{pack}", ModelFile(path, pack)));
                         if (sequences.TryGetValue(path, out var recorded))
                         {
                             checkedSequences++;
                             if (!recorded.SequenceEqual(result.Sequences)) { differ++; _log.Warn($"{path}: clip order differs from the recording's sequence names"); }
                         }
-                        Console.WriteLine($"{path}: {result.Bones} bones, {result.Triangles} triangles, {result.Clips} clips in {result.Files.Count} GLBs, {result.Bytes / 1024} KiB");
+                        Console.WriteLine($"{path}: {result.Bones} bones, {result.Triangles} triangles, {result.Clips} clips, {result.Bytes / 1024} KiB");
                     }
                 }
                 else if (path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".spr", StringComparison.OrdinalIgnoreCase))
@@ -143,7 +141,6 @@ public sealed class LevelImport
                 ["map"] = map,
                 ["recording"] = Path.GetFileName(recordingPath),
                 ["convention"] = SourceSpace.Convention,
-                ["clipPacks"] = "an id ending #clipsN is clip pack N of the model whose id precedes it; associate packs 1.. with that model before creating its appearance",
                 ["invisible"] = new JsonArray(invisible.Select(u => (JsonNode)u).ToArray()),
                 ["invisibleMeans"] = "brush models with no drawable faces (triggers, clips, tool brushes): the Wire reports them, nothing draws them, no GLB",
                 ["unresolved"] = new JsonArray(unresolved.Select(u => (JsonNode)u).ToArray()),

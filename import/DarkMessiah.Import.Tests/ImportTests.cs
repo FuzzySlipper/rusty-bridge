@@ -94,21 +94,17 @@ public sealed class GltfTests
     }
 
     [Fact]
-    public void ClipsPackUnderTheEnginesPerGlbLimits()
+    public void ClipsPastTheEnginesBudgetAreLeftOutFromTheFirstThatDoesNotFit()
     {
-        // 150 clips of 60 channels: the channel limit (4,096) holds 68, the clip limit 64, less one for an anchor.
-        var packs = ModelImport.Pack(Enumerable.Range(0, 150), _ => (60, 6_000, 20_000), _ => Assert.Fail("none too large"));
-        Assert.Equal([63, 63, 24], packs.Select(p => p.Count));
-        Assert.Equal(Enumerable.Range(0, 150), packs.SelectMany(p => p));
+        // 334 orc-sized clips (3,300 keyframes, 13,000 values) fit one GLB whole.
+        var kept = ModelImport.WithinBudget(Enumerable.Range(0, 334), _ => (3_300, 13_000), _ => Assert.Fail("none over"));
+        Assert.Equal(Enumerable.Range(0, 334), kept);
 
-        // 1,000 channels each: four fit, the fifth starts a new pack.
-        packs = ModelImport.Pack(Enumerable.Range(0, 9), _ => (1_000, 10, 10), _ => { });
-        Assert.Equal([4, 4, 1], packs.Select(p => p.Count));
-
-        var skipped = new List<int>();
-        packs = ModelImport.Pack([1, 2], i => (i == 2 ? 4_096 : 1, 1, 1), skipped.Add);
-        Assert.Equal([2], skipped);
-        Assert.Equal([1], packs.Single());
+        // Once one clip doesn't fit, it and every later one are left out, so the kept clips are a prefix.
+        var over = new List<int>();
+        kept = ModelImport.WithinBudget([0, 1, 2, 3], i => (i == 1 ? ModelImport.MaxKeyframes : 1, 1), over.Add);
+        Assert.Equal([0], kept);
+        Assert.Equal([1, 2, 3], over);
     }
 }
 
@@ -195,24 +191,16 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
         try
         {
             const string orc = "models/npc/orc/npc_orc.mdl";
-            var result = new ModelImport(files, new Materials(files, log), log).Import(orc, n => Path.Combine(dir, $"orc{n}.glb"));
+            var result = new ModelImport(files, new Materials(files, log), log).Import(orc, Path.Combine(dir, "orc.glb"));
             var names = RustyBridge.Wire.Donor.StudioModel.SequenceNames(orc, files.Read);
             Assert.Equal(names, result.Sequences);
             Assert.Equal(names.Count, result.Clips);
             Assert.Equal(54, result.Bones);
 
-            var clipNames = new List<string>();
-            foreach (var file in result.Files)
-            {
-                var glb = File.ReadAllBytes(file);
-                var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
-                var animations = json["animations"]!.AsArray();
-                Assert.InRange(animations.Count, 1, ModelImport.MaxClips);
-                Assert.InRange(animations.Sum(a => a!["channels"]!.AsArray().Count), 1, ModelImport.MaxChannels);
-                clipNames.AddRange(animations.Select(a => a!["name"]!.GetValue<string>()));
-            }
-            // Every sequence is a clip, in the Wire's order across the packs (anchors aside).
-            Assert.Equal(names, clipNames.Where(n => !n.StartsWith("@inplace.", StringComparison.Ordinal)));
+            // One GLB holds every sequence as a clip, in the Wire's order.
+            var glb = File.ReadAllBytes(result.File);
+            var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
+            Assert.Equal(names, json["animations"]!.AsArray().Select(a => a!["name"]!.GetValue<string>()));
         }
         finally { Directory.Delete(dir, true); }
     }

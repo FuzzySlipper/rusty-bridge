@@ -19,20 +19,15 @@ internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnl
 /// <summary>
 /// The imported level: dm-import's <c>&lt;map&gt;.assets.json</c>, whose asset
 /// ids are Wire model paths, and the models it names, opened on first use.
-/// A model's clip packs (ids <c>&lt;path&gt;#clipsN</c>) are associated before
-/// anything draws it, so every Source sequence name plays.
+/// Each model's GLB holds all its clips, one per Source sequence.
 /// </summary>
 internal sealed class LevelAssets : IDisposable
 {
-    const string Producer = "rusty-bridge dm-import";
-    const string License = "Derived from the donor's own files; local use only";
-
     readonly IEngineContext engine;
     readonly Dictionary<string, string> files = new(StringComparer.Ordinal);
     readonly HashSet<string> invisible = new(StringComparer.Ordinal);
     readonly HashSet<string> textures = new(StringComparer.Ordinal);
     readonly Dictionary<string, LevelModel?> opened = new(StringComparer.Ordinal);
-    readonly List<RenderResource> packs = [];
 
     public string Map { get; }
     public string RecordingFile { get; }
@@ -73,13 +68,6 @@ internal sealed class LevelAssets : IDisposable
         RenderResource mesh;
         using (var reference = engine.Content.OpenReference(new(file)))
             mesh = engine.Animation.OpenAnimatedMeshFromContent(new(reference));
-        for (int n = 1; files.TryGetValue($"{donorPath}#clips{n}", out var packFile); n++)
-        {
-            using var reference = engine.Content.OpenReference(new(packFile));
-            var pack = engine.Animation.OpenAnimationClipPackFromContent(new(reference));
-            packs.Add(pack);
-            engine.Animation.AssociateAnimationClipPack(new(mesh, pack, Producer, License));
-        }
         return opened[donorPath] = new LevelModel(donorPath, mesh, Attachments(file));
     }
 
@@ -109,9 +97,7 @@ internal sealed class LevelAssets : IDisposable
 
     public void Dispose()
     {
-        // A mesh holds the packs associated with it, and releasing it lets them go.
         foreach (var model in opened.Values) model?.Mesh.Dispose();
-        foreach (var pack in packs) pack.Dispose();
     }
 }
 

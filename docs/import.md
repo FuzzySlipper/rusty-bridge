@@ -42,7 +42,7 @@ Paths mirror donor paths, lowercased:
 
 | Donor | GLB |
 | --- | --- |
-| `models/npc/orc/npc_orc.mdl` | `models/npc/orc/npc_orc.glb`, then clip packs `npc_orc.clips1.glb`, `npc_orc.clips2.glb`, ... |
+| `models/npc/orc/npc_orc.mdl` | `models/npc/orc/npc_orc.glb` |
 | `maps/l01_a.bsp`, `*0` | `maps/l01_a/world.glb` |
 | `*12` (brush model 12) | `maps/l01_a/brush_12.glb` |
 | `materials/sprites/glow_torch.vmt` | `materials/sprites/glow_torch.png` |
@@ -51,8 +51,6 @@ Paths mirror donor paths, lowercased:
 (schemaVersion 1). Each asset id is the Wire's model path exactly as
 reported, case included, so a Wire model index joins to its asset by string.
 
-- **Clip packs:** an id ending `#clipsN` is clip pack N of the model whose id
-  comes before the `#`.
 - **Invisible brush models:** brush models with no drawable face (triggers,
   clips, tool brushes) get no GLB. The descriptor's `provenance.invisible`
   lists them; there is nothing to draw.
@@ -74,23 +72,13 @@ A studio model is one skinned GLB:
 - **Attachments:** weapon grips and other attachments are in
   `asset.extras.attachments`, each a joint name and a local matrix.
 
-The Engine admits at most 64 clips, 4,096 channels, 1,000,000 keyframes
-and 4,000,000 values per GLB. A character has 120 to 715 sequences, so
-clips go in sequence order into the primary GLB, and the rest into clip
-packs under the same limits:
-
-- **Pack contents:** a pack holds the same skeleton and a one-triangle
-  stand-in mesh, because the Engine's animated admission needs a skinned
-  mesh to find the rig.
-- **Loading:** a product opens the model, then each pack
-  (`Animation.OpenAnimationClipPackFromContent`), and associates each pack
-  (`AssociateAnimationClipPack`) before it creates the model's appearance.
-  After that, clips from any pack play by name.
-- **`ReadClips`:** lists only the primary GLB's clips.
-- **Room for an anchor:** packing leaves one clip slot free in each GLB.
-  The Engine designates a motion root for a GLB in which every clip moves
-  the root horizontally, and refuses packs whose designation differs from
-  the model's. So a file like that gets a still clip, `@inplace.N`.
+Every clip goes into the model's one GLB. The Engine bounds what a GLB's
+clips decode to, 16,000,000 keyframes and 32,000,000 values (rusty-engine
+#10072), not how many there are. l01_a's largest, the guard, is 715 clips
+in 24 MB, and the orc 334 clips in 10 MB. Should a model ever exceed the
+budget, the importer keeps the clips that fit, in sequence order, and warns
+about the rest. A model with no triangles is written as a skeleton with
+clips, which the Engine admits without a mesh.
 
 ### Maps
 

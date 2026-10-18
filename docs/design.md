@@ -360,8 +360,9 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
    `layer_attack_right`, `layer_block`). This needs either several clips
    sampled at explicit times and weights in one instance, or one call that
    sets a whole local pose array. One `JointOverride` per joint every update
-   works, but costs too much per character. Filed as rusty-engine #10073.
-   Until it lands, the mirror draws the main sequence only.
+   works, but costs too much per character. Filed as rusty-engine #10073,
+   which shipped clip layers (`IAnimationService.SetLayers`) in pair
+   0.1.0-dev.a64d20f624c7. The mirror still draws the main sequence only.
 3. **Bodies that follow external targets (Phase 3).** A Dynamics body (and a
    ragdoll bone) that tracks a target transform from outside, the way a
    kinematic body would, and reports how far its own simulation would have
@@ -390,11 +391,11 @@ metrics, the Recorder and the stepper. Those belong to the bridge.
   outcomes and slow-motion parameters are all server-side. What remains on
   the client is the predicted player, the camera and view angles, and the
   viewmodel. Reading them means hooking `client.dll`, still the most fragile
-  part of the Tap. Input can't fill the gap either: relative mouse motion
-  through the playtest agent doesn't turn the view.
-- **Overlay layers.** The parry and gesture layers aren't on the Wire yet.
-  Until they are, Phase 1 animation and any study of parry timing are
-  incomplete.
+  part of the Tap. Input doesn't fill the gap: the parry bot turns the view
+  with keys bound to `+left`/`+right`, since relative mouse motion through
+  the playtest agent doesn't turn it.
+- **Overlay layers.** The parry and gesture layers are on the Wire since v6;
+  the mirror doesn't draw them yet.
 - **Format variants.** Arkane modified Source's formats, but the parts read
   so far are stock: MDL headers are version 44 with Episode One offsets,
   sequence descriptors are 212 bytes, and VPKs are versions 1 and 2. The

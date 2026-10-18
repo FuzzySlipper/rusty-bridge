@@ -73,7 +73,7 @@ mirror/src/DarkMessiah.Mirror/
     ReplayClock.cs          donor-time clock: play, pause, step, speed
     HeldItems.cs            Dark Messiah's classes; who holds each weapon
   Scene/                    Engine resources
-    LevelAssets.cs          <map>.assets.json → models opened on first use, clip packs associated
+    LevelAssets.cs          <map>.assets.json → models opened on first use
     EntityViews.cs          tracks → appearances, sampled clips, joint attachments
     ReplayCamera.cs         chase, eye and overview cameras
 mirror/src/ui/main.js       the status line (plain JS, no build step)
@@ -103,8 +103,6 @@ donor needs the same shape (design "Scope").
   - The world (`maps/l01_a.bsp`) is drawn once, at the origin.
   - A brush model (`*N`) is drawn at its entity's transform.
   - Ids listed as invisible, and sprite textures, are known but not drawn.
-- **Clip packs:** a model's packs (`<path>#clipsN`) are associated before
-  its first appearance exists.
 - **Attachments:** read from the GLB's `asset.extras`. Only its JSON chunk
   is read.
 - **Clips:** a sequence index becomes a clip name through the recording's
@@ -162,16 +160,13 @@ Every update sends one `PublishChanges` holding only what changed.
 - **Refused batches:** a refused batch changes nothing. Views keep their
   state, and leaving views retry their removal next update.
 - **Release order:** appearances are disposed only after a batch without
-  them was accepted. A mesh is released before its clip packs, since the
-  mesh holds its packs.
+  them was accepted.
 
 ## Findings
 
-- **Clip packs and motion roots:** the Engine designates a motion root for
-  a GLB in which every clip moves the root horizontally. It then refuses to
-  associate a pack whose designation differs from the model's. The importer
-  adds an `@inplace.N` still clip to any such file (reported on rusty-engine
-  #10072).
+- **One GLB per model:** since pair 0.1.0-dev.cd66acc30485 (rusty-engine
+  #10072) a model's GLB holds all its clips. The clip packs and their
+  `@inplace.N` motion-root anchors that earlier pairs needed are gone.
 - **Cost:** the parry-bot fight draws about 300 entities and samples about
   230 clips each update, at 60 updates a second. Interpolating in product
   C# was enough for Phase 0; design ask 1 isn't blocking yet.

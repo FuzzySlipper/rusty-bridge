@@ -9,8 +9,8 @@
 //   --vpks DIR   the game's vpks folder (default: local/donor/vpks, then the Steam install)
 //   --out DIR    where assets go (default: local/import)
 //
-// Output mirrors donor paths, lowercased, with '/' separators: models/npc/orc/npc_orc.glb (and its
-// clip packs npc_orc.clips1.glb, ...), maps/l01_a/world.glb, maps/l01_a/brush_12.glb (for "*12").
+// Output mirrors donor paths, lowercased, with '/' separators: models/npc/orc/npc_orc.glb,
+// maps/l01_a/world.glb, maps/l01_a/brush_12.glb (for "*12").
 using DarkMessiah.Import;
 using RustyBridge.Wire.Donor;
 
@@ -47,7 +47,7 @@ switch (args[0])
 {
     case "model":
         var m = importer.Model(positional[0]);
-        Console.WriteLine($"{m.DonorPath}: {m.Bones} bones, {m.Triangles} triangles, {m.Clips} clips in {m.Files.Count} GLBs, {m.Bytes / 1024} KiB");
+        Console.WriteLine($"{m.DonorPath}: {m.Bones} bones, {m.Triangles} triangles, {m.Clips} clips, {m.Bytes / 1024} KiB");
         break;
     case "map":
         var map = importer.Map(positional[0]);

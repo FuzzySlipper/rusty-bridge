@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace DarkMessiah.Import.Source;
+namespace RustyBridge.Wire.Donor;
 
 /// <summary>
 /// Source space to glTF space. Source is right-handed with +X forward, +Y
@@ -65,6 +65,14 @@ public static class SourceSpace
         float srXcp = sr * cp, crXsp = cr * sp, crXcp = cr * cp, srXsp = sr * sp;
         return new Quaternion(srXcp * cy - crXsp * sy, crXsp * cy + srXcp * sy, crXcp * sy - srXsp * cy, crXcp * cy + srXsp * sy);
     }
+
+    /// <summary>
+    /// An entity's QAngle (pitch, yaw, roll in degrees, as the Wire carries
+    /// them) as a Source rotation: AngleMatrix's yaw about Z, then pitch about
+    /// Y, then roll about X. Pass it to <see cref="Rotation"/> for glTF space.
+    /// </summary>
+    public static Quaternion FromAngles(float pitch, float yaw, float roll) =>
+        FromRadianEuler(new Vector3(roll, pitch, yaw) * (MathF.PI / 180));
 
     /// <summary>A matrix as glTF's column-major 16 floats.</summary>
     public static float[] ColumnMajor(Matrix4x4 m) =>

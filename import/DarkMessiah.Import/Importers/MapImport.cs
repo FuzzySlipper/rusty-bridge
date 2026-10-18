@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text.Json.Nodes;
 using DarkMessiah.Import.Gltf;
 using DarkMessiah.Import.Source;
+using RustyBridge.Wire.Donor;
 
 namespace DarkMessiah.Import;
 

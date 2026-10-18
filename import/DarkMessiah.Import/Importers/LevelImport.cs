@@ -16,7 +16,8 @@ public sealed record LevelImportResult(string IndexPath, int Requested, int Reso
 /// and maps/NAME/brush_N.glb for a map's BSP models, materials/…/x.png for
 /// sprite materials. The index is a portable asset descriptor
 /// (schemaVersion 1) whose asset ids are the model paths exactly as the Wire
-/// reports them, so a Wire model index joins to its asset by string.
+/// reports them, so a Wire model index joins to its asset by string. The
+/// recording is copied to recordings/ beside them.
 /// </summary>
 public sealed class LevelImport
 {
@@ -148,6 +149,13 @@ public sealed class LevelImport
                 ["unresolved"] = new JsonArray(unresolved.Select(u => (JsonNode)u).ToArray()),
             },
         };
+        // The recording travels with the assets it was imported for, so the
+        // output folder is a whole content root for a product that replays it.
+        string recordingFile = $"recordings/{Path.GetFileName(recordingPath)}";
+        Directory.CreateDirectory(Path.Combine(_output, "recordings"));
+        File.Copy(recordingPath, Path.Combine(_output, recordingFile), overwrite: true);
+        descriptor["provenance"]!["recordingFile"] = recordingFile;
+
         string indexPath = Path.Combine(_output, $"{map}.assets.json");
         File.WriteAllText(indexPath, descriptor.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         return new LevelImportResult(indexPath, models.Values.Distinct(StringComparer.Ordinal).Count(), resolved, invisible, unresolved, checkedSequences, differ);

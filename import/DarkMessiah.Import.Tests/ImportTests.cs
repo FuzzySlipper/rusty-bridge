@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using DarkMessiah.Import;
 using DarkMessiah.Import.Gltf;
 using DarkMessiah.Import.Source;
+using RustyBridge.Wire.Donor;
 using Xunit;
 
 namespace DarkMessiah.Import.Tests;
@@ -95,9 +96,9 @@ public sealed class GltfTests
     [Fact]
     public void ClipsPackUnderTheEnginesPerGlbLimits()
     {
-        // 150 clips of 60 channels: the channel limit (4,096) holds 68, the clip limit 64.
+        // 150 clips of 60 channels: the channel limit (4,096) holds 68, the clip limit 64, less one for an anchor.
         var packs = ModelImport.Pack(Enumerable.Range(0, 150), _ => (60, 6_000, 20_000), _ => Assert.Fail("none too large"));
-        Assert.Equal([64, 64, 22], packs.Select(p => p.Count));
+        Assert.Equal([63, 63, 24], packs.Select(p => p.Count));
         Assert.Equal(Enumerable.Range(0, 150), packs.SelectMany(p => p));
 
         // 1,000 channels each: four fit, the fifth starts a new pack.
@@ -105,7 +106,7 @@ public sealed class GltfTests
         Assert.Equal([4, 4, 1], packs.Select(p => p.Count));
 
         var skipped = new List<int>();
-        packs = ModelImport.Pack([1, 2], i => (i == 2 ? 5_000 : 1, 1, 1), skipped.Add);
+        packs = ModelImport.Pack([1, 2], i => (i == 2 ? 4_096 : 1, 1, 1), skipped.Add);
         Assert.Equal([2], skipped);
         Assert.Equal([1], packs.Single());
     }
@@ -210,8 +211,8 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
                 Assert.InRange(animations.Sum(a => a!["channels"]!.AsArray().Count), 1, ModelImport.MaxChannels);
                 clipNames.AddRange(animations.Select(a => a!["name"]!.GetValue<string>()));
             }
-            // Every sequence is a clip, in the Wire's order across the packs.
-            Assert.Equal(names, clipNames);
+            // Every sequence is a clip, in the Wire's order across the packs (anchors aside).
+            Assert.Equal(names, clipNames.Where(n => !n.StartsWith("@inplace.", StringComparison.Ordinal)));
         }
         finally { Directory.Delete(dir, true); }
     }

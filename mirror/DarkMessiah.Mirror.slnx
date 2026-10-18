@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/DarkMessiah.Mirror/DarkMessiah.Mirror.csproj" />
+  <Project Path="tests/DarkMessiah.Mirror.Smoke/DarkMessiah.Mirror.Smoke.csproj" />
+</Solution>

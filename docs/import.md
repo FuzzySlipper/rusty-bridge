@@ -24,6 +24,8 @@ dotnet run --project import/DarkMessiah.Import.Tool -- map maps/l01_a.bsp
 
 `level` imports the recording's map, every model path in the recording's
 model table, and its sprites, and writes `local/import/<map>.assets.json`.
+It also copies the recording into `local/import/recordings/`, so the folder
+is the whole content root for the mirror ([mirror.md](mirror.md)).
 It checks each model's clip order against the sequence names the
 recording carries and reports any difference. For l01_a-parrybot it
 finishes in about 10 s: 337 of 337 Wire model paths resolve, 231 GLBs and
@@ -85,6 +87,10 @@ packs under the same limits:
   (`AssociateAnimationClipPack`) before it creates the model's appearance.
   After that, clips from any pack play by name.
 - **`ReadClips`:** lists only the primary GLB's clips.
+- **Room for an anchor:** packing leaves one clip slot free in each GLB.
+  The Engine designates a motion root for a GLB in which every clip moves
+  the root horizontally, and refuses packs whose designation differs from
+  the model's. So a file like that gets a still clip, `@inplace.N`.
 
 ### Maps
 

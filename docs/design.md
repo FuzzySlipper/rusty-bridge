@@ -244,8 +244,9 @@ value, and last what needs state forced every tick.
 the Tap streams snapshots and events, and the Frontend places static meshes
 where the donor says. The combat stepper belongs here: the Recorder plus a
 timeline viewer over Wire traffic. It already shows every swing, hit, block
-and parry tick by tick ([recording.md](recording.md)). What's left is the
-Import and the Frontend mirror.
+and parry tick by tick ([recording.md](recording.md)). The Import
+([import.md](import.md)) and the Frontend mirror ([mirror.md](mirror.md))
+draw a recorded fight in Rusty.
 
 **Phase 1: Presentation.** Character animation is driven from the stream:
 the main clip by sequence name, sampled at the streamed cycle, and the
@@ -347,15 +348,18 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
    between updates. Each entity keeps its own update cadence (every 8 ticks
    for NPCs, every 2 for the player), and the presentation clock follows a
    source time that can slow down (the donor's hit slow-motion). Optional
-   smoothing applies when a correction arrives. This is the main ask, and
-   multiplayer could use it too. It belongs upstream, not in every product.
+   smoothing applies when a correction arrives. Multiplayer could use it
+   too. The mirror (#10060) does this in product C# for about 300
+   entities, so it isn't blocking Phase 0 ([mirror.md](mirror.md)). Ask
+   again if a second product needs the same buffer.
 2. **Layered pose input (Phase 1).** Playback is one clip per instance.
    Source blends a main sequence with overlay layers. Dark Messiah plays its
    parries and attack gestures on overlays (`layer_parry_A` to `_E`,
    `layer_attack_right`, `layer_block`). This needs either several clips
    sampled at explicit times and weights in one instance, or one call that
    sets a whole local pose array. One `JointOverride` per joint every update
-   works, but costs too much per character.
+   works, but costs too much per character. Filed as rusty-engine #10073.
+   Until it lands, the mirror draws the main sequence only.
 3. **Bodies that follow external targets (Phase 3).** A Dynamics body (and a
    ragdoll bone) that tracks a target transform from outside, the way a
    kinematic body would, and reports how far its own simulation would have

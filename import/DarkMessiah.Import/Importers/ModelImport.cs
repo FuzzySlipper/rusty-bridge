@@ -27,6 +27,9 @@ public sealed class ModelImport
     /// <summary>The Engine's per-GLB import limits (voxel-convert animation.rs).</summary>
     public const int MaxClips = 64, MaxChannels = 4_096, MaxKeyframes = 1_000_000, MaxValues = 4_000_000;
 
+    /// <summary>What packing fills a GLB to: one clip and its channel short of the limits, for an in-place anchor.</summary>
+    const int PackClips = MaxClips - 1, PackChannels = MaxChannels - 1, PackKeyframes = MaxKeyframes - 2, PackValues = MaxValues - 8;
+
     readonly DonorFiles _files;
     readonly Materials _materials;
     readonly ImportLog _log;
@@ -80,6 +83,14 @@ public sealed class ModelImport
             if (primitives.Count == 0) primitives.Add(StandIn(gltf));
             gltf.Node(new JsonObject { ["name"] = name, ["mesh"] = gltf.Mesh(new JsonObject { ["name"] = name, ["primitives"] = primitives }), ["skin"] = skin });
             foreach (var clip in packs[p]) Write(gltf, joints, clip);
+            if (packs[p].Count > 0 && packs[p].All(c => MovesRoot(mdl, c)))
+            {
+                // The Engine designates a motion root for a GLB whose every clip moves its root
+                // horizontally, and refuses to associate packs whose designation differs from the
+                // model's. Every Source clip is in place, so one still clip keeps every file alike.
+                Write(gltf, joints, InPlaceAnchor(mdl, p));
+                _log.Warn($"{donorPath}: GLB {p} moves its root in every clip; added @inplace.{p} so the Engine designates no motion root");
+            }
 
             gltf.Extras["donorPath"] = donorPath;
             gltf.Extras["convention"] = SourceSpace.Convention;
@@ -118,7 +129,7 @@ public sealed class ModelImport
 
     /// <summary>
     /// Splits items, in order, into groups under the Engine's per-GLB clip,
-    /// channel, keyframe and value limits. An item over a limit on its own is
+    /// channel, keyframe and value limits, less room for one in-place anchor. An item over a limit on its own is
     /// reported and left out. There is always at least one group.
     /// </summary>
     internal static List<List<T>> Pack<T>(IEnumerable<T> items, Func<T, (int Channels, int Keyframes, int Values)> cost, Action<T> tooLarge)
@@ -128,8 +139,8 @@ public sealed class ModelImport
         foreach (var item in items)
         {
             var c = cost(item);
-            if (c.Channels > MaxChannels || c.Keyframes > MaxKeyframes || c.Values > MaxValues) { tooLarge(item); continue; }
-            if (packs[^1].Count + 1 > MaxClips || channels + c.Channels > MaxChannels || keyframes + c.Keyframes > MaxKeyframes || values + c.Values > MaxValues)
+            if (c.Channels > PackChannels || c.Keyframes > PackKeyframes || c.Values > PackValues) { tooLarge(item); continue; }
+            if (packs[^1].Count + 1 > PackClips || channels + c.Channels > PackChannels || keyframes + c.Keyframes > PackKeyframes || values + c.Values > PackValues)
             {
                 packs.Add([]);
                 channels = keyframes = values = 0;
@@ -394,6 +405,21 @@ public sealed class ModelImport
             ["weighted"] = seq.BoneWeights is not null && seq.BoneWeights.Any(w => w <= 0),
             ["empty"] = empty,
         });
+    }
+
+    /// <summary>Whether a clip moves a root bone horizontally (glTF x or z), as the Engine's motion-root test reads it.</summary>
+    static bool MovesRoot(StudioModelFile mdl, PendingClip clip) =>
+        clip.Channels.Any(c => c.Path == "translation" && mdl.Bones[c.Joint].Parent < 0 && !c.Constant
+            && Enumerable.Range(1, c.Values.Length / 3 - 1).Any(k =>
+                MathF.Abs(c.Values[3 * k] - c.Values[0]) > 1e-6f || MathF.Abs(c.Values[3 * k + 2] - c.Values[2]) > 1e-6f));
+
+    /// <summary>A still clip: the first root held at rest by one constant rotation channel.</summary>
+    static PendingClip InPlaceAnchor(StudioModelFile mdl, int pack)
+    {
+        int root = Array.FindIndex(mdl.Bones, b => b.Parent < 0);
+        var r = Quaternion.Normalize(SourceSpace.Rotation(mdl.Bones[root].Rotation));
+        return new PendingClip($"@inplace.{pack}", [0, 1 / 30f], [(root, "rotation", [r.X, r.Y, r.Z, r.W, r.X, r.Y, r.Z, r.W], true)],
+            new JsonObject { ["anchor"] = true, ["why"] = "keeps the Engine from designating a motion root for this GLB alone" });
     }
 
     static void Write(GltfBuilder gltf, int[] joints, PendingClip clip)

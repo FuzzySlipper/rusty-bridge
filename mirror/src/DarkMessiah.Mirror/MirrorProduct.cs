@@ -55,6 +55,7 @@ public sealed class MirrorProduct : IEngineProduct, IDebugCommandModuleSource
     internal ReplayClock Clock => clock;
     internal RecordedFight Fight => fight;
     internal EntityViews Views => views;
+    internal HeldItems Held => held;
     internal LevelAssets Assets => assets;
     internal ReplayCamera Camera => camera;
 
@@ -120,11 +121,24 @@ public sealed class MirrorProduct : IEngineProduct, IDebugCommandModuleSource
         var lines = new List<string>();
         foreach (var item in fight.Tracks.Where(t => t.LiveAt(clock.Frame) && DonorClasses.Role(t.ClassName) == EntityRole.Held && t.UpdateAt(clock.Time) >= 0))
         {
-            var at = item.Sample(clock.Time).Origin;
-            var holder = held.InferredHolder(item);
-            string who = holder is null ? "none"
-                : $"{holder.ClassName}{holder.Key} live={holder.LiveAt(clock.Frame)} d={(holder.UpdateAt(clock.Time) >= 0 ? System.Numerics.Vector3.Distance(at, holder.Sample(clock.Time).Origin) : -1):F0}";
-            lines.Add($"{item.ClassName}{item.Key} {fight.ModelPath(item.Sample(clock.Time).ModelIndex)} holder={who} hung={held.Holder(item, clock.Frame, clock.Time) is not null}");
+            var sample = item.Sample(clock.Time);
+            string who;
+            if (held.Streamed)
+            {
+                // v10: the streamed move parent and the attachment it names.
+                var holding = held.Holder(item, clock.Frame, clock.Time);
+                who = holding is Holding h
+                    ? $"streamed {h.Holder.ClassName}{h.Holder.Key} attachment {h.Attachment}" +
+                      (views.ModelOf(h.Holder) is Scene.LevelModel m && h.Attachment >= 1 && h.Attachment <= m.AttachmentList.Count ? $" ({m.AttachmentList[h.Attachment - 1].Name})" : "")
+                    : sample.Parent is EntityKey key ? $"streamed {key} (not drawn)" : "none";
+            }
+            else
+            {
+                var holder = held.InferredHolder(item);
+                who = holder is null ? "none"
+                    : $"inferred {holder.ClassName}{holder.Key} live={holder.LiveAt(clock.Frame)} d={(holder.UpdateAt(clock.Time) >= 0 ? System.Numerics.Vector3.Distance(sample.Origin, holder.Sample(clock.Time).Origin) : -1):F0}";
+            }
+            lines.Add($"{item.ClassName}{item.Key} {fight.ModelPath(sample.ModelIndex)} holder={who} hung={views.IsHung(item)}");
         }
         return string.Join(" | ", lines);
     }

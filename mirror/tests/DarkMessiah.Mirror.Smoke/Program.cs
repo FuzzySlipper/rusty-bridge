@@ -114,48 +114,83 @@ host.Call(engine =>
     Check(product.Views.LastError is null, $"twenty seconds of play through deaths and drops publish cleanly: {product.Views.LastError}");
 });
 
-// Overlay layers, on a v6 recording of the same level: an orc parrying (layer_parry_B over its move).
-string layersRecording = Path.Combine(repo ?? ".", "local", "recordings", "l01_a-layers.rbrec");
-if (!File.Exists(layersRecording)) Console.WriteLine($"skip layers run: no {layersRecording}");
-else host.Call(engine =>
+// Other recordings of the same level, replayed on the same assets: the descriptor is patched to name them.
+void Replay(string file, string why, Action<MirrorProduct, MirrorDebugCommands> checks)
 {
+    string path = Path.Combine(repo ?? ".", "local", "recordings", file);
+    if (!File.Exists(path)) { Console.WriteLine($"skip {why}: no {path}"); return; }
     string indexName = Path.GetFileName(index);
     var descriptor = System.Text.Json.Nodes.JsonNode.Parse(content[indexName].Span)!;
-    descriptor["provenance"]!["recordingFile"] = "recordings/l01_a-layers.rbrec";
-    var withLayers = new Dictionary<string, ReadOnlyMemory<byte>>(content)
+    descriptor["provenance"]!["recordingFile"] = $"recordings/{file}";
+    var patched = new Dictionary<string, ReadOnlyMemory<byte>>(content)
     {
-        ["recordings/l01_a-layers.rbrec"] = File.ReadAllBytes(layersRecording),
+        [$"recordings/{file}"] = File.ReadAllBytes(path),
         [indexName] = Encoding.UTF8.GetBytes(descriptor.ToJsonString()),
     };
-    using EngineTestHost layersHost = EngineTestHost.Create(new EngineTestHostOptions
+    using EngineTestHost replayHost = EngineTestHost.Create(new EngineTestHostOptions
     {
-        PersistenceRoot = Path.Combine(Path.GetTempPath(), "mirror-smoke-layers-" + Guid.NewGuid()),
-        Content = withLayers,
+        PersistenceRoot = Path.Combine(Path.GetTempPath(), "mirror-smoke-" + Guid.NewGuid()),
+        Content = patched,
     });
-    layersHost.Call(engine =>
+    replayHost.Call(engine =>
     {
-        var files = new ProductContentFile[] { new(Encoding.UTF8.GetBytes(indexName), withLayers[indexName]) };
+        var files = new ProductContentFile[] { new(Encoding.UTF8.GetBytes(indexName), patched[indexName]) };
         using var product = new MirrorProduct(new ProductCreateContext(engine, new ProductContent(files, engine.Content),
             new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
         var commands = new Capture();
         product.RegisterDebugCommands(commands);
-        var mirror = commands.Mirror!;
-        const ushort Orc = 401;
-        Console.WriteLine(mirror.Seek(10600));
-        Check(product.Views.LayersOf(Orc).Any(c => c.StartsWith("layer_parry_", StringComparison.Ordinal)),
-            $"the parrying orc lays its parry over its main sequence: {string.Join(", ", product.Views.LayersOf(Orc))}");
-        Check(product.Views.Layered >= 2, $"other animated entities draw their overlay layers too: {product.Views.Layered} with {product.Views.LayersDrawn}");
-        Check(product.Views.MissingClips.Count == 0, $"every streamed layer is a clip: {string.Join(", ", product.Views.MissingClips)}");
-        var with = product.Views.PoseOf(Orc)!;
-        mirror.Layers("off");
-        var without = product.Views.PoseOf(Orc)!;
-        mirror.Layers("on");
-        float moved = with.Zip(without, (a, b) => Vector3.Distance(a.World.Translation, b.World.Translation)).Max();
-        Check(moved > 0.05f, $"the parry layer moves the orc's joints: up to {moved:F2} m");
-        mirror.Toggle();
-        for (int i = 0; i < 10; i++) product.Update(new ProductUpdate(new ProductUpdateFacts(ProductLifecycleState.Running, 1, 1, 0, (ulong)(i * 60), 60, 60, 0, 1d / 60), default));
-        Check(product.Views.LastError is null, $"ten seconds of layered play publish cleanly: {product.Views.LastError}");
+        checks(product, commands.Mirror!);
     });
+}
+void Play(MirrorProduct product, int seconds)
+{
+    for (int i = 0; i < seconds; i++)
+        product.Update(new ProductUpdate(new ProductUpdateFacts(ProductLifecycleState.Running, 1, 1, 0, (ulong)(i * 60), 60, 60, 0, 1d / 60), default));
+}
+
+// Overlay layers, on a v6 recording: an orc parrying (layer_parry_B over its move).
+Replay("l01_a-layers.rbrec", "layers run", (product, mirror) =>
+{
+    const ushort Orc = 401;
+    Console.WriteLine(mirror.Seek(10600));
+    Check(product.Views.LayersOf(Orc).Any(c => c.StartsWith("layer_parry_", StringComparison.Ordinal)),
+        $"the parrying orc lays its parry over its main sequence: {string.Join(", ", product.Views.LayersOf(Orc))}");
+    Check(product.Views.Layered >= 2, $"other animated entities draw their overlay layers too: {product.Views.Layered} with {product.Views.LayersDrawn}");
+    Check(product.Views.MissingClips.Count == 0, $"every streamed layer is a clip: {string.Join(", ", product.Views.MissingClips)}");
+    var with = product.Views.PoseOf(Orc)!;
+    mirror.Layers("off");
+    var without = product.Views.PoseOf(Orc)!;
+    mirror.Layers("on");
+    float moved = with.Zip(without, (a, b) => Vector3.Distance(a.World.Translation, b.World.Translation)).Max();
+    Check(moved > 0.05f, $"the parry layer moves the orc's joints: up to {moved:F2} m");
+    mirror.Toggle();
+    Play(product, 10);
+    Check(product.Views.LastError is null, $"ten seconds of layered play publish cleanly: {product.Views.LastError}");
+});
+
+// Held items from the streamed move parent and attachment (Wire v10): two orcs with cleavers and a shield, a guard with a sword and helmet.
+Replay("l01_a-v10-held.rbrec", "held-items run", (product, mirror) =>
+{
+    Check(product.Fight.HasParents && product.Held.Streamed, "a v10 recording streams parents, so nothing is inferred");
+    // Every item whose streamed parent the mirror draws hangs from it; an item without a parent is loose in the
+    // donor too, and the player's own weapon hangs from the first-person view model, which isn't drawn.
+    var hung = new List<string>();
+    foreach (int at in new[] { 60, product.Fight.Frames.Count / 2 })
+    {
+        mirror.Seek(product.Fight.Frames[at].Tick);
+        var items = mirror.Held().Split(" | ", StringSplitOptions.RemoveEmptyEntries).Where(l => l.Contains(" models/", StringComparison.Ordinal)).ToList();
+        Console.WriteLine(string.Join(Environment.NewLine, items));
+        var parented = items.Where(l => l.Contains("holder=streamed", StringComparison.Ordinal) && !l.Contains("holder=streamed viewmodel", StringComparison.Ordinal)).ToList();
+        Check(parented.Count >= 2 && parented.All(l => l.Contains("hung=True", StringComparison.Ordinal)),
+            $"frame {at}: every held item whose streamed parent is drawn hangs from it ({parented.Count(l => l.Contains("hung=True", StringComparison.Ordinal))} of {parented.Count})");
+        Check(items.Where(l => l.Contains("hung=True", StringComparison.Ordinal)).All(l => l.Contains("holder=streamed", StringComparison.Ordinal)), $"frame {at}: nothing hangs by inference");
+        hung.AddRange(parented);
+    }
+    Check(hung.Any(l => l.Contains("(RightHand)", StringComparison.Ordinal)) && hung.Any(l => l.Contains("(LeftShield)", StringComparison.Ordinal)),
+        "weapons hang from RightHand and shields from LeftShield, by the streamed attachment number");
+    mirror.Toggle();
+    Play(product, 10);
+    Check(product.Views.LastError is null, $"ten seconds of held-item play publish cleanly: {product.Views.LastError}");
 });
 return failures == 0 ? 0 : 1;
 

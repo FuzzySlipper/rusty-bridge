@@ -197,9 +197,9 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 9) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 9).`);
+  if (version < 1 || version > 10) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 10).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
-  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : 64;
+  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
   const DAMAGE_BYTES = version < 5 ? 128 : 152, DEFENSE_BYTES = version < 5 ? 32 : 48;
   const bySerial = new Map();   // v5: `${index}:${serial}` -> track, for resolving event records
   const dec = new TextDecoder("ascii");
@@ -256,20 +256,26 @@ function parseRecording(buf) {
         const serial = version >= 5 ? v.getUint32(p + 52, true) : 0;
         const linkIndex = version >= 7 ? v.getUint16(p + 56, true) : 0xFFFF;
         const link = linkIndex === 0xFFFF ? null : `${linkIndex}:${v.getUint32(p + 60, true)}`;
+        // v10: what the entity hangs from (and at which attachment), and its owner.
+        const parentIndex = version >= 10 ? v.getUint16(p + 64, true) : 0xFFFF;
+        const parent = parentIndex === 0xFFFF ? null : `${parentIndex}:${v.getUint32(p + 68, true)}`;
+        const attachment = version >= 10 ? v.getUint8(p + 66) : 0;
+        const ownerIndex = version >= 10 ? v.getUint16(p + 72, true) : 0xFFFF;
+        const owner = ownerIndex === 0xFFFF ? null : `${ownerIndex}:${v.getUint32(p + 76, true)}`;
         seen?.add(index);
         let t = live.get(index);
         // v5 tells a reused index by its serial; older recordings fall back to a change of class or model.
         if (t && (version >= 5 ? t.serial !== serial : t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
         if (!t) {
           t = { key: `${level}:${index}:${fi}`, index, serial, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
-                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [], link: [],
+                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [], link: [], parent: [], attachment: [], owner: [],
                 born: fi, died: Infinity, moves: false, fights: false, dist: 0 };
           tracks.set(t.key, t); live.set(index, t);
           if (version >= 5) bySerial.set(`${index}:${serial}`, t);
         }
         const k = t.f.length - 1;
         if (k >= 0 && t.x[k] === x && t.y[k] === y && t.z[k] === z && t.pitch[k] === pitch && t.yaw[k] === yaw && t.roll[k] === roll
-            && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate && t.link[k] === link) continue;
+            && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate && t.link[k] === link && t.parent[k] === parent && t.attachment[k] === attachment && t.owner[k] === owner) continue;
         if (k >= 0) {
           const d = Math.hypot(x - t.x[k], y - t.y[k], z - t.z[k]);
           if (d > 0) { t.moves = true; t.dist += d; moving++; }
@@ -283,7 +289,7 @@ function parseRecording(buf) {
         }
         t.f.push(fi); t.x.push(x); t.y.push(y); t.z.push(z); t.pitch.push(pitch); t.yaw.push(yaw); t.roll.push(roll);
         if (link !== (k >= 0 ? t.link[k] : null)) links.push({ fi, track: t, link });
-        t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate); t.link.push(link);
+        t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate); t.link.push(link); t.parent.push(parent); t.attachment.push(attachment); t.owner.push(owner);
       }
       const removed = v.getInt32(p, true); p += 4;
       const gone = [];
@@ -829,6 +835,8 @@ function drawDetail() {
     ...(t.seq[k] >= 0 ? [["sequence", `${seqName(t, k)} (#${t.seq[k]})`], ["cycle", `${(t.cycle[k] * 100).toFixed(1)} % at ${fmt(t.rate[k], 2)}×`], ["in sequence since", `${seqStartTicks(t, k)} ticks`]] : []),
     ...layersAt(t, cur).sort((a, b) => a.order - b.order).map((l) => [`layer ${l.slot}`, `${layerName(t, l)} ${(l.cycle * 100).toFixed(0)}% ×${l.weight.toFixed(2)}`]),
     ...lastHits(t),
+    ...(t.parent?.[k] ? [["hangs from", `${rec.bySerial.get(t.parent[k]) ? label(rec.bySerial.get(t.parent[k])) : `#${t.parent[k].split(":")[0]}`}${t.attachment[k] ? `, attachment ${t.attachment[k]}` : ""}`]] : []),
+    ...(t.owner?.[k] && t.owner[k] !== t.parent?.[k] ? [["owner", rec.bySerial.get(t.owner[k]) ? label(rec.bySerial.get(t.owner[k])) : `#${t.owner[k].split(":")[0]}`]] : []),
     ...(t.link[k] ? [[/^npc_/.test(t.cls) ? "knocked down, ragdoll" : "ragdoll of", rec.bySerial.get(t.link[k]) ? label(rec.bySerial.get(t.link[k])) : `#${t.link[k].split(":")[0]}`]] : []),
     ...(t.cls === "player" && f.client ? clientRows(f.client, t, k) : []),
     ...(t.cls === "player" && f.player ? [["adrenaline", `${fmt(f.player.adrenaline)} / ${fmt(f.player.maxAdrenaline)}`],

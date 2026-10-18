@@ -18,7 +18,13 @@ internal readonly record struct EntityUpdate(int Frame, double Time, WireEntity 
 /// <paramref name="Shown"/> is the donor time the drawn state stands for: the entity is drawn
 /// one of its own update intervals behind, so its overlay layers are read at that time.
 /// </summary>
-internal readonly record struct EntitySample(Vector3 Origin, Quaternion Rotation, int ModelIndex, short Sequence, float Cycle, bool Animated, double Shown = 0);
+internal readonly record struct EntitySample(Vector3 Origin, Quaternion Rotation, int ModelIndex, short Sequence, float Cycle, bool Animated, double Shown = 0)
+{
+    /// <summary>v10: what the entity hangs from, as of its last update; null when nothing or before v10.</summary>
+    public EntityKey? Parent { get; init; }
+    /// <summary>v10: the parent model's attachment, numbered from 1; 0 for none.</summary>
+    public byte ParentAttachment { get; init; }
+}
 
 /// <summary>One active overlay layer (Wire v6): a sequence playing over the main one at its own cycle and weight.</summary>
 internal readonly record struct LayerState(byte Slot, short Sequence, short Order, float Cycle, float Weight);
@@ -79,7 +85,8 @@ internal sealed class EntityTrack(EntityKey key, string className, int firstFram
     static bool Same(in WireEntity a, in WireEntity b) =>
         a.OriginX == b.OriginX && a.OriginY == b.OriginY && a.OriginZ == b.OriginZ
         && a.Pitch == b.Pitch && a.Yaw == b.Yaw && a.Roll == b.Roll
-        && a.ModelIndex == b.ModelIndex && a.Sequence == b.Sequence && a.Cycle == b.Cycle && a.Flags == b.Flags;
+        && a.ModelIndex == b.ModelIndex && a.Sequence == b.Sequence && a.Cycle == b.Cycle && a.Flags == b.Flags
+        && a.Parent == b.Parent && a.ParentSerial == b.ParentSerial && a.ParentAttachment == b.ParentAttachment;
 
     /// <summary>The latest update at or before <paramref name="time"/>, or -1.</summary>
     public int UpdateAt(double time)
@@ -127,6 +134,10 @@ internal sealed class EntityTrack(EntityKey key, string className, int firstFram
             // A new sequence started somewhere between the updates; take it as starting at the first.
             cycle = b.Cycle * t;
         }
-        return new EntitySample(origin, rotation, b.ModelIndex, b.Sequence, Math.Clamp(cycle, 0, 1), animated);
+        return new EntitySample(origin, rotation, b.ModelIndex, b.Sequence, Math.Clamp(cycle, 0, 1), animated)
+        {
+            Parent = b.Parent != WireLayout.NoEntity && b.Parent != 0 ? new EntityKey(b.Parent, b.ParentSerial) : null,
+            ParentAttachment = b.ParentAttachment,
+        };
     }
 }

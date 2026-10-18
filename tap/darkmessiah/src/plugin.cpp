@@ -364,6 +364,8 @@ static int g_sendLayout;              // 0 unchecked, 1 ok, -1 wrong
 static int g_healthOff = -1, g_maxHealthOff = -1, g_lifeStateOff = -1;
 static int g_ownerOff = -1;           // CBaseEntity::m_hOwnerEntity
 static int g_weaponOwnerOff = -1;     // CBaseCombatWeapon::m_hOwner
+static int g_moveParentOff = -1;      // CBaseEntity::m_hMoveParent (sent as "moveparent")
+static int g_parentAttachOff = -1;    // CBaseEntity::m_iParentAttachment (a byte)
 static int g_viewOffsetOff = -1;      // CBasePlayer::m_vecViewOffset (sent as three floats, [0] first)
 
 static bool IsText(const char* p) { return p && SafeStr(p) == p; }
@@ -402,6 +404,8 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         else if (!strcmp(name, "m_fHealth") && g_healthOff < 0) { g_healthOff = off; Log("netprops: m_fHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_fMaxHealth") && g_maxHealthOff < 0) { g_maxHealthOff = off; Log("netprops: m_fMaxHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_hOwner") && g_weaponOwnerOff < 0) { g_weaponOwnerOff = off; Log("netprops: m_hOwner @+0x%X (CBaseCombatWeapon)", off); }
+        else if (!strcmp(name, "moveparent") && g_moveParentOff < 0) { g_moveParentOff = off; Log("netprops: m_hMoveParent @+0x%X (CBaseEntity, all classes)", off); }
+        else if (!strcmp(name, "m_iParentAttachment") && g_parentAttachOff < 0) { g_parentAttachOff = off; Log("netprops: m_iParentAttachment @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_hOwnerEntity") && g_ownerOff < 0) { g_ownerOff = off; Log("netprops: m_hOwnerEntity @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_vecViewOffset[0]") && g_viewOffsetOff < 0) { g_viewOffsetOff = off; Log("netprops: m_vecViewOffset @+0x%X (CBasePlayer)", off); }
         else if (!strcmp(name, "m_lifeState") && g_lifeStateOff < 0) { g_lifeStateOff = off; Log("netprops: m_lifeState @+0x%X (CBaseEntity, all classes)", off); }
@@ -718,6 +722,41 @@ static void WriteLink(const char* cls, const unsigned char* ent, wire::Entity& w
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         w.link = wire::kNoEntity;
         w.link_serial = 0;
+    }
+}
+
+// The entity a handle names, if it is live and has the handle's serial.
+static uint16_t HandleTarget(uint32_t h, uint32_t& serial) {
+    serial = 0;
+    uint16_t index = HandleIndex(h);
+    if (index == wire::kNoEntity || SerialAt(index) != h >> 12) return wire::kNoEntity;
+    serial = h >> 12;
+    return index;
+}
+
+// v10: what the entity is attached to (its move parent and the parent's
+// attachment), and who owns it: m_hOwnerEntity, or a weapon's m_hOwner when
+// that is empty (the player's weapons keep their wielder there).
+static void WriteParent(const char* cls, const unsigned char* ent, wire::Entity& w) {
+    w.parent = w.owner = wire::kNoEntity;
+    w.parent_serial = w.owner_serial = 0;
+    w.parent_attachment = 0;
+    w.reserved2 = 0;
+    w.reserved3 = 0;
+    __try {
+        if (g_moveParentOff >= 0) {
+            w.parent = HandleTarget(*(const uint32_t*)(ent + g_moveParentOff), w.parent_serial);
+            if (w.parent != wire::kNoEntity && g_parentAttachOff >= 0) w.parent_attachment = *(ent + g_parentAttachOff);
+        }
+        if (g_ownerOff >= 0) {
+            w.owner = HandleTarget(*(const uint32_t*)(ent + g_ownerOff), w.owner_serial);
+            if (w.owner == wire::kNoEntity && g_weaponOwnerOff >= 0 && cls && !strncmp(cls, "weapon_", 7))
+                w.owner = HandleTarget(*(const uint32_t*)(ent + g_weaponOwnerOff), w.owner_serial);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        w.parent = w.owner = wire::kNoEntity;
+        w.parent_serial = w.owner_serial = 0;
+        w.parent_attachment = 0;
     }
 }
 
@@ -1070,6 +1109,7 @@ static void WireWrite() {
                 w.flags |= wire::kHasAnimation;
             }
             WriteLink(cls.ptr, ent, w);
+            WriteParent(cls.ptr, ent, w);
             ++count;
             // After the entity is counted: a fault here loses only its layers.
             if (cls.props.overlay) WriteLayers((unsigned char*)ent, (uint16_t)i, layers, layerCount, layerDropped);

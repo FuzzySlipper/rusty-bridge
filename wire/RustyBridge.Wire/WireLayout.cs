@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 9;
+    public const uint Version = 10;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -257,6 +257,16 @@ public struct WireEntity
     public ushort Link;
     public ushort Reserved;
     public uint LinkSerial;
+    /// <summary>v10: m_hMoveParent, what the entity is attached to; <see cref="WireLayout.NoEntity"/> when none.</summary>
+    public ushort Parent;
+    /// <summary>v10: m_iParentAttachment, 1-based into the parent model's attachments (the import's <c>asset.extras.attachments</c> order); 0 for none.</summary>
+    public byte ParentAttachment;
+    public byte Reserved2;
+    public uint ParentSerial;
+    /// <summary>v10: m_hOwnerEntity, or a weapon's m_hOwner when that is empty; <see cref="WireLayout.NoEntity"/> when none.</summary>
+    public ushort Owner;
+    public ushort Reserved3;
+    public uint OwnerSerial;
 }
 
 /// <summary>

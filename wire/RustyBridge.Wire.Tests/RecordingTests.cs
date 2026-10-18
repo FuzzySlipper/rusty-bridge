@@ -94,7 +94,7 @@ public sealed class RecordingTests : IDisposable
         // Record header (5) + frame fields (21) + one changed entity (64) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8).
-        Assert.Equal(390, recorder.Bytes - afterKey);
+        Assert.Equal(406, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -283,7 +283,7 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version9CarriesWallClockPlayerStateSlowTimeLinksAndTheClientView()
+    public void Version10CarriesWallClockPlayerStateSlowTimeLinksParentsAndTheClientView()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
@@ -303,7 +303,7 @@ public sealed class RecordingTests : IDisposable
         writer.FrameEntities(10,
             new WireEntity { Index = 1, ClassId = 2, Serial = 1, Link = WireLayout.NoEntity },
             new WireEntity { Index = 7, ClassId = 0, Serial = 0x123, Link = 9, LinkSerial = 0x55 },
-            new WireEntity { Index = 9, ClassId = 1, Serial = 0x55, Link = 7, LinkSerial = 0x123 });
+            new WireEntity { Index = 9, ClassId = 1, Serial = 0x55, Link = 7, LinkSerial = 0x123, Parent = 7, ParentAttachment = 3, ParentSerial = 0x123, Owner = 7, OwnerSerial = 0x123 });
         using var reader = new WireReader(_wire);
         var snap = new WireSnapshot();
         Assert.True(reader.TryReadFrame(0, snap));
@@ -319,7 +319,10 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(9u, f.Version);
+        Assert.Equal(10u, f.Version);
+        Assert.Equal((ushort)7, f.Entities[9].Parent);
+        Assert.Equal((byte)3, f.Entities[9].ParentAttachment);
+        Assert.Equal(0x123u, f.Entities[9].OwnerSerial);
         Assert.Equal(90f, f.ClientView.ViewYaw);
         Assert.Equal(91f, f.ClientView.CameraYaw);
         Assert.Equal((ushort)1280, f.ClientView.ScreenWidth);
@@ -335,6 +338,8 @@ public sealed class RecordingTests : IDisposable
         Assert.Equal(101f, old.ClientView.ViewmodelX);
         Assert.Equal(0f, old.ClientView.CameraYaw);
         Assert.Equal((short)-1, old.ClientView.ViewmodelSequence);
+        Assert.Equal(WireLayout.NoEntity, old.Entities[9].Parent);
+        Assert.Equal((ushort)9, old.Entities[7].Link);
         Assert.Equal((ushort)7, f.ClientView.Viewmodel);
         Assert.Equal(101f, f.ClientView.ViewmodelX);
         Assert.Equal(12.5, f.WallSeconds);
@@ -407,21 +412,38 @@ public sealed class RecordingTests : IDisposable
 
     public void Dispose() => File.Delete(_wire);
 
-    /// <summary>A v9 recording rewritten as v8: the version, and each frame without the client view's v9 tail.</summary>
-    static byte[] AsVersion8(byte[] v9)
+    /// <summary>
+    /// A current recording rewritten as v8 wrote it: the version, each entity
+    /// cut to its first 64 bytes (no parent or owner), and each frame's client
+    /// view cut to its first 80 bytes.
+    /// </summary>
+    static byte[] AsVersion8(byte[] current)
     {
-        int tail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes;
+        int entityNow = System.Runtime.InteropServices.Marshal.SizeOf<WireEntity>(), entityThen = 64;
+        int viewTail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes;
         var output = new MemoryStream();
-        output.Write(v9, 0, 16);
+        output.Write(current, 0, 16);
         BitConverter.GetBytes(8u).CopyTo(output.GetBuffer(), 8);
-        for (int at = 16; at < v9.Length;)
+        for (int at = 16; at < current.Length;)
         {
-            byte kind = v9[at];
-            int length = BitConverter.ToInt32(v9, at + 1);
-            int keep = kind == 4 ? length - tail : length;
+            byte kind = current[at];
+            int length = BitConverter.ToInt32(current, at + 1);
+            var payload = current.AsSpan(at + 5, length);
+            var record = new MemoryStream();
+            if (kind == 4)
+            {
+                // frame u64, tick i32, curtime f32, flags u8, then the changed entities.
+                record.Write(payload[..17]);
+                int changed = BitConverter.ToInt32(payload[17..]);
+                record.Write(payload.Slice(17, 4));
+                int p = 21;
+                for (int i = 0; i < changed; i++, p += entityNow) record.Write(payload.Slice(p, entityThen));
+                record.Write(payload[p..^viewTail]);
+            }
+            else record.Write(payload);
             output.WriteByte(kind);
-            output.Write(BitConverter.GetBytes(keep));
-            output.Write(v9, at + 5, keep);
+            output.Write(BitConverter.GetBytes((int)record.Length));
+            record.WriteTo(output);
             at += 5 + length;
         }
         return output.ToArray();

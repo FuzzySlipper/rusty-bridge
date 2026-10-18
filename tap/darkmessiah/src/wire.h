@@ -1,4 +1,4 @@
-// Wire v9: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v10: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 9;
+const uint32_t kVersion = 10;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -95,6 +95,14 @@ struct Entity {
                                 //   +0x16A0); kNoEntity when none
     uint16_t reserved;
     uint32_t link_serial;       // the linked entity's serial; 0 with kNoEntity
+    // v10
+    uint16_t parent;            // m_hMoveParent: what the entity is attached to; kNoEntity when none
+    uint8_t parent_attachment;  // m_iParentAttachment: 1-based into the parent model's attachments; 0 = none
+    uint8_t reserved2;
+    uint32_t parent_serial;
+    uint16_t owner;             // m_hOwnerEntity, or a weapon's m_hOwner when that is empty; kNoEntity when none
+    uint16_t reserved3;
+    uint32_t owner_serial;
 };
 
 const uint16_t kNoEntity = 0xFFFF;
@@ -246,7 +254,7 @@ static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
 static_assert(sizeof(Layer) == 20, "Layer layout");
 static_assert(sizeof(Defense) == 48, "Defense layout");
 static_assert(sizeof(Damage) == 152, "Damage layout");
-static_assert(sizeof(Entity) == 64, "Entity layout");
+static_assert(sizeof(Entity) == 80, "Entity layout");
 
 const uint32_t kClassesOffset = 256;
 const uint32_t kModelsOffset = kClassesOffset + kMaxClasses * kClassNameBytes;

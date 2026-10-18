@@ -15,6 +15,8 @@ internal readonly record struct FightFrame(int Tick, double Time);
 internal sealed class RecordedFight
 {
     public string Map { get; private set; } = "";
+    /// <summary>The recording streams each entity's move parent and attachment (Wire v10 and later), so held items need no inference.</summary>
+    public bool HasParents { get; private set; }
     public double TickInterval { get; private set; }
     public IReadOnlyList<FightFrame> Frames => frames;
     public IReadOnlyList<EntityTrack> Tracks => tracks;
@@ -47,6 +49,7 @@ internal sealed class RecordedFight
             int frame = fight.frames.Count;
             fight.frames.Add(new FightFrame(f.Tick, f.Curtime));
             fight.Map = f.Map;
+            fight.HasParents |= f.Version >= 10;
             fight.TickInterval = f.TickInterval;
             foreach (var (id, name) in f.Classes) fight.classes[id] = name;
             foreach (var (index, path) in f.Models) fight.models[index] = path;

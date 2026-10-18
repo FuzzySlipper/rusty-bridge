@@ -45,6 +45,7 @@ function recording(frames, version = 6) {
       for (let k = 0; k < 6; k++) f32(0);
       f32(30); f32(30); u16(0xffff); u8(1); u8(0); f32(0); f32(0); u32(e.serial);
       if (version >= 7) { u16(e.link?.[0] ?? 0xffff); u16(0); u32(e.link?.[1] ?? 0); }
+      if (version >= 10) { u16(e.parent?.[0] ?? 0xffff); u8(e.parent?.[2] ?? 0); u8(0); u32(e.parent?.[1] ?? 0); u16(e.parent?.[0] ?? 0xffff); u16(0); u32(e.parent?.[1] ?? 0); }
     }
     u32(0);                                                          // removed
     u32(0); u32(damage.length);
@@ -151,4 +152,13 @@ test('v9: the client\'s camera and viewmodel animation', () => {
   assert.equal(c.viewmodelLayers[0].seq, 30);
   assert.equal(c.viewmodelLayers[0].cycle, 0.5);
   assert.equal(rec.frames[1].client, undefined);
+});
+
+test('v10: an entity names what it hangs from, at which attachment, and its owner', () => {
+  const cleaver = { index: 9, cls: 0, serial: 0x66, parent: [7, 0x123, 2] };
+  const rec = context.parseRecording(recording([{ tick: 10, entities: [player, orc, cleaver], wall: 1.0 }], 10));
+  const t = rec.tracks.find((x) => x.index === 9);
+  assert.equal(t.parent[0], '7:291');
+  assert.equal(t.attachment[0], 2);
+  assert.equal(t.owner[0], '7:291');
 });

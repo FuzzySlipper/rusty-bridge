@@ -1,4 +1,4 @@
-# Wire v9
+# Wire v10
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -19,19 +19,21 @@ each tick carries the tap's wall clock, the player's slow-motion and
 adrenaline state and every bullet-time call, and every entity its link: a
 knocked-down NPC's ragdoll and back. Since v8 each tick carries the client's
 view of the local player: its view angles, predicted transform, eye offset
-and first-person viewmodel. Since v9 it also carries the camera the client
+and first-person viewmodel. Since v10 every entity also carries what it
+hangs from (its move parent and the parent's attachment) and its owner.
+Since v9 the client view also carries the camera the client
 drew with and the client viewmodel's own sequence, cycle and overlay layers.
 A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v9 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v10 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 19,571,968 bytes and maps it read-write; readers open
+creates it, sizes it to 23,766,272 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -48,7 +50,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 148,296 | Ring of slots |
+| 590,080 | 128 × 181,064 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -62,12 +64,12 @@ Slot: a 96-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 `slow_time_count` u32, `slow_time_dropped` u32 and the 24-byte player state
 at 72), then:
 
-- up to 2048 entities of 64 bytes
-- at slot offset 131,168, up to 64 damage records of 152 bytes
-- at 140,896, up to 32 defense records of 48 bytes
-- at 142,432, up to 256 overlay layer records of 20 bytes
-- at 147,552, up to 16 slow-time records of 32 bytes
-- at 148,064, the 232-byte client view (80 bytes in v8)
+- up to 2048 entities of 80 bytes (64 before v10)
+- at slot offset 163,936, up to 64 damage records of 152 bytes
+- at 173,664, up to 32 defense records of 48 bytes
+- at 175,200, up to 256 overlay layer records of 20 bytes
+- at 180,320, up to 16 slow-time records of 32 bytes
+- at 180,832, the 232-byte client view (80 bytes in v8)
 
 Entities:
 
@@ -89,6 +91,22 @@ Entities:
 | 56 | `link` u16 | v7: an `npc_*`'s `m_hRagdollFall` (+0x29E4), or a `prop_ragdoll`'s `m_hUnragdoll` (+0x16A0); 0xFFFF for none |
 | 58 | reserved u16 | |
 | 60 | `link_serial` u32 | the linked entity's serial |
+| 64 | `parent` u16 | v10: `m_hMoveParent` (+0x3E4, the send prop `moveparent`): what the entity is attached to; 0xFFFF for none |
+| 66 | `parent_attachment` u8 | v10: `m_iParentAttachment` (+0x3E0): the parent model's attachment, numbered from 1 in the model's order (the import's `asset.extras.attachments`); 0 for none |
+| 67 | reserved u8 | |
+| 68 | `parent_serial` u32 | |
+| 72 | `owner` u16 | v10: `m_hOwnerEntity` (+0x500), or a weapon's `m_hOwner` when that is empty (the player's weapons); 0xFFFF for none |
+| 74 | reserved u16 | |
+| 76 | `owner_serial` u32 | |
+
+A parent or owner is written only when its handle names a live entity with
+the handle's serial. In l01_a, NPC items hang from numbered attachments, not
+bone merges:
+- an orc's cleaver from 7 (`RightHand`) and its shield from 11 (`LeftShield`);
+- a guard's sword from 6 (`RightHand`) and its helmet from 17 (`Helmet`);
+- the player's quiver from 16 on the player;
+- the player's own weapon from 4 on the first-person viewmodel;
+- the player, during the opening ride, from its horse at 1.
 
 **Identity is (index, serial).** Edict indices are reused within a level,
 often by an entity of the same class. Each entity's own handle carries a

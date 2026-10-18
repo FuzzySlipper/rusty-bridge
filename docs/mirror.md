@@ -51,7 +51,7 @@ from the Wire and import tools, which don't need the Engine.
 | `mirror.toggle` | Play or pause. |
 | `mirror.camera chase\|eye\|overview` | Pick the camera. |
 | `mirror.hits [class]` | Damage records as `tick:attacker>victim`, to jump to blows. |
-| `mirror.held` | Each live held item, its inferred holder and whether it hangs from it. |
+| `mirror.held` | Each live held item, its holder (streamed from v10, with the attachment's number and name; inferred before) and whether it hangs from it. |
 | `mirror.layers on\|off` | Draw overlay layers over the main sequences, or the main sequences alone, to compare. |
 
 **Smoke run:** `dotnet run --project mirror/tests/DarkMessiah.Mirror.Smoke`.
@@ -64,6 +64,11 @@ from the Wire and import tools, which don't need the Engine.
   on the same assets. It checks that the parrying orc lays its parry layer,
   that the layer moves its joints, and that ten seconds of layered play
   publish cleanly.
+- When `local/recordings/l01_a-v10-held.rbrec` exists (v10, two orcs with
+  cleavers, one with a shield), a third run checks, at two ticks, that every
+  item whose streamed parent is drawn hangs from it, that nothing hangs by
+  inference, and that cleavers hang from `RightHand` (7) and the shield from
+  `LeftShield` (11).
 - It exits non-zero on a failed check.
 
 ## How it's built
@@ -152,16 +157,25 @@ donor needs the same shape (design "Scope").
 
 ### Held items
 
-The Wire doesn't carry owners yet (#10074), so `HeldItems` infers them:
+**From Wire v10** each entity streams its move parent and the parent's
+attachment number (docs/wire.md), so nothing is inferred:
+- **What hangs:** anything with a streamed parent hangs from the attachment the donor named,
+  numbered from 1 in the model's attachment list (`LevelModel.AttachmentAt`).
+  That covers a weapon in a hand, a shield on a wrist, the player's quiver, and a rider on its horse.
+- **What stays at its streamed transform:**
+  - an item without a parent is loose (dropped, or its holder dead);
+  - an item whose parent isn't drawn too: the player's weapon hangs from the first-person viewmodel.
+
+**Before v10** `HeldItems` infers holders:
 - **From damage:** an item the damage hook named as the weapon belongs to
   that record's attacker.
 - **From proximity:** otherwise, an item belongs to the character whose hand
   height it stays within 64 units of for at least half its updates.
 
-An item hangs from its holder while the holder is live and the item is
-within 160 units of the holder's origin; otherwise it's drawn where it was
-streamed. The attachment comes from the class: `LeftShield` for shields,
-`Helmet` for helmets, `RightHand` otherwise. The child is published with
+An inferred holder holds the item while the holder is live and the item is
+within 160 units of the holder's origin. The attachment comes from the
+class: `LeftShield` for shields, `Helmet` for helmets, `RightHand`
+otherwise. The child is published with
 the attachment's local transform and a `MeshJointAttachment` on the
 attachment's joint.
 

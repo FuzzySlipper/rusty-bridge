@@ -1,4 +1,5 @@
 using System.Numerics;
+using RustyBridge.Wire;
 
 namespace DarkMessiah.Mirror.Replay;
 
@@ -39,13 +40,19 @@ internal static class DonorClasses
         : "RightHand";
 }
 
+/// <summary>A held item's holder at a moment, and the holder's attachment it hangs from.</summary>
+/// <param name="Attachment">The holder model's attachment, numbered from 1 as the Wire streams it; 0 when inferred (the class then names it).</param>
+internal readonly record struct Holding(EntityTrack Holder, int Attachment, bool Streamed);
+
 /// <summary>
-/// Who holds each weapon, shield and helmet. The Wire doesn't carry an owner
-/// yet, so this is inferred: a weapon the damage hook named with its
-/// attacker belongs to that attacker; otherwise to the character it stays
-/// closest to. A held item hangs from its holder while the holder is live
-/// and the streamed item is near it, and is drawn where it was streamed
-/// otherwise (dropped, thrown, or its holder gone).
+/// Who holds each weapon, shield and helmet.
+/// - From Wire v10 the recording says: an item's move parent is its holder,
+///   and m_iParentAttachment the attachment it hangs from.
+/// - Before v10 it is inferred: a weapon the damage hook named with its
+///   attacker belongs to that attacker; otherwise to the character it stays
+///   closest to. An inferred holder holds the item while it is live and the
+///   streamed item is near it; the item is drawn where it was streamed
+///   otherwise (dropped, thrown, or its holder gone).
 /// </summary>
 internal sealed class HeldItems
 {
@@ -60,12 +67,25 @@ internal sealed class HeldItems
     const float Dropped = 160;
 
     readonly Dictionary<EntityTrack, EntityTrack> holderOf = [];
+    readonly ILookup<EntityKey, EntityTrack> byKey;
+    readonly bool streamed;
 
     public HeldItems(RecordedFight fight)
     {
         // A key can come back (an index and serial reused after the entity left), so it names a track only with a frame.
-        var byKey = fight.Tracks.ToLookup(t => t.Key);
-        EntityTrack? At(EntityKey key, int frame) => byKey[key].FirstOrDefault(t => t.LiveAt(frame));
+        byKey = fight.Tracks.ToLookup(t => t.Key);
+        streamed = fight.HasParents;
+        var items = fight.Tracks.Where(t => DonorClasses.Role(t.ClassName) == EntityRole.Held).ToList();
+        Items = items.Count;
+        if (streamed)
+        {
+            // Every item that ever hangs from something counts as held, for the status line.
+            foreach (var item in items)
+                if (item.Updates.Select(u => u.State).FirstOrDefault(s => s.Parent != WireLayout.NoEntity && s.Parent != 0) is { Parent: not 0 } s
+                    && At(new EntityKey(s.Parent, s.ParentSerial), item.FirstFrame) is EntityTrack parent)
+                    holderOf[item] = parent;
+            return;
+        }
         var characters = fight.Tracks.Where(t => DonorClasses.Role(t.ClassName) == EntityRole.Character).ToList();
         var evidence = fight.Wielding
             .Select(w => (Weapon: At(w.Weapon, w.Frame), Holder: At(w.Holder, w.Frame)))
@@ -73,8 +93,6 @@ internal sealed class HeldItems
             .GroupBy(w => w.Weapon!)
             .ToDictionary(g => g.Key, g => g.GroupBy(w => w.Holder!).MaxBy(h => h.Count())!.Key);
 
-        var items = fight.Tracks.Where(t => DonorClasses.Role(t.ClassName) == EntityRole.Held).ToList();
-        Items = items.Count;
         foreach (var item in items)
         {
             if (evidence.TryGetValue(item, out var named))
@@ -102,7 +120,12 @@ internal sealed class HeldItems
         }
     }
 
+    EntityTrack? At(EntityKey key, int frame) => byKey[key].FirstOrDefault(t => t.LiveAt(frame));
+
     static Vector3 Hand(Vector3 origin) => origin + new Vector3(0, 0, HandHeight);
+
+    /// <summary>The recording streams parents (v10), so nothing here is inferred.</summary>
+    public bool Streamed => streamed;
 
     /// <summary>Items with a holder, and items the recording has at all.</summary>
     public int Count => holderOf.Count;
@@ -111,10 +134,19 @@ internal sealed class HeldItems
     /// <summary>The holder inferred for an item over the whole recording, whether or not it holds it now.</summary>
     public EntityTrack? InferredHolder(EntityTrack item) => holderOf.GetValueOrDefault(item);
 
-    /// <summary>The character holding <paramref name="item"/> at a frame and time, or null when it's loose.</summary>
-    public EntityTrack? Holder(EntityTrack item, int frame, double time)
+    /// <summary>
+    /// What holds <paramref name="item"/> at a frame and time, and at which
+    /// attachment; null when it's loose. From v10 that is the item's streamed
+    /// move parent (any entity: a rider hangs from its horse too).
+    /// </summary>
+    public Holding? Holder(EntityTrack item, int frame, double time)
     {
+        if (streamed)
+        {
+            var sample = item.Sample(time);
+            return sample.Parent is EntityKey key && At(key, frame) is EntityTrack parent ? new Holding(parent, sample.ParentAttachment, true) : null;
+        }
         if (!holderOf.TryGetValue(item, out var holder) || !holder.LiveAt(frame)) return null;
-        return Vector3.Distance(item.Sample(time).Origin, holder.Sample(time).Origin) <= Dropped ? holder : null;
+        return Vector3.Distance(item.Sample(time).Origin, holder.Sample(time).Origin) <= Dropped ? new Holding(holder, 0, false) : null;
     }
 }

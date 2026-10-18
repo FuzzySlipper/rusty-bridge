@@ -9,11 +9,16 @@ namespace DarkMessiah.Mirror.Scene;
 internal readonly record struct ModelAttachment(string Joint, Transform Local);
 
 /// <summary>One imported model, opened once and shared by every entity that draws it.</summary>
-internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnlyDictionary<string, ModelAttachment> attachments)
+internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnlyList<(string Name, ModelAttachment Attachment)> attachments)
 {
     public string DonorPath { get; } = donorPath;
     public RenderResource Mesh { get; } = mesh;
-    public IReadOnlyDictionary<string, ModelAttachment> Attachments { get; } = attachments;
+    public IReadOnlyDictionary<string, ModelAttachment> Attachments { get; } = attachments.Where(a => a.Attachment.Joint.Length > 0)
+        .GroupBy(a => a.Name).ToDictionary(g => g.Key, g => g.First().Attachment, StringComparer.Ordinal);
+    /// <summary>The model's attachments in its own order, as the Wire numbers them from 1 (m_iParentAttachment).</summary>
+    public IReadOnlyList<(string Name, ModelAttachment Attachment)> AttachmentList { get; } = attachments;
+    public ModelAttachment? AttachmentAt(int number) =>
+        number >= 1 && number <= AttachmentList.Count && AttachmentList[number - 1].Attachment.Joint.Length > 0 ? AttachmentList[number - 1].Attachment : null;
 }
 
 /// <summary>
@@ -75,9 +80,9 @@ internal sealed class LevelAssets : IDisposable
     /// The attachments dm-import recorded in the GLB's asset extras. Only the
     /// JSON chunk is read; the Engine has no reader for glTF extras.
     /// </summary>
-    Dictionary<string, ModelAttachment> Attachments(string file)
+    List<(string Name, ModelAttachment Attachment)> Attachments(string file)
     {
-        var result = new Dictionary<string, ModelAttachment>(StringComparer.Ordinal);
+        var result = new List<(string, ModelAttachment)>();
         using var reference = engine.Content.OpenReference(new(file));
         var header = engine.Content.ReadBytes(new(reference, 0, 20)).Span;
         if (header.Length < 20 || !header[..4].SequenceEqual("glTF"u8)) return result;
@@ -85,12 +90,14 @@ internal sealed class LevelAssets : IDisposable
         var json = JsonNode.Parse(Encoding.UTF8.GetString(engine.Content.ReadBytes(new(reference, 20, length)).Span));
         foreach (var a in json?["asset"]?["extras"]?["attachments"]?.AsArray() ?? [])
         {
-            if (a?["joint"]?.GetValue<string>() is not string joint) continue;
+            string name = a?["name"]?.GetValue<string>() ?? "";
+            // Keep the place of an attachment without a joint, so the Wire's numbering still lines up.
+            if (a?["joint"]?.GetValue<string>() is not string joint) { result.Add((name, new ModelAttachment("", default))); continue; }
             var m = a["matrix"]!.AsArray().Select(v => v!.GetValue<float>()).ToArray();
             // glTF column-major → System.Numerics row-vector matrix: the same 16 numbers in order.
             var matrix = new Matrix4x4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
             Matrix4x4.Decompose(matrix, out var scale, out var rotation, out var translation);
-            result[a["name"]!.GetValue<string>()] = new ModelAttachment(joint, new Transform(translation, rotation, scale));
+            result.Add((name, new ModelAttachment(joint, new Transform(translation, rotation, scale))));
         }
         return result;
     }

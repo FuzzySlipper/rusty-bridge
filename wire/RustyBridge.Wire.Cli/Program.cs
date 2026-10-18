@@ -143,7 +143,9 @@ int Dump()
             $"({e.OriginX:F1} {e.OriginY:F1} {e.OriginZ:F1}) ({e.Pitch:F1} {e.Yaw:F1} {e.Roll:F1}) {reader.ModelPath(snap, e.ModelIndex)}" +
             (e.Flags.HasFlag(WireEntityFlags.HasHealth) && e.MaxHealth > 0 ? $" hp {e.Health:F1}/{e.MaxHealth:F1} life {e.LifeState}" : "") +
             (e.Flags.HasFlag(WireEntityFlags.HasAnimation) && e.ModelIndex > 0 ? $" seq {e.Sequence} cycle {e.Cycle:F3} rate {e.PlaybackRate:F2}" : "") +
-            (e.Link != WireLayout.NoEntity ? $" link #{e.Link}" : ""));
+            (e.Link != WireLayout.NoEntity ? $" link #{e.Link}" : "") +
+            (e.Parent != WireLayout.NoEntity ? $" parent #{e.Parent} att {e.ParentAttachment}" : "") +
+            (e.Owner != WireLayout.NoEntity ? $" owner #{e.Owner}" : ""));
     foreach (var l in layersOf.SelectMany(g => g))
     {
         var owner = snap.Span.ToArray().FirstOrDefault(e => e.Index == l.Index);

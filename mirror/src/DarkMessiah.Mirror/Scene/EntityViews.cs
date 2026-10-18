@@ -79,6 +79,12 @@ internal sealed class EntityViews : IDisposable
             world = engine.Animation.CreateAnimatedMeshAppearance(new(map.Mesh));
     }
 
+    /// <summary>The model a track is drawn with, if it is drawn.</summary>
+    public LevelModel? ModelOf(EntityTrack track) => views.TryGetValue(track.Key, out var view) && view.Track == track ? view.Model : null;
+
+    /// <summary>Whether a track hangs from another entity's attachment now.</summary>
+    public bool IsHung(EntityTrack track) => views.TryGetValue(track.Key, out var view) && view.Track == track && view.Published && view.Parent != 0;
+
     /// <summary>Where a track is drawn now, in glTF space; null when it isn't drawn.</summary>
     public Transform? Placement(EntityKey key) => views.TryGetValue(key, out var view) && view.Published ? view.Placed : null;
 
@@ -139,10 +145,13 @@ internal sealed class EntityViews : IDisposable
             var placed = new Transform(SourceSpace.Position(sample.Origin), SourceSpace.Rotation(sample.Rotation), Vector3.One);
             ulong parent = 0;
             string? joint = null;
-            if (DonorClasses.Role(view.Track.ClassName) == EntityRole.Held
-                && held.Holder(view.Track, frame, time) is EntityTrack holder
-                && views.TryGetValue(holder.Key, out var holderView) && holderView.Track == holder && standing.Contains(holderView.Id)
-                && holderView.Model.Attachments.TryGetValue(DonorClasses.Attachment(view.Track.ClassName), out var attachment))
+            // From v10 anything with a streamed move parent hangs from the attachment the donor named (a
+            // weapon from its holder's hand, a rider from its horse); before v10 only held items, by inference.
+            if ((held.Streamed || DonorClasses.Role(view.Track.ClassName) == EntityRole.Held)
+                && held.Holder(view.Track, frame, time) is Holding holding
+                && views.TryGetValue(holding.Holder.Key, out var holderView) && holderView.Track == holding.Holder && standing.Contains(holderView.Id)
+                && (holding.Streamed ? holderView.Model.AttachmentAt(holding.Attachment)
+                    : holderView.Model.Attachments.TryGetValue(DonorClasses.Attachment(view.Track.ClassName), out var named) ? named : null) is ModelAttachment attachment)
             {
                 parent = holderView.Id;
                 joint = attachment.Joint;

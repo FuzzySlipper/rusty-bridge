@@ -203,9 +203,12 @@ Replay("l01_a-v10-held.rbrec", "held-items run", (product, mirror) =>
         using var recording = File.OpenRead(path);
         var contacts = contactHost.Call(engine => DarkMessiah.Mirror.Shadow.SwingContacts.Recompute(engine, Path.GetFileName(index), recording));
         var traced = contacts.Where(c => c.Traced).ToList();
-        int agree = traced.Count(c => c.Before is { } b && b.Class == c.Donor.Class && b.Group == c.Donor.Group);
+        int agree = traced.Count(c => c.Before is { } b && b.Entity == c.Donor.Entity && b.Body == c.Donor.Body && b.Group == c.Donor.Group);
         Check(traced.Count > 40 && agree >= traced.Count * 9 / 10, $"the swept traces meet what the donor's did: {agree} of {traced.Count}");
-        Check(traced.Any(c => !c.Donor.Body && c.Before is { Body: false }), "an item struck is met by its collision model");
+        Check(traced.Any(c => !c.Donor.Body && c.Before is { Body: false } b && b.Entity == c.Donor.Entity), "an item struck is met by its collision model");
+        // A killed victim leaves in its blow's frame; its blow is swept on the pose before.
+        Check(contacts.Any(c => c.Tick == 12168 && c.Victim == "npc_orc_sword") && contacts.Any(c => c.Tick == 12900 && c.Victim == "npc_villager_female"),
+            "killing blows (the ghouls' on the orc at tick 12168 and the villager at 12900) are scored");
         Check(contacts.Where(c => c.Victim == "player").All(c => !c.Traced), "a blow on the player is untraced: it ends at a reach point");
     }
 }

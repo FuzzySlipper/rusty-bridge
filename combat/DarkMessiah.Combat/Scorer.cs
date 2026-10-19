@@ -166,7 +166,7 @@ public static class Scorer
 
     static string ContactReason(ContactCase c)
     {
-        if (c.After is ContactPart after && (c.Traced ? after.SameAs(c.Donor) : after.Struck == Struck.Body))
+        if (c.After is ContactPart after && c.Matches(after))
             return "pose timing: posed as the blow's own frame, the sweep meets the donor's part";
         if (!c.Traced)
             return "swing path: the donor reached without a trace, and its reach point falls short of the victim's hit boxes";

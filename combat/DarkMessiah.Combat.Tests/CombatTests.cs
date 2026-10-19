@@ -317,7 +317,9 @@ public sealed class ReportTests
 
 public sealed class ContactTests
 {
-    static readonly ContactPart Spine = new(Struck.Body, 2, 0), Thigh = new(Struck.Body, 6, 12), Shield = new(Struck.OffHand, 0, 0);
+    const string Villager = "#9.1";
+    static readonly ContactPart Spine = new(Struck.Body, 2, 0, Villager), Thigh = new(Struck.Body, 6, 12, Villager),
+        Shield = new(Struck.OffHand, 0, 0, "#10.1", "weapon_mm_shield_orc");
 
     static ContactCase Case(ContactPart donor, ContactPart? before, ContactPart? after = null, float? donorAlong = null, float miss = 0, bool traced = true) =>
         new(100, "npc_ghoul", "npc_villager_male", "attack_bash", donor, before, after, donorAlong, miss, 5, 30, traced, 18);
@@ -328,13 +330,18 @@ public sealed class ContactTests
     [Fact]
     public void AContactAgreesOnTheKindAndOnTheBodyTheHitGroup()
     {
-        Assert.True(Case(Spine, new ContactPart(Struck.Body, 2, 1)).Agrees);
+        Assert.True(Case(Spine, new ContactPart(Struck.Body, 2, 1, Villager)).Agrees);
         Assert.False(Case(Spine, Thigh).Agrees);
         Assert.False(Case(Spine, Shield).Agrees);
-        Assert.True(Case(Shield, new ContactPart(Struck.OffHand, 0, 0)).Agrees);
-        // A blow the donor didn't trace only has to meet the victim's body.
-        Assert.True(Case(new ContactPart(Struck.Body, 0, 0), Thigh, traced: false).Agrees);
-        Assert.False(Case(new ContactPart(Struck.Body, 0, 0), null, traced: false).Agrees);
+        Assert.True(Case(Shield, Shield with { }).Agrees);
+        // The same kind of thing on another entity is another contact: a second orc's shield, or a bystander's spine.
+        Assert.False(Case(Shield, Shield with { Entity = "#11.1" }).Agrees);
+        Assert.False(Case(Spine, Spine with { Entity = "#12.1" }).Agrees);
+        // A blow the donor didn't trace only has to meet the victim's body, and no one else's.
+        var reach = new ContactPart(Struck.Body, 0, 0, Villager);
+        Assert.True(Case(reach, Thigh, traced: false).Agrees);
+        Assert.False(Case(reach, Thigh with { Entity = "#12.1" }, traced: false).Agrees);
+        Assert.False(Case(reach, null, traced: false).Agrees);
     }
 
     [Fact]
@@ -349,6 +356,9 @@ public sealed class ContactTests
         Assert.StartsWith("pose timing: the donor's hit point is off", Mismatches(Case(Spine, null, miss: 6))[0].Reason);
         Assert.StartsWith("swing path: the donor's part is where its trace ended", Mismatches(Case(Spine, Shield, donorAlong: 28))[0].Reason);
         Assert.StartsWith("shape fit", Mismatches(Case(Spine, null, miss: 0.4f))[0].Reason);
+        // The blow's own frame meeting another orc's shield isn't the donor's shield.
+        Assert.StartsWith("shape fit", Mismatches(Case(Shield, null, after: Shield with { Entity = "#11.1" }, miss: 0.4f))[0].Reason);
+        Assert.Contains("of weapon_mm_shield_orc #11.1", Mismatches(Case(Shield, Shield with { Entity = "#11.1" }, miss: 0.4f))[0].Model);
         Assert.StartsWith("swing path: the donor reached without a trace", Mismatches(Case(Spine, null, traced: false))[0].Reason);
     }
 }

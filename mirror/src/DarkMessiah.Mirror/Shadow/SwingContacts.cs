@@ -8,12 +8,13 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Mirror.Shadow;
 
 /// <summary>
-/// What a swing's trace met: an entity by class, whether that is the victim's
-/// own body (otherwise an item, such as its weapon or shield), and the hit box
-/// on it, by its index in the model's default set and its hit group.
+/// What a swing's trace met: an entity by its recording identity
+/// (<c>#index.serial</c>) and class, whether that is the victim's own body
+/// (otherwise an item, such as its weapon or shield, or another character), and
+/// the hit box on it, by its index in the model's default set and its hit group.
 /// <paramref name="Along"/> is how far along the trace, in Source units.
 /// </summary>
-public sealed record SwingTouch(string Class, bool Body, int Hitbox, int Group, float Along);
+public sealed record SwingTouch(string Entity, string Class, bool Body, int Hitbox, int Group, float Along);
 
 /// <summary>
 /// One melee blow's contact: what the donor's trace reported, and what
@@ -52,7 +53,8 @@ public sealed record SwingContact(int Tick, string Attacker, string Victim, stri
 /// The trace is then swept as a capsule (a sphere of <see cref="Radius"/>
 /// moving along it) a little past its end, and the first contact is what it
 /// struck. The attacker and what it holds are left out, as the donor's trace
-/// skips them, and so is the level.
+/// skips them, and so is the level. Entities are named by their recording
+/// identity, so the contact is compared with the donor's struck entity itself.
 /// </summary>
 public static class SwingContacts
 {
@@ -86,8 +88,12 @@ public static class SwingContacts
         using var views = new EntityViews(engine, fight, assets, held) { Exact = true };
         using var session = engine.Spatial.CreateSession(new SpatialSessionConfig(1, 16, VoxelSurfaceMode.GreedyCubes));
         var byIndex = fight.Tracks.ToLookup(t => t.Key.Index);
+        // An entity as last seen with that identity: a victim the blow killed is removed in the blow's
+        // frame, so its track ends the frame before. Serials keep a reused index apart (from v5).
         EntityTrack? Track(ushort index, uint serial, int frame) =>
-            index == WireLayout.NoEntity ? null : byIndex[index].FirstOrDefault(t => t.LiveAt(frame) && (serial == 0 || t.Key.Serial == serial));
+            index == WireLayout.NoEntity ? null
+            : byIndex[index].Where(t => t.FirstFrame <= frame && t.LastFrame >= frame - 1 && (serial == 0 || t.Key.Serial == serial))
+                .OrderByDescending(t => t.FirstFrame).FirstOrDefault();
 
         // One swing's contact can make several damage records (the shield, then its holder): one trace each.
         var blows = new List<(int Frame, WireDamage Damage, EntityTrack Attacker, EntityTrack Victim, EntityTrack Struck, EntityTrack? Weapon)>();
@@ -112,7 +118,7 @@ public static class SwingContacts
         {
             bool body = struck == victim;
             int donorHitbox = body ? d.HitBox : 0;
-            var donor = new SwingTouch(struck.ClassName, body, donorHitbox, body ? d.HitGroup : 0, Vector3.Distance(Start(d), End(d)));
+            var donor = new SwingTouch(struck.Key.ToString(), struck.ClassName, body, donorHitbox, body ? d.HitGroup : 0, Vector3.Distance(Start(d), End(d)));
             int before = Math.Max(0, frame - 1);
             var (first, donorAlong, miss) = sweeper.Sweep(before, d, attacker, weapon, victim, struck, donorHitbox);
             var (after, _, _) = sweeper.Sweep(frame, d, attacker, weapon, victim, struck, donorHitbox);
@@ -122,7 +128,7 @@ public static class SwingContacts
             float reach = new Vector2(d.TraceEndX - victimAt.Origin.X, d.TraceEndY - victimAt.Origin.Y).Length();
             int update = victim.UpdateAt(fight.Frames[before].Time);
             int stale = update < 0 ? 0 : fight.Frames[before].Tick - fight.Frames[victim.Updates[update].Frame].Tick;
-            contacts.Add(new SwingContact(fight.Frames[frame].Tick, attacker.ClassName, victim.ClassName, Attack(fight, attacker, before),
+            contacts.Add(new SwingContact(d.Tick, attacker.ClassName, victim.ClassName, Attack(fight, attacker, before),
                 donor, first, after, donorAlong, miss, stale, donor.Along, traced, reach) { VictimSequence = Attack(fight, victim, before) });
         }
         return contacts;
@@ -208,12 +214,12 @@ public static class SwingContacts
                 if (c.Kind == SpatialHitKind.StaticMesh && owners.TryGetValue(c.Instance, out int item))
                 {
                     e = posed[item];
-                    touch = new SwingTouch(e.Track.ClassName, e.Track == victim, 0, 0, (float)c.Fraction * span);
+                    touch = new SwingTouch(e.Track.Key.ToString(), e.Track.ClassName, e.Track == victim, 0, 0, (float)c.Fraction * span);
                 }
                 else if (c.Kind == SpatialHitKind.Entity && c.Entity >= 1 && c.Entity <= (ulong)posed.Count)
                 {
                     e = posed[(int)c.Entity - 1];
-                    touch = new SwingTouch(e.Track.ClassName, e.Track == victim, (int)c.Part, e.Model.Hitboxes[(int)c.Part].Group, (float)c.Fraction * span);
+                    touch = new SwingTouch(e.Track.Key.ToString(), e.Track.ClassName, e.Track == victim, (int)c.Part, e.Model.Hitboxes[(int)c.Part].Group, (float)c.Fraction * span);
                 }
                 else continue;
                 first ??= touch;

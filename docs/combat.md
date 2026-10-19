@@ -141,7 +141,12 @@ The donor sends a trace with each melee damage record:
 - **The sweep:** a capsule of radius 0.05 units, run 4 units past `trace_end`.
 - **Left out:** the attacker, what it holds, and the level.
 
-The scorer compares the first contact with the donor's: the same kind of thing (body, weapon, shield) and, on the body, the same hit group.
+The scorer compares the first contact with the donor's `trace_entity`:
+- **The entity:** the same one, by recording identity (`#index.serial`). Another orc's shield isn't the donor's shield.
+- **What it is:** the same kind of thing (body, weapon, shield).
+- **On the body:** the same hit group.
+
+A victim the blow killed leaves the Wire in the blow's frame. It is taken as last seen, and swept on the pose before.
 
 **The donor traces rays.**
 - **On the surface:** a traced blow's `trace_end` lies on the surface it struck. On agreeing blows the sweep meets it within a fraction of a unit.
@@ -162,10 +167,10 @@ The scorer compares the first contact with the donor's: the same kind of thing (
 
 | Recording | Contact (traced) | On the donor's own hit box | Contact, untraced |
 | --- | --- | --- | --- |
-| l01_a-parrybot (v4) | 50 / 52 | 47 / 47 | 34 / 70 |
+| l01_a-parrybot (v4) | 52 / 54 | 49 / 49 | 34 / 70 |
 | l01_a-layers (v6) | 58 / 70 | 56 / 56 | 10 / 72 |
 | l01_a-v11-damage (v11) | 135 / 138 | 131 / 132 | 45 / 102 |
-| l01_a-v11-crit (v11) | 139 / 149 | 137 / 137 | 1 / 8 |
+| l01_a-v11-crit (v11) | 140 / 150 | 138 / 138 | 1 / 8 |
 | l01_a-v11-unaware (v11) | 60 / 62 | 58 / 58 | 0 / 4 |
 
 Every mismatch is put down to one of:

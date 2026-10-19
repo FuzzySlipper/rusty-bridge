@@ -70,7 +70,7 @@ IReadOnlyList<ContactCase>? Sweep(string recording)
         c.DonorAlong, c.Miss, c.Stale, c.Length, c.Traced, c.Reach, c.VictimSequence)).ToList();
 }
 
-static ContactPart? Part(SwingTouch? t) => t is null ? null : new(t.Body ? Struck.Body : Classify(t.Class), t.Group, t.Hitbox);
+static ContactPart? Part(SwingTouch? t) => t is null ? null : new(t.Body ? Struck.Body : Classify(t.Class), t.Group, t.Hitbox, t.Entity, t.Class);
 
 static Struck Classify(string cls) =>
     cls.Contains("shield", StringComparison.Ordinal) ? Struck.OffHand

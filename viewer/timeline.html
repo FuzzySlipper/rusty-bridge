@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 14) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 14).`);
+  if (version < 1 || version > 15) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 15).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
   const DAMAGE_BYTES = version < 5 ? 128 : version < 13 ? 152 : 360, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
@@ -354,6 +354,16 @@ function parseRecording(buf) {
         if (version >= 14 && fr.input) Object.assign(fr.input, { commands: v.getUint8(p + 3), forward: v.getFloat32(p + 16, true),
           side: v.getFloat32(p + 20, true), commandButtons: v.getUint32(p + 28, true), actions: v.getUint32(p + 32, true) });
         p += version >= 14 ? 48 : 16;
+      }
+      if (version >= 15) {
+        // The player's stats: stamina, mana, the skill modules learned, skill points, and the items in hand (a spell is one) and worn.
+        if (v.getUint8(p + 2)) {
+          const item = (o) => { const i = v.getUint16(p + o, true); return i === 0xFFFF ? null : i; };
+          fr.stats = { stamina: v.getFloat32(p + 4, true), maxStamina: v.getFloat32(p + 8, true), mana: v.getFloat32(p + 12, true), maxMana: v.getFloat32(p + 16, true),
+                       modules: [v.getUint32(p + 20, true), v.getUint32(p + 24, true)], skillPoints: v.getInt32(p + 28, true),
+                       weapon: item(36), shield: item(38), helmet: item(40), ring: item(42), armor: item(44) };
+        }
+        p += 80;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -826,9 +836,21 @@ function inputText(input) {
   const held = buttonNames(input.buttons), pressed = buttonNames(input.pressed);
   let text = (held.length ? held.join(" ") : "none") + (pressed.length ? ` (pressed ${pressed.join(" ")})` : "");
   // v14: the commands' movement and Arkane's actions.
+  if (input.actions & 1) text += " sprint";
   if (input.actions & 4) text += " kick";
   if (input.forward || input.side) text += ` · move ${Math.round(input.forward)}/${Math.round(input.side)}`;
   return text;
+}
+// v15: the skill modules by bit, as the game numbers them (docs/wire.md, "The player's stats").
+const SKILL_MODULES = ["adrenaline_control", "fast_metabolism", "poison_resistance", "double_sprint", "mana_recovery", "backstab",
+  "hide_in_shadow", "silent_step", "bow_reload", "bow_zoom", "stability", "combat_rush_attack", "passthrough", "combat_trample",
+  "combat_disarm", "combat_vertical_attack", "combat_shield_enabled", "combat_fatality", "combat_parry", "combat_big_slash",
+  "combat_huge_slash", "combat_chained_slash", "lockpick", "wizard_eye", "telekynesis", "flame_arrow", "fireball", "cure_wounds",
+  "lightning_bolt", "shrink", "magic_reflection", "firetrap", "inferno", "freeze", "charm", "detect_trap", "detect_secret"];
+function statsText(stats) {
+  const modules = SKILL_MODULES.filter((_, i) => stats.modules[i >> 5] & (1 << (i & 31)));
+  return `stamina ${stats.stamina.toFixed(2)}/${stats.maxStamina} · mana ${stats.mana.toFixed(1)}/${stats.maxMana} · ${stats.skillPoints} skill points · ` +
+    `modules ${modules.length ? modules.join(" ") : "none"}`;
 }
 // v7: game time over wall time across the last half second, when it isn't 1.
 function timeScaleText(fi) {
@@ -870,6 +892,7 @@ function drawDetail() {
     ...(t.link[k] ? [[/^npc_/.test(t.cls) ? "knocked down, ragdoll" : "ragdoll of", rec.bySerial.get(t.link[k]) ? label(rec.bySerial.get(t.link[k])) : `#${t.link[k].split(":")[0]}`]] : []),
     ...(t.cls === "player" && f.client ? clientRows(f.client, t, k) : []),
     ...(t.cls === "player" && f.input ? [["input", inputText(f.input)]] : []),
+    ...(t.cls === "player" && f.stats ? [["stats", statsText(f.stats)]] : []),
     ...(t.cls === "player" && f.player ? [["adrenaline", `${fmt(f.player.adrenaline)} / ${fmt(f.player.maxAdrenaline)}`],
       ...(f.player.inSlow ? [["slow motion", `×${fmt(f.player.factor, 2)} for ${fmt(f.player.duration, 2)} s from ${fmt(f.player.start, 2)}`]] : [])] : []),
     ["last change", `tick ${rec.frames[t.f[k]].tick}`],

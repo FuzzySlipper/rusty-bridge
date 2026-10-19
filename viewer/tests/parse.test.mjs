@@ -37,7 +37,7 @@ function recording(frames, version = 6) {
   u32(0x45524252); u32(0x31303043); u32(version); u32(0);
   record(1, () => { u32(1); f32(0.015); str('l01_a'); });
   ['npc_orc_sword', 'prop_ragdoll', 'player'].forEach((name, id) => record(2, () => { u16(id); str(name); }));
-  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null }, i) => record(4, () => {
+  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null, stats = null }, i) => record(4, () => {
     u32(i); u32(0); u32(tick); f32(tick * 0.015); u8(1);           // frame, tick, curtime, key flag
     u32(entities.length);
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
@@ -81,6 +81,13 @@ function recording(frames, version = 6) {
     }
     if (version >= 12) { u16(input ? 1 : 0xffff); u8(input ? 1 : 0); u8(input?.commands ?? 0); u32(input?.buttons ?? 0); u32(input?.pressed ?? 0); u32(0); }  // the player's input
     if (version >= 14) { f32(input?.forward ?? 0); f32(input?.side ?? 0); f32(0); u32(input?.buttons ?? 0); u32(input?.actions ?? 0); u32(0); u32(0); u32(0); }  // its commands
+    if (version >= 15) {                                             // the player's stats, 80 bytes
+      u16(stats ? 1 : 0xffff); u8(stats ? 1 : 0); u8(0);
+      f32(stats?.stamina ?? 0); f32(stats?.maxStamina ?? 0); f32(stats?.mana ?? 0); f32(stats?.maxMana ?? 0);
+      u32(stats?.modules?.[0] ?? 0); u32(stats?.modules?.[1] ?? 0); u32(stats?.skillPoints ?? 0); u32(0);
+      u16(stats?.weapon ?? 0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0);
+      for (let i = 0; i < 8; i++) u32(0);
+    }
   }));
   return new Uint8Array(bytes).buffer;
 }
@@ -187,6 +194,17 @@ test('v14: the player\'s commands, the kick among Arkane\'s actions', () => {
   const i = rec.frames[0].input;
   assert.deepEqual([i.commands, i.forward, i.actions], [2, 450, 4]);
   assert.equal(vm.runInContext(`inputText(${JSON.stringify(i)})`, context), 'forward kick · move 450/0');
+});
+
+test('v15: the player\'s stats, modules by the game\'s bits', () => {
+  const stats = { stamina: 6.5, maxStamina: 9, mana: 40, maxMana: 100, modules: [1 << 21, 1], skillPoints: 2, weapon: 7 };
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 8, pressed: 0, commands: 1, forward: 1000, side: 0, actions: 1 }, stats },
+  ], 15));
+  const s = rec.frames[0].stats;
+  assert.deepEqual([s.stamina, s.maxStamina, s.skillPoints, s.weapon, s.shield], [6.5, 9, 2, 7, null]);
+  assert.equal(vm.runInContext(`statsText(${JSON.stringify(s)})`, context), 'stamina 6.50/9 · mana 40.0/100 · 2 skill points · modules combat_chained_slash inferno');
+  assert.equal(vm.runInContext(`inputText(${JSON.stringify(rec.frames[0].input)})`, context), 'forward sprint · move 1000/0');
 });
 
 test('v13: a blow carries the victim\'s animation as it arrived', () => {

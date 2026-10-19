@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 14;
+    public const uint Version = 15;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -31,7 +31,9 @@ public static class WireLayout
     public static readonly int ClientViewOffset = SlowTimeOffset + MaxSlowTime * Marshal.SizeOf<WireSlowTime>();
     /// <summary>v12: the player's input, after the client view.</summary>
     public static readonly int InputOffset = ClientViewOffset + Marshal.SizeOf<WireClientView>();
-    public static readonly int SlotBytes = InputOffset + Marshal.SizeOf<WirePlayerInput>();
+    /// <summary>v15: the player's stats and equipment, after the input.</summary>
+    public static readonly int StatsOffset = InputOffset + Marshal.SizeOf<WirePlayerInput>();
+    public static readonly int SlotBytes = StatsOffset + Marshal.SizeOf<WirePlayerStats>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -482,15 +484,98 @@ public struct WirePlayerInput
 }
 
 /// <summary>
+/// v15: the player's stats and equipment each tick, mirroring <c>wire::PlayerStats</c>, read from <c>CMM_Player</c>
+/// (docs/wire.md, "The player's stats"): stamina, mana, the skill modules learned, skill points, and the items in hand
+/// (a spell is a weapon, <c>spell_fire_1</c> and so on) and worn as entity index and serial (<see cref="WireLayout.NoEntity"/> when none).
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WirePlayerStats
+{
+    public ushort Player;
+    public byte Valid;
+    public byte Reserved;
+    /// <summary>m_fStamina (+0x29C4) and m_fMaxStamina (+0x29C0).</summary>
+    public float Stamina, MaxStamina;
+    /// <summary>m_fMana (+0x29BC) and m_fMaxMana (+0x29B0).</summary>
+    public float Mana, MaxMana;
+    /// <summary>The skill modules learned (+0x2AF0), one bit each in the game's module order.</summary>
+    public SkillModules Modules;
+    /// <summary>m_iSkillPoints (+0x2B3C): unspent.</summary>
+    public int SkillPoints;
+    /// <summary>0. m_CurSpell (+0x3CB0) never showed the spell in hand; the <see cref="Weapon"/>'s class does (<c>spell_fire_1</c>...).</summary>
+    public int ReservedSpell;
+    /// <summary>m_hActiveWeapon, m_hActiveShield, m_hActiveHelmet, m_hActiveRing and m_hActiveArmor: entity indices.</summary>
+    public ushort Weapon, Shield, Helmet, Ring, Armor;
+    public ushort Reserved2;
+    /// <summary>Their serials.</summary>
+    public uint WeaponSerial, ShieldSerial, HelmetSerial, RingSerial, ArmorSerial;
+    public uint Reserved3, Reserved4, Reserved5;
+
+    public static WirePlayerStats None => new()
+    {
+        Player = WireLayout.NoEntity, Weapon = WireLayout.NoEntity, Shield = WireLayout.NoEntity,
+        Helmet = WireLayout.NoEntity, Ring = WireLayout.NoEntity, Armor = WireLayout.NoEntity,
+    };
+}
+
+/// <summary>
+/// The player's skill modules as the game numbers them (its module table, copied at start-up from server.dll+0x79DF38;
+/// docs/wire.md, "The player's stats"): bit i is module i. <see cref="SkillModuleNames"/> gives the names
+/// <c>mm_skills_infos.txt</c> uses.
+/// </summary>
+[Flags]
+public enum SkillModules : ulong
+{
+    None = 0,
+    AdrenalineControl = 1ul << 0, FastMetabolism = 1ul << 1, PoisonResistance = 1ul << 2, DoubleSprint = 1ul << 3,
+    ManaRecovery = 1ul << 4, Backstab = 1ul << 5, HideInShadow = 1ul << 6, SilentStep = 1ul << 7,
+    BowReload = 1ul << 8, BowZoom = 1ul << 9, Stability = 1ul << 10, CombatRushAttack = 1ul << 11,
+    Passthrough = 1ul << 12, CombatTrample = 1ul << 13, CombatDisarm = 1ul << 14, CombatVerticalAttack = 1ul << 15,
+    CombatShieldEnabled = 1ul << 16, CombatFatality = 1ul << 17, CombatParry = 1ul << 18, CombatBigSlash = 1ul << 19,
+    CombatHugeSlash = 1ul << 20, CombatChainedSlash = 1ul << 21, Lockpick = 1ul << 22, WizardEye = 1ul << 23,
+    Telekinesis = 1ul << 24, FlameArrow = 1ul << 25, Fireball = 1ul << 26, CureWounds = 1ul << 27,
+    LightningBolt = 1ul << 28, Shrink = 1ul << 29, MagicReflection = 1ul << 30, Firetrap = 1ul << 31,
+    Inferno = 1ul << 32, Freeze = 1ul << 33, Charm = 1ul << 34, DetectTrap = 1ul << 35, DetectSecret = 1ul << 36,
+}
+
+/// <summary>The skill modules' names, by bit, as <c>mm_skills_infos.txt</c> writes them (telekinesis is Arkane's spelling).</summary>
+public static class SkillModuleNames
+{
+    public static readonly string[] ByBit =
+    [
+        "adrenaline_control", "fast_metabolism", "poison_resistance", "double_sprint", "mana_recovery", "backstab",
+        "hide_in_shadow", "silent_step", "bow_reload", "bow_zoom", "stability", "combat_rush_attack", "passthrough",
+        "combat_trample", "combat_disarm", "combat_vertical_attack", "combat_shield_enabled", "combat_fatality",
+        "combat_parry", "combat_big_slash", "combat_huge_slash", "combat_chained_slash", "lockpick", "wizard_eye",
+        "telekynesis", "flame_arrow", "fireball", "cure_wounds", "lightning_bolt", "shrink", "magic_reflection",
+        "firetrap", "inferno", "freeze", "charm", "detect_trap", "detect_secret",
+    ];
+
+    /// <summary>The names of the modules set in <paramref name="modules"/>.</summary>
+    public static IEnumerable<string> Of(SkillModules modules)
+    {
+        for (int i = 0; i < ByBit.Length; i++)
+            if (((ulong)modules & (1ul << i)) != 0) yield return ByBit[i];
+    }
+}
+
+/// <summary>
 /// Arkane's action bytes in its CUserCmd (+0x95..+0xA1), one bit each in <see cref="WirePlayerInput.Actions"/>: bit i
-/// is byte +0x95+i. Sprint (Megasprint) is +0x95 and the kick (F) +0x97; the others aren't identified yet.
+/// is byte +0x95+i (docs/wire.md, "The player's input"). Bytes +0x9B, +0x9D and +0x9F were seen with the character sheet
+/// (bits 6, 8 and 10) but aren't named; +0x96, +0x98, +0x99, +0x9C, +0xA0 and +0xA1 never set.
 /// </summary>
 [Flags]
 public enum PlayerActions : uint
 {
     None = 0,
+    /// <summary>+sprint (Megasprint), byte +0x95.</summary>
     Sprint = 1 << 0,
+    /// <summary>+kick (F), byte +0x97.</summary>
     Kick = 1 << 2,
+    /// <summary>+xana, byte +0x9A: set while held.</summary>
+    Xana = 1 << 5,
+    /// <summary>mm_previtem and mm_nextitem, byte +0x9E, one tick per press: one byte for both, likely signed by direction (the Wire keeps only that it's set).</summary>
+    ItemCycle = 1 << 9,
 }
 
 /// <summary>Source's IN_* button bits as the 2006 SDK numbers them. Dark Messiah's kick isn't among them (docs/wire.md, "The player's input").</summary>
@@ -516,10 +601,12 @@ public enum InputButtons : uint
     Alt2 = 1 << 15,
     Score = 1 << 16,
     Speed = 1 << 17,
+    /// <summary>The SDK's IN_WALK; Dark Messiah's +zoom sets it (docs/wire.md, "The player's input").</summary>
     Walk = 1 << 18,
     Zoom = 1 << 19,
     Weapon1 = 1 << 20,
     Weapon2 = 1 << 21,
+    /// <summary>The SDK's IN_BULLRUSH; Dark Messiah's +speed sets it.</summary>
     BullRush = 1 << 22,
     Grenade1 = 1 << 23,
     Grenade2 = 1 << 24,

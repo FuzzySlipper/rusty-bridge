@@ -42,6 +42,8 @@ public sealed class WireSnapshot
     public WireClientView ClientView = WireClientView.None;
     /// <summary>v12: the player's input this tick.</summary>
     public WirePlayerInput Input = WirePlayerInput.None;
+    /// <summary>v15: the player's stats and equipment.</summary>
+    public WirePlayerStats Stats = WirePlayerStats.None;
 }
 
 /// <summary>
@@ -125,6 +127,7 @@ public sealed unsafe class WireReader : IDisposable
         new ReadOnlySpan<WireSlowTime>(slot + WireLayout.SlowTimeOffset, slow).CopyTo(snapshot.SlowTime);
         snapshot.ClientView = *(WireClientView*)(slot + WireLayout.ClientViewOffset);
         snapshot.Input = *(WirePlayerInput*)(slot + WireLayout.InputOffset);
+        snapshot.Stats = *(WirePlayerStats*)(slot + WireLayout.StatsOffset);
         snapshot.WallSeconds = header->WallSeconds;
         snapshot.Player = header->Player;
 

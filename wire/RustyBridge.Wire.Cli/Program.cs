@@ -131,6 +131,16 @@ int Dump()
     if (snap.Input.Valid != 0)
         Console.WriteLine($"  input: held {snap.Input.Buttons}, pressed {snap.Input.Pressed}, released {snap.Input.Released} (0x{(uint)snap.Input.Buttons:X}); " +
             FormattableString.Invariant($"{snap.Input.Commands} commands, move {snap.Input.ForwardMove:0}/{snap.Input.SideMove:0}, buttons {snap.Input.CommandButtons}, actions {snap.Input.Actions}"));
+    if (snap.Stats.Valid != 0)
+    {
+        var st = snap.Stats;
+        var entities = snap.Span.ToArray();
+        string Item(ushort index) => index == WireLayout.NoEntity ? "none"
+            : $"#{index} {(entities.FirstOrDefault(e => e.Index == index) is { Index: var i } e && i == index ? reader.ClassName(snap, e.ClassId) : "?")}";
+        Console.WriteLine(FormattableString.Invariant($"  stats: stamina {st.Stamina:0.00}/{st.MaxStamina:0.##}, mana {st.Mana:0.0}/{st.MaxMana:0.#}, skill points {st.SkillPoints}; ") +
+            $"weapon {Item(st.Weapon)}, shield {Item(st.Shield)}, helmet {Item(st.Helmet)}, ring {Item(st.Ring)}, armor {Item(st.Armor)}");
+        Console.WriteLine($"  modules: {string.Join(", ", SkillModuleNames.Of(st.Modules).DefaultIfEmpty("none"))}");
+    }
     if (snap.ClientView.Flags != ClientViewFlags.None)
     {
         Console.WriteLine($"  client: {ClientView(snap.ClientView)}");
@@ -239,6 +249,14 @@ int Info(string path)
     float firstCurtime = 0, lastCurtime = 0;
     long inputFrames = 0;
     var presses = new Dictionary<InputButtons, int>();
+    // v14: each action bit's presses (going up in the commands) and ticks held. v15: the stats' ranges, modules and items.
+    var actionPresses = new int[32];
+    var actionTicks = new int[32];
+    PlayerActions lastActions = 0;
+    float staminaLow = float.NaN, staminaHigh = float.NaN, manaLow = float.NaN, manaHigh = float.NaN;
+    SkillModules modulesSeen = 0;
+    var itemsSeen = new SortedSet<string>(StringComparer.Ordinal);
+    long statsFrames = 0;
     foreach (var f in RecordingReader.Frames(stream))
     {
         if (f.Input.Valid != 0)
@@ -246,6 +264,29 @@ int Info(string path)
             inputFrames++;
             foreach (var bit in Enum.GetValues<InputButtons>())
                 if (bit != InputButtons.None && f.Input.Pressed.HasFlag(bit)) presses[bit] = presses.GetValueOrDefault(bit) + 1;
+            if (f.Input.Commands > 0)
+            {
+                for (int b = 0; b < 32; b++)
+                {
+                    bool on = ((uint)f.Input.Actions >> b & 1) != 0;
+                    if (on) actionTicks[b]++;
+                    if (on && ((uint)lastActions >> b & 1) == 0) actionPresses[b]++;
+                }
+                lastActions = f.Input.Actions;
+            }
+        }
+        if (f.Stats.Valid != 0)
+        {
+            statsFrames++;
+            var st = f.Stats;
+            staminaLow = float.IsNaN(staminaLow) ? st.Stamina : MathF.Min(staminaLow, st.Stamina);
+            staminaHigh = float.IsNaN(staminaHigh) ? st.Stamina : MathF.Max(staminaHigh, st.Stamina);
+            manaLow = float.IsNaN(manaLow) ? st.Mana : MathF.Min(manaLow, st.Mana);
+            manaHigh = float.IsNaN(manaHigh) ? st.Mana : MathF.Max(manaHigh, st.Mana);
+            modulesSeen |= st.Modules;
+            foreach (var (what, index) in new[] { ("weapon", st.Weapon), ("shield", st.Shield), ("helmet", st.Helmet), ("ring", st.Ring), ("armor", st.Armor) })
+                if (index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var item))
+                    itemsSeen.Add($"{what} {f.Classes.GetValueOrDefault(item.ClassId, "?")}");
         }
         slowDropped += f.SlowTimeDropped;
         foreach (var b in f.SlowTime)
@@ -318,6 +359,15 @@ int Info(string path)
     if (inputFrames > 0)
         Console.WriteLine($"input: {inputFrames} frames; presses " +
             (presses.Count == 0 ? "none" : string.Join(", ", presses.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))));
+    if (actionTicks.Any(t => t > 0))
+        Console.WriteLine("actions (v14; bit: presses/ticks held): " + string.Join(", ", Enumerable.Range(0, 32).Where(b => actionTicks[b] > 0)
+            .Select(b => $"{((PlayerActions)(1u << b) is var a && Enum.IsDefined(a) ? a.ToString() : $"+0x{0x95 + b:X2}")} {actionPresses[b]}/{actionTicks[b]}")));
+    if (statsFrames > 0)
+    {
+        Console.WriteLine(FormattableString.Invariant($"stats (v15): {statsFrames} frames; stamina {staminaLow:0.00}–{staminaHigh:0.00}, mana {manaLow:0.0}–{manaHigh:0.0}"));
+        Console.WriteLine($"  modules: {string.Join(", ", SkillModuleNames.Of(modulesSeen).DefaultIfEmpty("none"))}");
+        Console.WriteLine($"  items: {string.Join(", ", itemsSeen.DefaultIfEmpty("none"))}");
+    }
     if (links.Count > 0)
     {
         Console.WriteLine($"knockdown links: {links.Count}");

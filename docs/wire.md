@@ -1,4 +1,4 @@
-# Wire v14
+# Wire v15
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -29,11 +29,12 @@ Since v12 each tick carries the player's input: the button words the server
 ran its command with. Since v13 each damage record carries the victim's
 animation as the blow arrived, pose parameters included. Since v14 the
 player's input carries its user commands as the server received them: the
-movement, the buttons and Arkane's action bytes, the kick among them. A control file beside the Wire holds the donor
+movement, the buttons and Arkane's action bytes, the kick among them. Since v15 each tick carries the
+player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v14 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
+v2–v15 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -56,7 +57,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 194,680 | Ring of slots |
+| 590,080 | 128 × 194,760 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -77,6 +78,7 @@ at 72), then:
 - at 193,888, up to 16 slow-time records of 32 bytes
 - at 194,400, the 232-byte client view (80 bytes in v8)
 - at 194,632, the 48-byte player input (16 bytes in v12 and v13)
+- at 194,680, the 80-byte player stats (v15; below, "The player's stats")
 
 Entities:
 
@@ -672,7 +674,7 @@ themselves. One 48-byte record per slot (16 bytes in v12 and v13):
 | 12 | `released` u32 | `m_afButtonReleased` (+0x1FCC): bits that went up in it |
 | 16 | `forward_move`, `side_move`, `up_move` f32 | v14: the newest command's forwardmove (+0x18), sidemove (+0x1C), upmove (+0x24) |
 | 28 | `command_buttons` u32 | v14: the commands' `IN_*` buttons (+0x28), OR'd over the tick |
-| 32 | `actions` u32 | v14: bit *i* set when Arkane's action byte +0x95+*i* is set in any of the tick's commands; bit 0 (+0x95) is sprint, bit 2 (+0x97) the kick |
+| 32 | `actions` u32 | v14: bit *i* set when Arkane's action byte +0x95+*i* is set in any of the tick's commands (below, "The action bytes") |
 | 36 | `impulse` u8, 3 reserved | v14: the newest command's impulse (+0x2C) |
 | 40 | `command_number` i32, reserved u32 | v14: the newest command's number (+0x4) |
 
@@ -701,7 +703,67 @@ went in through the agent's desktop lease:
 - **F:** byte +0x97 set for as long as it was held, and nothing else.
 - **Sprint (+0x95), from the hand-played fights:** running ticks with it set have a median speed of 229 units/s, against
   195 for all running ticks, and the stamina it drains at 2 a second explains the kicks refused for stamina
-  (docs/lab.md, "Stamina"). The other action bytes aren't identified yet.
+  (docs/lab.md, "Stamina").
+
+**The action bytes (2026-10-19, `l01_a-v15-stats.rbrec` and `l01_a-v15-spells.rbrec`).** Each action
+`scripts/kb_act.lst` lists was bound to a spare key with `rbwire exec "bind ..."` and pressed through the desktop
+lease, with the time of each press logged beside the recording and lined up with it by the sprint:
+
+| Action | In the command |
+| --- | --- |
+| `+sprint` | byte +0x95 (bit 0), while held |
+| `+kick` | byte +0x97 (bit 2), while held |
+| `+xana` | byte +0x9A (bit 5), while held (41 ticks for a 0.6 s hold) |
+| `mm_previtem`, `mm_nextitem` | byte +0x9E (bit 9), one tick per press. Each session registered one of the two, whichever came first: one byte, likely signed by direction, which the Wire reduces to set or not |
+| `togglecharsheet` | opening the sheet set +0x9B (bit 6), then +0x9F (bit 10) a tick later; closing it +0x9D (bit 8). Bit 10 also came once near a spell click. Not named |
+| `+speed` | `IN_BULLRUSH` (bit 22) in the buttons, while held |
+| `+zoom` | `IN_WALK` (bit 18) in the buttons, while held |
+| `+leanleft`, `+leanright` | nothing in the command, standing or walking |
+| `usebelt1`–`usebelt9` | nothing in the command (the first put the weapon away, so the belt travels another way) |
+
+Bytes +0x96, +0x98, +0x99, +0x9C, +0xA0 and +0xA1 never set. `PlayerActions` names sprint, kick, xana and the item
+cycle; `InputButtons` notes the two buttons.
+
+## The player's stats
+
+v15 streams the player's stats and equipment each tick, for the lab's stamina, skills and builds (Den
+`rusty-bridge/dark-messiah-inventory`). One 80-byte record per slot, after the input, read from `CMM_Player` after
+the frame, only when edict 1 is a `player`, inside a fault guard:
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16, `valid` u8, reserved u8 | edict 1; 0xFFFF and 0 when not read |
+| 4 | `stamina`, `max_stamina` f32 | `m_fStamina` (+0x29C4), `m_fMaxStamina` (+0x29C0) |
+| 12 | `mana`, `max_mana` f32 | `m_fMana` (+0x29BC), `m_fMaxMana` (+0x29B0) |
+| 20 | `modules` u32 × 2 | the skill modules learned (+0x2AF0), bit *i* = module *i* (below) |
+| 28 | `skill_points` i32 | `m_iSkillPoints` (+0x2B3C) |
+| 32 | reserved i32 | 0 |
+| 36 | `weapon`, `shield`, `helmet`, `ring`, `armor` u16, reserved u16 | `m_hActiveWeapon` (+0x18F0), `m_hActiveShield` (+0x18F4), `m_hActiveHelmet` (+0x18F8), `m_hActiveRing` (+0x18FC), `m_hActiveArmor` (+0x2250): edict indices, 0xFFFF for none |
+| 48 | their serials u32 × 5, 3 reserved u32 | |
+
+**How the offsets were found (server.dll, image base 0x22000000).**
+- **The datadesc:** as for the buttons (above, "How the offsets were found"): `m_fStamina` (slot 0x227A14F8),
+  `m_fMaxStamina` (0x227A1594), `m_fMana` (0x227A1490), `m_iSkillPoints` (0x227A1664), the five `m_hActive*`
+  handles (from 0x227989C4).
+- **Send props:** `m_fMaxMana` +0x29B0 (`push 0x29b0; push "m_fMaxMana"` at +0x425CD6), beside `m_fDisplayMaxMana` +0x29B4.
+- **Which stamina:** a static table also names `m_fCurStamina` at +0x2974, but only code outside the player's (around
+  +0x2BEBAE) writes it; the player's code (+0x3F9A87 on) writes +0x29C4. The recordings bear it out (below).
+- **The skill modules:** `mm_player_skills_dump_modules` (+0x40D890) asks a has-module function (+0x3E5590) for each
+  name in a 37-entry table (0x2282BE80). That function finds the name's index *i* and tests bit *i* of two dwords at
+  the player's +0x2AF0. The table is copied at start-up from 0x2279DF38, with two entries swapped (`combat_big_slash`
+  and `combat_huge_slash` before `combat_chained_slash`); `SkillModules` and `SkillModuleNames` keep that order.
+- **Left out:** `m_CurSpell` (+0x3CB0, a static table's) never left 0, even with a spell weapon in hand, and other
+  classes write floats there. A spell is a weapon (`spell_fire_1`, `spell_air_3`...), so `weapon`'s class names it.
+
+**What the recordings showed:**
+- **Live, on a new game:** stamina 9/9, mana 20/20, and the modules exactly `mm_skills_infos.txt`'s combat level 0
+  (`combat_fatality`, `combat_parry`, `combat_big_slash`, `combat_huge_slash`), which confirms the bit order.
+- **Stamina:** a 3 s sprint and three kicks took it to 4.32. After `mm_player_skills_grosbill 1` (every module) its
+  maximum became 12, `player_stamina_double_sprint_max`.
+- **Mana:** it regenerates about 0.7 a second. The skills raised its maximum to 100 and the ring of mana to 110, as
+  the HUD showed. A spell cast wasn't staged: `give spell_fire_1` puts the spell in hand, but clicking it from the
+  console session didn't cast, which likely needs it on the belt (#10141). `give weapon_mmspell` crashes the game.
+- **Equipment:** the sword, shield, helmet, ring, two staffs and the two spells each showed in their slot as given.
 
 **How the offsets were found (2026-10-19, server.dll, image base 0x22000000).**
 These fields aren't networked, so no send table names them. `CBasePlayer`'s

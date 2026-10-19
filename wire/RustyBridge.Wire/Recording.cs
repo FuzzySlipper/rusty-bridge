@@ -8,12 +8,13 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 14;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+    public const uint Version = 15;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
                                         // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view;
                                         // v9: its camera and viewmodel animation; v10: 80-byte entities (parent, attachment, owner);
                                         // v11: 56-byte defense records (the NPC's defense state); v12: the player's input;
                                         // v13: 360-byte damage records (the victim's animation as the blow arrived);
-                                        // v14: 48-byte player input (the user commands, the kick among Arkane's action bytes)
+                                        // v14: 48-byte player input (the user commands, the kick among Arkane's action bytes);
+                                        // v15: the player's stats (stamina, mana, skill modules, equipment) after the input
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, < 10 => 64, _ => Marshal.SizeOf<WireEntity>() };
@@ -158,6 +159,8 @@ public sealed class Recorder : IDisposable
             w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WireClientView>(in snap.ClientView)));
             // v12: the player's input.
             w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WirePlayerInput>(in snap.Input)));
+            // v15: the player's stats.
+            w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WirePlayerStats>(in snap.Stats)));
         });
         FramesWritten++;
     }
@@ -219,6 +222,8 @@ public sealed class RecordedFrame
     public WireClientView ClientView = WireClientView.None;
     /// <summary>v12: the player's input as the server ran it this tick; <see cref="WirePlayerInput.None"/> in older recordings.</summary>
     public WirePlayerInput Input = WirePlayerInput.None;
+    /// <summary>v15: the player's stats and equipment; <see cref="WirePlayerStats.None"/> in older recordings.</summary>
+    public WirePlayerStats Stats = WirePlayerStats.None;
     public readonly Dictionary<ushort, string> Classes = new();
     public readonly Dictionary<int, string> Models = new();
     /// <summary>Sequence names by model index, in m_nSequence order.</summary>
@@ -334,6 +339,7 @@ public static class RecordingReader
                         state.ClientView = view;
                     }
                     state.Input = version >= 12 ? Widen<WirePlayerInput>(r.ReadBytes(RecordingFormat.InputBytes(version)), WirePlayerInput.None) : WirePlayerInput.None;
+                    state.Stats = version >= 15 ? MemoryMarshal.Read<WirePlayerStats>(r.ReadBytes(Marshal.SizeOf<WirePlayerStats>())) : WirePlayerStats.None;
                     yield return state;
                     break;
             }

@@ -695,6 +695,12 @@ static const int kMaxAdrenalineOffset = 0x29D4, kAdrenalineOffset = 0x29D8;
 // v12: CBasePlayer's button words, from its datadesc (built at start-up: each field's offset is the immediate
 // written after its name, docs/wire.md "The player's input").
 static const int kButtonsOffset = 0x1FB8, kButtonsPressedOffset = 0x1FC8, kButtonsReleasedOffset = 0x1FCC;
+// v15: CMM_Player's stats and equipment, from its datadesc (the same start-up table) and send props (docs/wire.md,
+// "The player's stats").
+static const int kStaminaOffset = 0x29C4, kMaxStaminaOffset = 0x29C0, kManaOffset = 0x29BC, kMaxManaOffset = 0x29B0;
+static const int kSkillModulesOffset = 0x2AF0, kSkillPointsOffset = 0x2B3C;
+static const int kActiveWeaponOffset = 0x18F0, kActiveShieldOffset = 0x18F4, kActiveHelmetOffset = 0x18F8;
+static const int kActiveRingOffset = 0x18FC, kActiveArmorOffset = 0x2250;
 
 static const char* ClassNameAt(uint16_t index) {
     if (index == wire::kNoEntity || !g_edicts) return nullptr;
@@ -823,6 +829,34 @@ static void WritePlayerInput(wire::PlayerInput* in) {
         in->valid = 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ++g_faults;
+    }
+}
+
+static void WritePlayerStats(wire::PlayerStats* st) {
+    memset(st, 0, sizeof *st);
+    st->player = st->weapon = st->shield = st->helmet = st->ring = st->armor = wire::kNoEntity;
+    const char* cls = ClassNameAt(1);
+    if (!cls || strcmp(cls, "player") != 0) return;
+    __try {
+        const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+        if (!p) return;
+        st->stamina = *(const float*)(p + kStaminaOffset);
+        st->max_stamina = *(const float*)(p + kMaxStaminaOffset);
+        st->mana = *(const float*)(p + kManaOffset);
+        st->max_mana = *(const float*)(p + kMaxManaOffset);
+        st->modules[0] = *(const uint32_t*)(p + kSkillModulesOffset);
+        st->modules[1] = *(const uint32_t*)(p + kSkillModulesOffset + 4);
+        st->skill_points = *(const int32_t*)(p + kSkillPointsOffset);
+        st->weapon = HandleTarget(*(const uint32_t*)(p + kActiveWeaponOffset), st->weapon_serial);
+        st->shield = HandleTarget(*(const uint32_t*)(p + kActiveShieldOffset), st->shield_serial);
+        st->helmet = HandleTarget(*(const uint32_t*)(p + kActiveHelmetOffset), st->helmet_serial);
+        st->ring = HandleTarget(*(const uint32_t*)(p + kActiveRingOffset), st->ring_serial);
+        st->armor = HandleTarget(*(const uint32_t*)(p + kActiveArmorOffset), st->armor_serial);
+        st->player = 1;
+        st->valid = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+        st->valid = 0;
     }
 }
 
@@ -1189,6 +1223,7 @@ static void WireWrite() {
     WritePlayerState(s);
     WriteClientView((wire::ClientView*)(slotBase + wire::kClientViewOffset));
     WritePlayerInput((wire::PlayerInput*)(slotBase + wire::kInputOffset));
+    WritePlayerStats((wire::PlayerStats*)(slotBase + wire::kStatsOffset));
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     s->wall_seconds = (double)(now.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;

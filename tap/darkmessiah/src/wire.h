@@ -1,4 +1,4 @@
-// Wire v11: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v15: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 14;
+const uint32_t kVersion = 15;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -303,8 +303,30 @@ struct PlayerInput {
     uint32_t reserved4;
 };
 
+// v15: the player's stats and equipment, read from CMM_Player after the frame
+// (docs/wire.md, "The player's stats"). Offsets from its datadesc and send props.
+struct PlayerStats {
+    uint16_t player;            // edict index the fields are read from; kNoEntity if none
+    uint8_t valid;              // 1 when read
+    uint8_t reserved;
+    float stamina;              // m_fStamina (+0x29C4)
+    float max_stamina;          // m_fMaxStamina (+0x29C0)
+    float mana;                 // m_fMana (+0x29BC)
+    float max_mana;             // m_fMaxMana (+0x29B0)
+    uint32_t modules[2];        // the skill modules learned (+0x2AF0), bit i = module i of the game's table
+    int32_t skill_points;       // m_iSkillPoints (+0x2B3C)
+    int32_t reserved_spell;     // 0: m_CurSpell (+0x3CB0) never showed the spell in hand; its weapon's class does
+    uint16_t weapon, shield, helmet, ring, armor;   // m_hActiveWeapon (+0x18F0), m_hActiveShield (+0x18F4),
+                                                    //   m_hActiveHelmet (+0x18F8), m_hActiveRing (+0x18FC),
+                                                    //   m_hActiveArmor (+0x2250): edict index, kNoEntity if none
+    uint16_t reserved2;
+    uint32_t weapon_serial, shield_serial, helmet_serial, ring_serial, armor_serial;
+    uint32_t reserved3[3];
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(PlayerStats) == 80, "PlayerStats layout");
 static_assert(sizeof(PlayerInput) == 48, "PlayerInput layout");
 static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
 static_assert(sizeof(ClientView) == 232, "ClientView layout");
@@ -325,7 +347,8 @@ const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
 const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
 const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
 const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
-const uint32_t kSlotBytes = kInputOffset + sizeof(PlayerInput);
+const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15
+const uint32_t kSlotBytes = kStatsOffset + sizeof(PlayerStats);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 // The control file, rustybridge.control beside the Wire: a reader holds the

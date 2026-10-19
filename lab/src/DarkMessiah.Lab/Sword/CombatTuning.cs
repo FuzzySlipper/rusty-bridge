@@ -14,8 +14,9 @@ namespace DarkMessiah.Lab.Sword;
 /// <param name="KickWindow">The kick's contact cycles: its clip has no hit events; recorded kicks land at cycle 0.38–0.41.</param>
 /// <param name="KickRange">How far in front of the eye, metres, a kick reaches an orc.</param>
 /// <param name="KickPush">How far a kick pushes the orc back, metres.</param>
+/// <param name="Phases">Each move's windup, active and recovery timing against the donor's clip (1 plays it as the donor does).</param>
 internal sealed record CombatTuning(float PlayerHealth, float PowerHoldSeconds, float AttackMovementScale, float[] KickWindow,
-    float KickRange, float KickPush, OrcTuning Orc)
+    float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc)
 {
     internal const string Path = "combat.json";
 
@@ -30,6 +31,12 @@ internal sealed record CombatTuning(float PlayerHealth, float PowerHoldSeconds, 
             Path, "kickWindow", "must be two cycles, the first below the second, within [0, 1].");
         Authored.Positive(Path, "kickRange", t.KickRange);
         Authored.AtLeast(Path, "kickPush", t.KickPush, 0);
+        foreach (var (name, p) in new[] { ("fast", t.Phases.Fast), ("power", t.Phases.Power), ("kick", t.Phases.Kick) })
+        {
+            Authored.Positive(Path, $"phases.{name}.windup", p.Windup);
+            Authored.Positive(Path, $"phases.{name}.active", p.Active);
+            Authored.Positive(Path, $"phases.{name}.recovery", p.Recovery);
+        }
         OrcTuning o = t.Orc;
         Authored.Positive(Path, "orc.health", o.Health);
         Authored.Require(o.Spawn.Length == 3, Path, "orc.spawn", "must be [x, y, z].");
@@ -41,6 +48,19 @@ internal sealed record CombatTuning(float PlayerHealth, float PowerHoldSeconds, 
         return t;
     }
 }
+
+/// <summary>
+/// One move's timing against its donor clip, as multipliers of how long each phase plays: the windup before its hit
+/// window opens (Arkane's 2186 event, or the kick's window), the active, committed part while the blade is traced,
+/// and the recovery after the window closes (2190) to the clip's end. 1 is the donor's own timing.
+/// </summary>
+internal sealed record MovePhases(float Windup, float Active, float Recovery)
+{
+    internal static readonly MovePhases Donor = new(1, 1, 1);
+}
+
+/// <summary>The phase timing of the player's three traced moves.</summary>
+internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases Kick);
 
 /// <param name="EngageDistance">The orc walks toward the player until this close, metres, then fights.</param>
 /// <param name="ParryChance">How often the orc parries a swing it sees coming, when it isn't attacking.</param>

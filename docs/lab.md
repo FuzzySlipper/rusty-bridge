@@ -60,6 +60,9 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
 | Whether an orc's blow reaches the player | the donor's reach test (`CombatModel.Reach`, docs/combat.md "Reach"): a 1.5-unit sweep for the part's `range` (60 to 120), meeting the player's ±16 box |
 
 **The lab's own numbers**, in `content/combat.json`, which reloads live and is tunable:
+- each move's phase timing (`phases`): the fast attack's, power attack's and kick's windup (before the hit window),
+  active part (the window, the blade traced) and recovery (after it), as multiples of the donor clip's own time.
+  All are 1 by default, so the moves play as Arkane timed them. The Sword tunables page has a slider for each;
 - the power-hold threshold;
 - movement while attacking;
 - the kick's window, range and push;
@@ -84,6 +87,19 @@ the layer with the highest order. Those kicks start when the power attack is
 at about cycle 0.45, after its hit window has closed. That is why the lab's
 kick may cut off a swing then.
 
+**Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast and power
+attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
+recorded move and hit group).
+- **Fast attacks:** 50 of 51 agree.
+- **Power attacks:** 26 of 27.
+- **Kicks:** 45 of 45.
+- **The two differences:**
+  - a critical (×2), which the lab doesn't roll;
+  - a blow in a recording before Wire v11 asking twice the lab's, most likely a critical. Neither the critical byte
+    nor the orc's alert level is on the Wire before v11.
+- **Kick push calls:** a kick that pushes also makes a zero-damage, untraced call for the push, which isn't a blow and
+  isn't counted.
+
 The smoke also checks, on the real product headless:
 - **The data:** the sword's range and both weapons' attack speeds; the windows come from the events.
 - **The orc's side:** it walks in and its blows reach the player.
@@ -93,6 +109,11 @@ The smoke also checks, on the real product headless:
   - a parrying orc turns the blade;
   - a kick asks `kick_damage` and pushes the orc.
 - **The player's guard:** it meets the orc's blows, which it parries, or breaks against.
+- **Input between steps:** a tap whose press and release both arrive on updates that admit no simulation step, or in
+  one batch, is still one fast attack. The product keeps an attack or block press until a step has seen it. A hold
+  is still a power attack.
+- **Phase timing:** windup ×2 opens the fast attack's window twice as late, recovery ×3 lengthens its end, and the
+  retuned clips reach the fight through `LabCombat.Retune`.
 
 ## Replay
 
@@ -188,7 +209,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;
   - `lab.dev.view x y z yaw pitch` stands at a viewpoint;
   - `lab.time`, `.rate`, `.hold`, `.run` and `.step` control world time.
-- **Tunables:** Body and View (`player.json`), Sword and Orc (`combat.json`), and World time.
+- **Tunables:** Body and View (`player.json`), Sword (with each move's windup, active and recovery) and Orc (`combat.json`), and World time.
 - **Inspection targets:** `eye`, `reach`, `orc`, `last-blow` and `spawn`.
 - **The `lab.combat` overlay set:** each traced step of recent swings (green struck, blue parried or blocked, grey nothing), and the orc's reach.
 - **The developer shell (F3):** shows the overlay while open.

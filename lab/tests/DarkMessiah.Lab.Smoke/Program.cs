@@ -20,7 +20,8 @@ void Check(bool condition, string message)
 }
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
-var tuning = new CombatTuning(80, .25f, .5f, [.36f, .42f], 1.4f, 1.5f, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
+var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
+var tuning = new CombatTuning(80, .25f, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 var clips = new SwordClips(M("idle", 2, true), M("in", .5f), M("hold", 1, true), M("fast", .3f, open: .33f, close: .78f), M("power", 1, open: .125f, close: .22f),
     M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("bounce", .4f), M("broken", .8f));
@@ -45,6 +46,25 @@ Check(sword.Move == SwordMove.ParryOut, "releasing block lowers the guard");
 for (int i = 0; i < 20; i++) sword.Step(Tick, false, false, false);
 sword.Step(Tick, false, false, true);
 Check(sword.Move == SwordMove.Kick && sword.SwingStarted, "F kicks");
+
+// Phase timing (review R10121-1): a fast attack's windup, active and recovery each scale its time; donor timing is ×1.
+float[] FastTiming(MovePhases p)
+{
+    var s = new PlayerSword(clips with { Fast = clips.Fast with { Phases = p } }, tuning);
+    for (int i = 0; i < 3; i++) s.Step(Tick, true, false, false);
+    s.Step(Tick, false, false, false);
+    float t = 0, open = float.NaN, close = float.NaN;
+    while (s.Move == SwordMove.Fast && t < 5) { s.Step(Tick, false, false, false); t += Tick; if (s.Traced && float.IsNaN(open)) open = t; if (s.Traced) close = t; }
+    return [open, close, t];
+}
+var donorFast = FastTiming(MovePhases.Donor);
+var slowWindup = FastTiming(new MovePhases(2, 1, 1));
+var longRecovery = FastTiming(new MovePhases(1, 1, 3));
+Check(MathF.Abs(donorFast[2] - .3f) < 2 * Tick, FormattableString.Invariant($"at ×1 the fast attack plays as the donor's clip: {donorFast[2]:0.00} s"));
+Check(MathF.Abs(slowWindup[0] - 2 * donorFast[0]) < 2 * Tick && MathF.Abs((slowWindup[1] - slowWindup[0]) - (donorFast[1] - donorFast[0])) < 2 * Tick,
+    FormattableString.Invariant($"windup ×2 opens the window later ({donorFast[0]:0.000} → {slowWindup[0]:0.000} s), the active part unchanged"));
+Check(MathF.Abs(longRecovery[2] - longRecovery[1] - 3 * (donorFast[2] - donorFast[1])) < 3 * Tick && MathF.Abs(longRecovery[0] - donorFast[0]) < Tick,
+    FormattableString.Invariant($"recovery ×3 lengthens the end ({donorFast[2]:0.00} → {longRecovery[2]:0.00} s), the windup unchanged"));
 
 string? repo = null;
 for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
@@ -75,12 +95,44 @@ host.Call(engine =>
     }
     var combat = product.Combat;
     var orc = combat.Orc;
+
+    // Input across updates (review R10121-3): a tap whose press and release both arrive on updates that admit no
+    // step is still one fast attack; a hold is still a power attack.
+    void Feed(uint steps, params ProductInputEvent[] input)
+    {
+        product.Update(new ProductUpdate(new ProductUpdateFacts(ProductLifecycleState.Running, 1, 1, 0, step, 60, steps, 0, Tick), input));
+        step += steps;
+    }
+    static ProductInputEvent Primary(InputEdge edge) => default(ProductInputEvent) with { Kind = InputEventKind.PointerButton, PointerButton = PointerButton.Primary, Edge = edge };
+    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000 } });
+    combat.Orc.PlaceAt(new System.Numerics.Vector3(0, -50, 0));
+    Feed(30);
+    int swingsBefore = combat.Player.Swings;
+    Feed(0, Primary(InputEdge.Pressed));
+    Feed(0, Primary(InputEdge.Released));
+    var moves = new List<SwordMove>();
+    for (int i = 0; i < 40; i++) { Feed(1); moves.Add(combat.Sword.Move); }
+    Check(combat.Player.Swings == swingsBefore + 1 && moves.Contains(SwordMove.Fast) && !moves.Contains(SwordMove.Power),
+        $"a tap between steps is one fast attack: {combat.Player.Swings - swingsBefore} swing, {string.Join(",", moves.Distinct())}");
+    Feed(0, Primary(InputEdge.Pressed), Primary(InputEdge.Released));
+    moves.Clear();
+    for (int i = 0; i < 40; i++) { Feed(1); moves.Add(combat.Sword.Move); }
+    Check(combat.Player.Swings == swingsBefore + 2 && moves.Contains(SwordMove.Fast), "a press and release in one batch is one fast attack too");
+    Feed(1, Primary(InputEdge.Pressed));
+    for (int i = 0; i < 30; i++) Feed(1);
+    Feed(1, Primary(InputEdge.Released));
+    moves.Clear();
+    for (int i = 0; i < 5; i++) { Feed(1); moves.Add(combat.Sword.Move); }
+    Check(moves.Contains(SwordMove.Power), "a hold past the power threshold is still a power attack");
+    for (int i = 0; i < 90; i++) Feed(1);
+    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1 } });
+    combat.Orc.Spawn();
     Console.WriteLine($"donor content: {product.Donor.Source}");
     Check(combat.FirstPerson.Range > 2.4f && combat.FirstPerson.Range < 2.6f, FormattableString.Invariant($"the short sword's range is its rangeattack, 100 units: {combat.FirstPerson.Range:0.00} m"));
     Check(MathF.Abs(combat.FirstPerson.AttackSpeed - 1.1f) < 1e-3f && MathF.Abs(orc.AttackSpeed - .8f) < 1e-3f,
         "attack clips play at the weapons' speed_attack: the short sword 1.10, the cleaver 0.80");
     var fast = combat.Sword.Clip;
-    var real = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning.KickWindow);
+    var real = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
@@ -166,6 +218,19 @@ host.Call(engine =>
     foreach (var move in calibration.Where(m => float.IsFinite(m.DonorCyclesPerSecond)))
         Check(MathF.Abs(move.LabCyclesPerSecond / move.DonorCyclesPerSecond - 1) < .15f,
             FormattableString.Invariant($"{move.Clip}: the lab plays it at the donor's rate ({move.LabCyclesPerSecond:0.00} against {move.DonorCyclesPerSecond:0.00} cycles/s)"));
+
+    // Damage (review R10121-2): every recorded player blow on an orc, asked again through the lab's own path.
+    var damage = DamageCalibration.Measure(found, combat, real);
+    foreach (var byMove in damage.GroupBy(d => d.Move))
+        Console.WriteLine($"  damage {byMove.Key}: {byMove.Count(d => d.Agrees)} of {byMove.Count()} recorded blows ask what the lab asks");
+    foreach (var d in damage.Where(d => !d.Agrees)) Console.WriteLine($"    {d}");
+    Check(damage.Count >= 20 && damage.Count(d => d.Agrees) >= damage.Count * 8 / 10 && damage.All(d => d.Agrees || d.Reason != "unexplained"),
+        $"the lab's damage matches recorded blows ({damage.Count(d => d.Agrees)} of {damage.Count}), and every difference has a known reason");
+    // Phase timing reaches the fight through its owner: a retuned windup lengthens the fast attack's play.
+    var slower = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed,
+        combat.Tuning with { Phases = combat.Tuning.Phases with { Fast = new MovePhases(2, 1, 1) } });
+    Check(slower.Fast.Duration > real.Fast.Duration && MathF.Abs(slower.Fast.Duration - real.Fast.Duration - real.Fast.Open * real.Fast.Seconds) < 1e-4f,
+        FormattableString.Invariant($"a retuned fast windup ×2 plays {real.Fast.Duration:0.000} → {slower.Fast.Duration:0.000} s"));
 
     // Replay: recordings of Wire v12 and later carry the player's input; it drives the lab's sword against the
     // donor orc the player faced, and the report compares both sides' moves and blows.

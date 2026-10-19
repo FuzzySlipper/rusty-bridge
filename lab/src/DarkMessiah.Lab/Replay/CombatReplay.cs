@@ -85,13 +85,13 @@ internal static class CombatReplay
     /// <summary>Reads <paramref name="path"/> for replay with the lab's move clips, and replays it.</summary>
     internal static ReplayReport Run(LabCombat combat, string path)
     {
-        var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning.KickWindow);
+        var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
         return Run(combat, InputTimeline.Read(path, [clips.Fast.Clip, clips.Power.Clip, clips.Kick.Clip], clips.Kick.Clip));
     }
 
     internal static ReplayReport Run(LabCombat combat, InputTimeline timeline)
     {
-        var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning.KickWindow);
+        var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
         string[] moves = [clips.Fast.Clip, clips.Power.Clip, clips.Kick.Clip];
         var log = new List<CombatEvent>();
         var labSwings = new List<DonorSwing>();

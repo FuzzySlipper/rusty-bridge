@@ -48,6 +48,16 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
         ("move", "Move while busy", 0, 1, .05f, "/attackMovementScale", t => t.AttackMovementScale, (t, v) => t with { AttackMovementScale = v }),
         ("kick-range", "Kick range m", .3f, 3, .05f, "/kickRange", t => t.KickRange, (t, v) => t with { KickRange = v }),
         ("kick-push", "Kick push m", 0, 4, .1f, "/kickPush", t => t.KickPush, (t, v) => t with { KickPush = v }),
+        // Each move's windup, active (committed) and recovery phases, as multiples of the donor clip's own timing.
+        ("fast-windup", "Fast windup ×", .25f, 4, .05f, "/phases/fast/windup", t => t.Phases.Fast.Windup, (t, v) => t with { Phases = t.Phases with { Fast = t.Phases.Fast with { Windup = v } } }),
+        ("fast-active", "Fast active ×", .25f, 4, .05f, "/phases/fast/active", t => t.Phases.Fast.Active, (t, v) => t with { Phases = t.Phases with { Fast = t.Phases.Fast with { Active = v } } }),
+        ("fast-recovery", "Fast recovery ×", .25f, 4, .05f, "/phases/fast/recovery", t => t.Phases.Fast.Recovery, (t, v) => t with { Phases = t.Phases with { Fast = t.Phases.Fast with { Recovery = v } } }),
+        ("power-windup", "Power windup ×", .25f, 4, .05f, "/phases/power/windup", t => t.Phases.Power.Windup, (t, v) => t with { Phases = t.Phases with { Power = t.Phases.Power with { Windup = v } } }),
+        ("power-active", "Power active ×", .25f, 4, .05f, "/phases/power/active", t => t.Phases.Power.Active, (t, v) => t with { Phases = t.Phases with { Power = t.Phases.Power with { Active = v } } }),
+        ("power-recovery", "Power recovery ×", .25f, 4, .05f, "/phases/power/recovery", t => t.Phases.Power.Recovery, (t, v) => t with { Phases = t.Phases with { Power = t.Phases.Power with { Recovery = v } } }),
+        ("kick-windup", "Kick windup ×", .25f, 4, .05f, "/phases/kick/windup", t => t.Phases.Kick.Windup, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Windup = v } } }),
+        ("kick-active", "Kick active ×", .25f, 4, .05f, "/phases/kick/active", t => t.Phases.Kick.Active, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Active = v } } }),
+        ("kick-recovery", "Kick recovery ×", .25f, 4, .05f, "/phases/kick/recovery", t => t.Phases.Kick.Recovery, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Recovery = v } } }),
         ("health", "Player health", 1, 400, 1, "/playerHealth", t => t.PlayerHealth, (t, v) => t with { PlayerHealth = v }),
     ];
 

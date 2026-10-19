@@ -44,6 +44,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
     private bool usePending;
     private bool throwPending;
     private bool kickPending;
+    // A press of attack or block not yet seen by a step: a tap whose press and release both fall between steps
+    // (an update with no admitted step, or both edges in one batch) still reaches the sword as one held step.
+    private bool attackPending, blockPending;
 
     public LabProduct(ProductCreateContext context)
     {
@@ -102,6 +105,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
             // Holding a cube, primary throws it; otherwise the sword reads the buttons as held, every step.
             throwPending |= cubes.Held is not null && physical.Pressed(PointerButton.Primary);
             kickPending |= physical.Pressed(KeyboardControl.KeyF);
+            attackPending |= cubes.Held is null && (physical.Pressed(PointerButton.Primary) || physical.Pressed(ControllerButton.Button7));
+            blockPending |= physical.Pressed(PointerButton.Secondary) || physical.Pressed(ControllerButton.Button6);
             if (physical.Pressed(KeyboardControl.KeyG)) combat.God = !combat.God;
             if (physical.Pressed(KeyboardControl.KeyP)) time.Toggle();
             if (physical.Pressed(KeyboardControl.KeyO)) time.Step(WorldTime.StepSeconds);
@@ -120,8 +125,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
             if (usePending) cubes.Use();
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
-            combat.Step(delta, scene.SimulationStep, attackHeld, blockHeld, kickPending, player.Eye, player.Forward, player.Feet);
-            kickPending = false;
+            combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickPending, player.Eye, player.Forward, player.Feet);
+            kickPending = attackPending = blockPending = false;
             scene.Step(delta, cubes.PrepareStep());
         }
         // Facts identify the first admitted step; the published state is at the end boundary.
@@ -301,7 +306,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
         player.Place(feet + Vector3.UnitY * (player.Tuning.Height / 2 + player.Config.Shape.ContactSkin), scene.Definition.SpawnYawDegrees);
     }
 
-    private void ClearPending() => jumpPending = usePending = throwPending = kickPending = false;
+    private void ClearPending() => jumpPending = usePending = throwPending = kickPending = attackPending = blockPending = false;
 
     /// <summary>The orc as the player's body meets it: a standing box around its feet, so the body can't walk through it.</summary>
     private CharacterObstacle OrcObstacle()

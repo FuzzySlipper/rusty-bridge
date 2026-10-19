@@ -66,12 +66,14 @@ internal sealed class LabCombat : IDisposable
         sweep = new HitSweep(engine, session);
         model = new CombatModel(donor.Combat);
         FirstPerson = new FirstPerson(engine, donor);
-        Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning.KickWindow), tuning);
+        Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning), tuning);
         Orc = new Orc(engine, donor, tuning.Orc);
         PlayerHealth = tuning.PlayerHealth;
     }
 
     internal CombatTuning Tuning { get; private set; }
+    /// <summary>The combat model the fight decides with, read from the imported .qct files and settings.</summary>
+    internal CombatModel Model => model;
     internal PlayerSword Sword { get; }
     internal FirstPerson FirstPerson { get; }
     internal Orc Orc { get; }
@@ -91,7 +93,7 @@ internal sealed class LabCombat : IDisposable
     internal void Retune(CombatTuning next)
     {
         Tuning = next;
-        Sword.Retune(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, next.KickWindow), next);
+        Sword.Retune(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, next), next);
         Orc.Retune(next.Orc);
     }
 
@@ -145,8 +147,7 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         int? group = struck == Struck.Body ? targets[0].Model.Hitboxes[c.Hitbox].Group : null;
-        float asked = model.Damage(new DamageCase((int)tick, orc, player, "weapon_arx_short_sword", group, 0x4, 0, 0, Orc.Health, Orc.Health, false,
-            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3)) ?? 0;
+        float asked = PlayerAsks(player, orc, group, kick: false, Orc.Health);
         Orc.Damage(asked);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
@@ -167,7 +168,7 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
-        float asked = model.Damage(new DamageCase((int)tick, Orc.Party(), player, "-", null, 0x40000, 0x20, 0, Orc.Health, Orc.Health, false, VictimAlert: 3)) ?? 0;
+        float asked = PlayerAsks(player, Orc.Party(), null, kick: true, Orc.Health);
         Orc.Damage(asked);
         Orc.Push(flat, Tuning.KickPush);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
@@ -175,6 +176,16 @@ internal sealed class LabCombat : IDisposable
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
         Message = "Kick";
     }
+
+    /// <summary>
+    /// What the player's blow asks, as the lab asks it: the short sword's swing by the move's clip, or a kick, on a
+    /// victim it takes as alert (its orc always is) and without a critical (the lab rolls none). The damage
+    /// calibration asks the same of recorded blows.
+    /// </summary>
+    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth) => (kick
+        ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false, VictimAlert: 3))
+        : model.Damage(new DamageCase(0, victim, player, "weapon_arx_short_sword", group, 0x4, 0, 0, victimHealth, victimHealth, false,
+            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3))) ?? 0;
 
     void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet)
     {

@@ -9,9 +9,31 @@ internal enum SwordMove { Ready, Charge, Fast, Power, Parry, ParryOut, Kick, Bou
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
 /// cycles its blade is traced between (Arkane's 2186 and 2190 events; NaN when it has none).
 /// </summary>
-internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Open, float Close)
+/// <param name="Phases">How long each phase plays against the clip's own timing: before the hit window (windup), in it
+/// (the active, committed part) and after it (recovery). Null plays the clip as the donor does.</param>
+internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Open, float Close, MovePhases? Phases = null)
 {
     internal bool Traced => float.IsFinite(Open) && float.IsFinite(Close);
+
+    /// <summary>How long one play takes, its phases scaled.</summary>
+    internal float Duration => !Traced || Phases is null ? Seconds
+        : Seconds * (Open * Phases.Windup + (Close - Open) * Phases.Active + (1 - Close) * Phases.Recovery);
+
+    /// <summary>The cycle <paramref name="seconds"/> after <paramref name="cycle"/>, each phase played at its own scale.</summary>
+    internal float Advance(float cycle, float seconds)
+    {
+        if (Seconds <= 0) return cycle + 1;
+        if (!Traced || Phases is null) return cycle + seconds / Seconds;
+        while (seconds > 0)
+        {
+            var (end, scale) = cycle < Open ? (Open, Phases.Windup) : cycle < Close ? (Close, Phases.Active) : (float.PositiveInfinity, Phases.Recovery);
+            float need = (end - cycle) * Seconds * scale;
+            if (seconds < need) return cycle + seconds / (Seconds * scale);
+            cycle = end;
+            seconds -= need;
+        }
+        return cycle;
+    }
 
     /// <summary>A clip's timing as dm-import recorded it, played at <paramref name="rate"/>, with its first hit window.</summary>
     internal static MoveClip Of(ModelClip clip, float rate = 1, bool loop = false) =>
@@ -26,16 +48,16 @@ internal sealed record SwordClips(MoveClip Idle, MoveClip ChargeIn, MoveClip Cha
 
     /// <summary>
     /// The clips from the first-person model, attacks at the sword's <c>speed_attack</c> (1.10 for the short sword),
-    /// and the kick's contact window from the tuning (its clip has no hit events).
+    /// the kick's contact window from the tuning (its clip has no hit events), and each move's phase timing from it.
     /// </summary>
-    internal static SwordClips From(ModelInfo model, float attackSpeed, float[] kickWindow)
+    internal static SwordClips From(ModelInfo model, float attackSpeed, CombatTuning tuning)
     {
         MoveClip C(string name, float rate = 1, bool loop = false) => MoveClip.Of(model.Clips[name], rate, loop);
         return new SwordClips(C("layer_sword_noshield_idle", loop: true), C("layer_bigslash_sword_noshield_in", attackSpeed),
-            C("layer_bigslash_sword_noshield_idle", loop: true), C("layer_fastattack_sword_noshield_A", attackSpeed),
-            C("layer_bigslash_sword_noshield_out", attackSpeed), C("layer_parry_sword_noshield_in"),
+            C("layer_bigslash_sword_noshield_idle", loop: true), C("layer_fastattack_sword_noshield_A", attackSpeed) with { Phases = tuning.Phases.Fast },
+            C("layer_bigslash_sword_noshield_out", attackSpeed) with { Phases = tuning.Phases.Power }, C("layer_parry_sword_noshield_in"),
             C("layer_parry_sword_noshield_idle", loop: true), C("layer_parry_sword_noshield_out"),
-            C("layer_sword_noshield_kick_medium") with { Open = kickWindow[0], Close = kickWindow[1] },
+            C("layer_sword_noshield_kick_medium") with { Open = tuning.KickWindow[0], Close = tuning.KickWindow[1], Phases = tuning.Phases.Kick },
             C("layer_bounce_sword_noshield"), C("layer_state_sword_parry_breaked"));
     }
 }
@@ -79,7 +101,7 @@ internal sealed class PlayerSword(SwordClips clips, CombatTuning tuning)
     internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickPressed)
     {
         SwingStarted = false;
-        Cycle += Clip.Seconds > 0 ? seconds / Clip.Seconds : 1;
+        Cycle = Clip.Advance(Cycle, seconds);
         bool done = !Clip.Loop && Cycle >= 1;
         if (Clip.Loop && Cycle >= 1) Cycle -= MathF.Floor(Cycle);
         switch (Move)

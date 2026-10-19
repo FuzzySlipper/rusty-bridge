@@ -131,7 +131,7 @@ reports where the outcomes agree. NAME is a path, or a file in
 - **Kicks:** from v14, a kick request (the command's kick action going down) presses the lab's kick. The lab's sword
   can refuse it, as the donor can, so the report counts requests and which side began a kick on each. Before v14
   the request isn't on the Wire, and a kick starts when the donor's kick clip starts on the view model.
-- **The body (v14):** the recorded movement, view, jump and use drive the lab's own player body
+- **The body (v14):** the recorded movement, view, jump (pressed and held), duck (held) and use drive the lab's own player body
   (`IReplayBody`, `LabProduct`), through the same step it takes in play, in the lab's arena. The donor's level isn't
   the lab's, so its position isn't compared, only how it moves: mean speed over the ticks with movement input, and
   jumps. The fight still uses the donor's recorded eye and feet, so its encounter stays the donor's.

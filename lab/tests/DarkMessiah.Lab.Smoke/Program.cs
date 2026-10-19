@@ -232,6 +232,22 @@ host.Call(engine =>
         Check(MathF.Abs(move.LabCyclesPerSecond / move.DonorCyclesPerSecond - 1) < .15f,
             FormattableString.Invariant($"{move.Clip}: the lab plays it at the donor's rate ({move.LabCyclesPerSecond:0.00} against {move.DonorCyclesPerSecond:0.00} cycles/s)"));
 
+    // The replay body carries held jump and crouch, not only presses (review R10122-4).
+    {
+        IReplayBody replayBody = product;
+        replayBody.Begin();
+        for (int i = 0; i < 20; i++) replayBody.Step(default, product.Player.Forward, false, false, false, false, Tick);
+        var stances = new List<CharacterStance>();
+        for (int i = 0; i < 40; i++) { replayBody.Step(default, product.Player.Forward, false, false, true, false, Tick); stances.Add(product.Player.Motion.Stance); }
+        for (int i = 0; i < 40; i++) replayBody.Step(default, product.Player.Forward, false, false, false, false, Tick);
+        Check(stances.Skip(10).All(s => s == CharacterStance.Crouched) && product.Player.Motion.Stance != CharacterStance.Crouched,
+            "a recorded duck held crouches the lab's body until it's released");
+        var held = new List<bool>();
+        for (int i = 0; i < 12; i++) { replayBody.Step(default, product.Player.Forward, i == 0, true, false, false, Tick); held.Add(product.LastReplayInput.JumpHeld); }
+        Check(held.All(h => h) && product.LastReplayInput.JumpPressed == false, "a recorded jump held stays held on every tick it is, pressed only on the first");
+        replayBody.End();
+    }
+
     // Damage (review R10121-2): every recorded player blow on an orc, asked again through the lab's own path.
     var damage = DamageCalibration.Measure(found, combat, real);
     foreach (var byMove in damage.GroupBy(d => d.Move))
@@ -264,8 +280,9 @@ host.Call(engine =>
         if (Path.GetFileName(path) == "l01_a-v12-arena-bot.rbrec")
         {
             var timeline = InputTimeline.Read(path, [real.Fast.Clip, real.Power.Clip, real.Kick.Clip], real.Kick.Clip);
+            // Event-specific (review R10122-5): the 9-damage power attack at 16618 is compared, or excluded by name.
             bool counted = report.PlayerBlows.Matches.Any(m => m.Donor?.Tick == 16618)
-                || report.NotCompared.Any(n => n.Contains("player blows on npc_orc_sword", StringComparison.Ordinal));
+                || report.Excluded?.Any(e => e.Tick == 16618 && e.ByPlayer && e.Class == "npc_orc_sword") == true;
             Check(CombatReplay.SwingAt(timeline.Swings, 16396) != CombatReplay.SwingAt(timeline.Swings, 16618) && counted,
                 "the parried fast attack at tick 16396 and the power attack at 16618 are separate swings, and the later one is counted");
         }

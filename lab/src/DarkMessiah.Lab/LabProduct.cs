@@ -294,12 +294,16 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     // the same step the player takes in play (CombatReplay; docs/lab.md, "Replay").
     void IReplayBody.Begin() => ResetLab();
 
-    (Vector3 Feet, bool Jumped) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool use, float seconds)
+    /// <summary>The input frame the replay body last stepped with (the smoke checks held jump and crouch carry through).</summary>
+    internal FpsInputFrame LastReplayInput { get; private set; }
+
+    (Vector3 Feet, bool Jumped) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds)
     {
         var flat = new Vector2(forward.X, forward.Z);
         if (flat.LengthSquared() > 1e-6f) player.Face(MathF.Atan2(forward.X, -forward.Z), MathF.Asin(Math.Clamp(-forward.Y, -1, 1)));
         bool grounded = player.Motion.Grounded;
-        var frame = new FpsInputFrame(move, jump, jump, false, false, use, use, default, default);
+        var frame = new FpsInputFrame(move, jumpHeld || jump, jump, crouchHeld, false, use, use, default, default);
+        LastReplayInput = frame;
         player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders());
         if (use) cubes.Use();
         cubes.Interaction.Update();

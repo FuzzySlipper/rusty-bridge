@@ -50,7 +50,9 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
 | --- | --- |
 | The moves' clips and their lengths | `first_basic`'s clips: frames over fps |
 | Attack playback rate | the weapon's `entity_data` `speed_attack`: 1.10 for the short sword, 0.80 for the orc's cleaver |
-| When a swing's blade is traced | the clip's events: 2186 opens the window, 2190 closes it |
+| When a swing's blade is traced | the clip's events: 2186 opens the window, 2190 closes it. The T and B power attacks have neither (they start with 2170): 2107 to 2110, which bracket 2186–2190 in the clips that have both. The one recorded `B_out` blow lands inside (0.17 in 0.11–0.21); none checks T's (0.13–0.73) |
+| Fast or power | whether the wind-up (`layer_bigslash_*_in`) has played: a release from the held idle is a power attack (see "The player's moves") |
+| Stamina | `player_basic.qct`'s `skills` block, `stamina_kick_npc`/`stamina_kick_all` in the settings, and server.dll's ConVar defaults (see "The player's moves") |
 | The kick's contact | no events in its clip. `combat.json` sets cycles 0.36–0.42; recorded kicks land at 0.38–0.41 |
 | How far the blade reaches | the sword's `rangeattack`, 100 units (2.54 m). The trace runs from the eye toward the blade's tip, as the donor's do |
 | What a swing struck | the shared `HitSweep` through the orc's hit boxes and its items' hulls: the same measure as the mirror's Shadow contacts |
@@ -65,11 +67,76 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
   All are 1 by default, so the moves play as Arkane timed them. The Sword tunables page has a slider for each.
   A window tuned shorter than a step is still traced: a step whose cycles overlap it traces the blade at a cycle
   inside it, once per swing;
-- the power-hold threshold;
 - movement while attacking;
 - the kick's window, range and push;
 - the player's health;
 - the orc's spawn, engage distance, walk speed, attack cooldown, parry chance and health.
+
+## The player's moves
+
+`PlayerSword` plays the short sword's moves as the hand-played arena fights show them
+(`l01_a-v14-arena-hand*.rbrec`, read from the v14 commands against the view-model layers).
+
+### Fast and power attacks
+
+- **The wind-up:** pressing attack plays `layer_bigslash_*_in`, then its held idle. The movement as the wind-up
+  begins picks the power attack: back gives `B`, otherwise a strafe `L` or `R`, otherwise forward `T`, standing still
+  the neutral one. The fights show the order: a strafe with forward gave `L` and `R`, a strafe with back `B`.
+- **Fast or power:** a release before the wind-up has played is a fast attack (`layer_fastattack_*_A`), one from the
+  held idle that power attack (`_out`). It isn't a fixed hold time: the directional wind-ups are longer (0.61 s
+  against the neutral 0.45 at the sword's speed), and releases 0.57 and 0.63 s after their press, with `T_in` and
+  `B_in` still playing, were fast attacks. The wind-up starts when the arm is free: a press during a kick winds up
+  when the kick ends.
+- **The chain:** a press while A plays chains `layer_fastattack_*_B`, which begins as A ends: 18 to 20 ticks after
+  A in all 16 recorded chains. The press also winds up under A and B: still held when B ends, the charge goes on
+  from there, its direction picked then. B ends ready.
+- **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press in its second half starts A again
+  at once; one at cycle 0.32 did nothing, one at 0.60 played A two ticks later (`PlayerSword.FastEndOpen`, 0.5).
+- **Attack late in a kick:** a tap from about cycle 0.75 of the kick releases the neutral power attack at once
+  (three did, at 0.84 to 1.00; two at about 0.65 did nothing).
+- **A parried blow doesn't stop the swing.** The donor plays `layer_bounce_*` on none of the 23 player blows its
+  orcs parried or blocked in the arena recordings, and chains and kicks on after them. The lab played a bounce
+  there until #10131, which cut off the hand fights' chains.
+
+### Kicks
+
+A press of F asks for a kick, and stands while F is held. The kick starts on the first step the body may kick: no
+kick playing (a broken parry also stops it), on the ground, and stamina of at least 3. Starting consumes the press,
+so a new kick needs F to go down again. Kicks cut into charges and swings. In the hand fights:
+- **A held press waits:** pressed during a kick and held, the next kick began the tick the first ended (126233).
+  Pressed in the air and held to the landing, it began on landing (116736).
+- **What refused the rest:**
+
+  | Refusals | Why |
+  | --- | --- |
+  | 10 | a kick was playing, and F was let go before it ended |
+  | 4 | stamina below 3, after sprinting |
+  | 3 | in the air, F let go before landing (one of them also below 3) |
+  | 1 | attack pressed the tick before |
+
+  That last one is the only refusal the rule doesn't explain.
+
+### Stamina
+
+`PlayerStamina`, from the donor's numbers:
+
+| What | Value | Source |
+| --- | --- | --- |
+| Maximum | 9 | `player_basic.qct`, `skills`: `player_stamina_base_max` |
+| Regeneration | 0.06 every 0.12 s | `player_stamina_add_value`, `player_stamina_add_interval` |
+| Sprinting | −2 a second while moving | ConVar `mm_player_stamina_megasprint_cost_per_second` |
+| A kick may start with | 3 | ConVar `mm_player_stamina_needed_for_kick` |
+| A kick costs | 3 when it lands on an NPC, otherwise 1 | `stamina_kick_npc`, `stamina_kick_all` in the settings |
+
+The ConVars' defaults are in server.dll; no content file holds them.
+
+Simulated from the hand fights' commands with these numbers, every kick the donor began had at least 3.06, and each
+refusal on the ground with the arm free had less than 3. Charging the 1 as well as the 3, or always 3, would have
+refused a kick the donor made (116732, at 1.06 or 0.84).
+
+Sprint is the command's action byte +0x95 (Wire `PlayerActions.Sprint`): running ticks with it set have a median
+speed of 229 units/s, against 195 for all running ticks. The lab's body sprints with the sprint key or the replayed
+action, and drains stamina while moving. What empty stamina does to the sprint isn't measured, so it doesn't stop it.
 
 ## Calibration
 
@@ -77,24 +144,30 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
 
 | Move | Recorded player blows inside the lab's window (±0.06) | Clip rate, lab against donor |
 | --- | --- | --- |
-| Fast attack, window 0.33–0.78 | 47 of 47 (cycles 0.28–0.73) | 3.67 against 3.47 cycles/s |
-| Power attack, window 0.13–0.22 | 22 of 22 (cycles 0.13–0.18) | 1.03 against 1.01 cycles/s |
-| Kick, window 0.36–0.42 | 29 of 29 (cycles 0.38–0.41) | 1.20 against 1.17 cycles/s |
+| Fast attack A, window 0.33–0.78 | 87 of 87 (cycles 0.28–0.76) | 3.67 against 3.50 cycles/s |
+| Fast attack B, window 0.50–0.83 | 9 of 9 (cycles 0.56–0.72) | 2.75 against 2.70 cycles/s |
+| Power attack, window 0.13–0.22 | 31 of 31 (cycles 0.13–0.18) | 1.03 against 1.01 cycles/s |
+| Power attack B, window 0.11–0.21 | 1 of 1 (cycle 0.17) | 0.87 against 0.86 cycles/s |
+| Power attack R, window 0.19–0.42 | none recorded | 1.06 against 1.13 cycles/s |
+| Power attacks T (0.13–0.73) and L (0.04–0.25) | none recorded | not seen playing long enough to measure |
+| Kick, window 0.36–0.42 | 70 of 70 (cycles 0.38–0.41) | 1.20 against 1.18 cycles/s |
 
 **A blow belongs to the newest move.** A kick can start while a power
 attack's layer is still fading out under it. Credited to the first layer
 listed, seven kicks counted as power blows late in the power clip
 (cycles 0.76–1.00), which looked like a second contact. Calibration now takes
 the layer with the highest order. Those kicks start when the power attack is
-at about cycle 0.45, after its hit window has closed. That is why the lab's
-kick may cut off a swing then.
+at about cycle 0.45, after its hit window has closed. The hand-played fights
+show kicks cutting into charges and swings anywhere, so the lab's kick may cut
+off any move but another kick or a broken parry.
 
 **Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast and power
 attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
-recorded move and hit group).
-- **Fast attacks:** 50 of 51 agree.
-- **Power attacks:** 26 of 27.
-- **Kicks:** 45 of 45.
+recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
+whose `HitPow` comes from `first_basic.qct` like the others'. 167 of 169 agree:
+- **Fast attacks:** A 66 of 67, B 6 of 6.
+- **Power attacks:** 31 of 32, and the one `B_out` blow.
+- **Kicks:** 63 of 63.
 - **The two differences:**
   - a critical (×2), which the lab doesn't roll;
   - a blow in a recording before Wire v11 asking twice the lab's, most likely a critical. Neither the critical byte
@@ -108,12 +181,14 @@ The smoke also checks, on the real product headless:
 - **The player's blows:**
   - a fast attack strikes the orc once;
   - a power attack on the body asks `WDmg × HitPow × hit-group modifier`, computed independently from the `.qct` files;
-  - a parrying orc turns the blade;
+  - a parrying orc turns the blade, and the swing plays on to its recovery;
   - a kick asks `kick_damage` and pushes the orc.
 - **The player's guard:** it meets the orc's blows, which it parries, or breaks against.
 - **Input between steps:** a tap whose press and release both arrive on updates that admit no simulation step, or in
   one batch, is still one fast attack. The product keeps an attack or block press until a step has seen it. A hold
   is still a power attack.
+- **The moves on authored clips:** the chain, A's recovery, a hold through B, each direction, a long wind-up released
+  early, kicks waiting, dropped and cutting a charge, attack late in a kick, and the stamina rules.
 - **Phase timing:** windup ×2 opens the fast attack's window twice as late, recovery ×3 lengthens its end, and the
   retuned clips reach the fight through `LabCombat.Retune`.
 
@@ -127,10 +202,12 @@ reports where the outcomes agree. NAME is a path, or a file in
 
 **Each recorded tick is one lab step of that tick's game time:**
 - **The sword:** the held attack and attack2 buttons drive it (`PlayerSword`),
-  from the recorded eye and view angles.
-- **Kicks:** from v14, a kick request (the command's kick action going down) presses the lab's kick. The lab's sword
-  can refuse it, as the donor can, so the report counts requests and which side began a kick on each. Before v14
-  the request isn't on the Wire, and a kick starts when the donor's kick clip starts on the view model.
+  from the recorded eye and view angles. From v14 the command's movement picks a power attack's direction, and its
+  sprint action drains stamina.
+- **Kicks:** from v14, the command's kick action is F: going down asks for a kick, held keeps asking. The lab's
+  sword can refuse it, as the donor can, by its own rules (busy kicking, in the air by the replayed body, short of
+  stamina), so the report counts requests and which side began a kick on each. Before v14 the request isn't on
+  the Wire, and a kick is asked for when the donor's kick clip starts on the view model.
 - **The body (v14):** the recorded movement, view, jump (pressed and held), duck (held) and use drive the lab's own player body
   (`IReplayBody`, `LabProduct`), through the same step it takes in play, in the lab's arena. The donor's level isn't
   the lab's, so its position isn't compared, only how it moves: mean speed over the ticks with movement input, and
@@ -151,7 +228,9 @@ reports where the outcomes agree. NAME is a path, or a file in
 - **donor only, lab only:** no partner within the window;
 - **not compared:** blows by or on NPCs the lab wasn't following.
 
-The moves each side began are paired by clip the same way.
+The moves each side began are paired the same way, by family (fast attack, power attack, kick) and by clip (A or B,
+each power attack's direction): the lab has to play the donor's own variant for a pair by clip. A clip already
+playing when the recording starts isn't counted as begun.
 
 **`l01_a-v12-arena-bot.rbrec` (the parry bot, 120 s):**
 
@@ -159,24 +238,34 @@ The moves each side began are paired by clip the same way.
 | --- | --- | --- | --- |
 | Fast attacks, power attacks, kicks begun | 7, 9, 8 | 8, 9, 8 | 24 of 24 begin together, the lab 4 ms ahead on average |
 | The player's blows on the followed orc | 16 | 14 | 4 agree, 6 differ |
-| The orc's blows on the player | 40 | 54 | 38 agree |
+| The orc's blows on the player | 40 | 54 | 37 agree |
 
 **`l01_a-v14-arena-bot.rbrec`** (90 s: the parry bot, then scripted walking, a jump, kick spam and kicks mid-swing):
-- **Kicks:** 15 requests. The donor began a kick on 13, the lab on 9, both on 8. The lab's sword refuses more: it
-  only lets a kick cut off a swing after its hit window.
-- **Movement:** the lab's body moves at 4.28 m/s on average where the donor moved at 2.36. The lab's controller is
+- **Kicks:** 15 requests. The donor began a kick on 13, the lab on 13, both on 12: the lab kicks or refuses as the
+  donor did on 13.
+- **The moves:** 30 of 31 begin together, each as its own clip.
+- **Movement:** the lab's body moves at 3.88 m/s on average where the donor moved at 2.36. The lab's controller is
   rusty-fptester's, not yet calibrated to Dark Messiah's speeds.
 - **Jumps:** the one jump came through.
 
-**Hand-played (`l01_a-v14-arena-hand.rbrec`, 150 s, and `-hand2`, 51 s)**, which used moves the bot never does:
-- **The moves:** the donor plays variants the lab doesn't model yet. The lab plays each as its neutral move:
-  - fast attack B, chained onto A before A ends (16 times);
-  - the directional power attacks (`bigslash_*_T`, `_B`, `_L`, `_R`);
-  - a jumping attack, sprint and quick draw.
+**Hand-played (`l01_a-v14-arena-hand.rbrec`, 150 s, and `-hand2`, 51 s)**, which used the moves the bot never does
+(B chains, directional power attacks, kicks held, mid-swing and in the air, sprinting):
 
-  So the lab begins 14 of the donor's 20 moves in the first fight and 21 of 46 in the second, against all of
-  them for the bot. The donor began 27 fast attacks to the lab's 19, and 9 power attacks to its 6.
-- **Kicks:** 19 and 15 requests. The donor began 6 and 10, the lab 9 and 9. Why the donor refused so many isn't checked yet; sprinting and jumping are likely.
+| What | First fight | Second fight |
+| --- | --- | --- |
+| Moves begun together, by family | 19 of 20 | 42 of 45 |
+| The same, by clip | 18 of 20 | 41 of 45 |
+| Fast attacks begun, donor and lab | 13, 21 | 27, 35 |
+| Kick requests the lab kicks or refuses as the donor did | 17 of 19 | 15 of 15 |
+
+Before #10131 the lab played every variant as its neutral move and bounced its sword off parries: 14 of 20 and 21
+of 46 began together. The lab's extra fast attacks follow a move it got wrong:
+- **Power attacks without a wind-up:** twice a press 20–24 ticks after a kick ended released the neutral power
+  attack with no wind-up (126599, 128161). A similar press at 116112 wound up and played A. The lab plays A, and its
+  presses during the donor's power attack then chain B and A that the donor never began.
+- **The direction picked after B:** one hold through B released R where the lab picked B (126828).
+- **A tap released a tick into its wind-up:** the donor played nothing (127146), the lab A.
+- **A finishing move:** the donor played `layer_behead_*_out` (129270), which the lab doesn't have.
 - **Movement:** commands run at 1000, about 1400 on a diagonal, and 150 for the slow walk while charging or guarding.
   The replay scales them against a run. The lab's body averages 4.20 against the donor's 4.69 m/s, and 2.78 against 1.68.
 - **Jumps:** all 12 came through.
@@ -214,7 +303,7 @@ lab/
   src/DarkMessiah.Lab/
     LabProduct.cs          composition: input, body, fight, cubes, world time, publish
     Donor/DonorContent.cs  packs and opens dm-import's output; models, .qct numbers, CombatData
-    Sword/                 PlayerSword (the moves), FirstPerson (arms, sword, blade trace), Rig, CombatTuning
+    Sword/                 PlayerSword (the moves), PlayerStamina, FirstPerson (arms, sword, blade trace), Rig, CombatTuning
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
     Calibration/           SwordCalibration against recordings
@@ -276,5 +365,8 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - combos (`layer_combo_*`);
+  - combos (`layer_combo_*`), the finishing moves (`layer_behead_*`), the jump attack and the quick draw;
+  - a power attack released straight after a kick without a wind-up (two cases, rule not found);
   - the shield-holding moves.
+- **Stamina:** what empty stamina does to the sprint, and the costs of parrying, blocking and dodging
+  (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.

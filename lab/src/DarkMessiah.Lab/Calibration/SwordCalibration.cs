@@ -30,7 +30,7 @@ internal static class SwordCalibration
 
     internal static List<MoveCalibration> Measure(IEnumerable<string> recordings, SwordClips clips)
     {
-        MoveClip[] moves = [clips.Fast, clips.Power, clips.Kick];
+        MoveClip[] moves = clips.Moves.ToArray();
         var blows = moves.ToDictionary(m => m.Clip, _ => new List<float>());
         var rates = moves.ToDictionary(m => m.Clip, _ => new List<float>());
         foreach (var path in recordings)

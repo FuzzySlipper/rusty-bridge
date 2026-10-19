@@ -1,6 +1,5 @@
 {
   "playerHealth": 80,
-  "powerHoldSeconds": 0.25,
   "attackMovementScale": 0.5,
   "kickWindow": [
     0.36,

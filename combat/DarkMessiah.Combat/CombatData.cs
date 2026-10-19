@@ -39,12 +39,14 @@ public sealed record CharacterData(string Model, float Strength, IReadOnlyDictio
 /// The melee routine's settings from `scripts/mm_game_settings.txt`: a player
 /// blow on an NPC at or below <see cref="NotAlertedLevel"/> is multiplied by
 /// <see cref="NotAlertedMultiplier"/>, and every player blow by
-/// <see cref="PlayerDamageMultiplier"/>. A player's kick asks <see cref="KickDamage"/>.
+/// <see cref="PlayerDamageMultiplier"/>. A player's kick asks <see cref="KickDamage"/>, and costs
+/// <see cref="StaminaKickNpc"/> stamina when it lands on an NPC, <see cref="StaminaKickAll"/> otherwise.
 /// </summary>
-public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier, float KickDamage = 1)
+public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier, float KickDamage = 1,
+    float StaminaKickNpc = 3, float StaminaKickAll = 1)
 {
     /// <summary>What the shipped file says, for when it can't be read.</summary>
-    public static readonly GameSettings Shipped = new(3, 0, 1, 1);
+    public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1);
 }
 
 /// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done".</summary>
@@ -146,7 +148,9 @@ public sealed class CombatData
             Deep(game, "mul_damages_Npc_Not_alerted") ?? shipped.NotAlertedMultiplier,
             (int)(Deep(game, "mul_damages_Npc_Not_alerted_level") ?? shipped.NotAlertedLevel),
             Deep(game, "player_damage_multiplier") ?? shipped.PlayerDamageMultiplier,
-            Deep(game, "kick_damage") ?? shipped.KickDamage);
+            Deep(game, "kick_damage") ?? shipped.KickDamage,
+            Deep(game, "stamina_kick_npc") ?? shipped.StaminaKickNpc,
+            Deep(game, "stamina_kick_all") ?? shipped.StaminaKickAll);
     }
 
     /// <summary>The tables from a game's VPK folder (local/donor/vpks, or the install's vpks).</summary>

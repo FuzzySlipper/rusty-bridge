@@ -19,8 +19,10 @@ namespace DarkMessiah.Lab.Replay;
 /// <param name="Move">v14: the command's movement, side and forward, as a unit direction (zero when none).</param>
 /// <param name="Jump">v14: jump went down in this tick's commands.</param>
 /// <param name="Use">v14: use went down in them.</param>
+/// <param name="KickHeld">The kick button is down: from v14 the command's kick action, before it the same tick as <see cref="Kick"/>.</param>
+/// <param name="Sprint">v14: the command's sprint action (Arkane's byte +0x95) with movement.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
-    Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false);
+    Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -72,6 +74,7 @@ internal sealed class InputTimeline
         var swings = new List<DonorSwing>();
         var kicks = new List<(int, string, string, float)>();
         var playing = new Dictionary<string, float>();
+        bool seeded = false;
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
         double lastTime = double.NaN;
         int skipped = 0;
@@ -92,21 +95,24 @@ internal sealed class InputTimeline
                     lastTime = double.NaN;
                     continue;
                 }
-                // The donor's moves: a first-person clip appearing, or its cycle starting over.
+                // The donor's moves: a first-person clip appearing, or its cycle starting over. Of two layers playing one
+                // clip (a kick starting while the last one fades), the youngest; on the first frame read, clips already
+                // under way began before the recording and aren't counted.
                 bool kicked = false;
                 var vm = f.Entities.FirstOrDefault(kv => f.Classes.GetValueOrDefault(kv.Value.ClassId) == "viewmodel");
                 var now = new Dictionary<string, float>();
                 if (view.Flags.HasFlag(ClientViewFlags.ViewmodelLayers) && f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is { } names)
                     foreach (var l in view.ViewmodelLayers)
                         if (l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && Family(names[l.Sequence]) is not null)
-                            now[names[l.Sequence]] = l.Cycle;
+                            now[names[l.Sequence]] = MathF.Min(l.Cycle, now.GetValueOrDefault(names[l.Sequence], float.PositiveInfinity));
                 foreach (var (clip, cycle) in now)
-                    if (!playing.TryGetValue(clip, out float was) || cycle < was - .05f)
+                    if (seeded && (!playing.TryGetValue(clip, out float was) || cycle < was - .05f))
                     {
                         swings.Add(new DonorSwing(f.Tick, f.Curtime, clip));
                         kicked |= Family(clip) == "kick";
                     }
                 playing = now;
+                seeded = true;
 
                 var feet = SourceSpace.Position(new Vector3(view.OriginX, view.OriginY, view.OriginZ));
                 var eye = SourceSpace.Position(new Vector3(view.OriginX + view.ViewOffsetX, view.OriginY + view.ViewOffsetY, view.OriginZ + view.ViewOffsetZ));
@@ -117,7 +123,7 @@ internal sealed class InputTimeline
                 // jump and use. A tick without commands holds the last ones.
                 var held = f.Input.Buttons;
                 Vector2 move = default;
-                bool jump = false, use = false;
+                bool jump = false, use = false, kickHeld = kicked, sprint = false;
                 if (f.Version >= 14)
                 {
                     commands = true;
@@ -130,8 +136,10 @@ internal sealed class InputTimeline
                     // A forwardmove of 1000 is a run; 150 the slow walk the game sends while charging or guarding.
                     var m = new Vector2(f.Input.SideMove, f.Input.ForwardMove) / RunMove;
                     move = m.LengthSquared() > 1 ? Vector2.Normalize(m) : m;
+                    kickHeld = now2.Item2.HasFlag(PlayerActions.Kick);
+                    sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
-                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use));
+                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

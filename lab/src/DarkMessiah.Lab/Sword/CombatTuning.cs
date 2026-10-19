@@ -9,13 +9,12 @@ namespace DarkMessiah.Lab.Sword;
 /// hit windows, the sword's damage, range and attack speed, the orc's attacks and every damage rule come from the
 /// imported .qct files and clip events instead (docs/lab.md). Live content, like <c>player.json</c>.
 /// </summary>
-/// <param name="PowerHoldSeconds">How long the attack button is held before its release is a power attack, not a fast one.</param>
 /// <param name="AttackMovementScale">How much of the movement input moves the body while a swing or kick runs.</param>
 /// <param name="KickWindow">The kick's contact cycles: its clip has no hit events; recorded kicks land at cycle 0.38–0.41.</param>
 /// <param name="KickRange">How far in front of the eye, metres, a kick reaches an orc.</param>
 /// <param name="KickPush">How far a kick pushes the orc back, metres.</param>
 /// <param name="Phases">Each move's windup, active and recovery timing against the donor's clip (1 plays it as the donor does).</param>
-internal sealed record CombatTuning(float PlayerHealth, float PowerHoldSeconds, float AttackMovementScale, float[] KickWindow,
+internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScale, float[] KickWindow,
     float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc)
 {
     internal const string Path = "combat.json";
@@ -25,7 +24,6 @@ internal sealed record CombatTuning(float PlayerHealth, float PowerHoldSeconds, 
     internal static CombatTuning Validate(CombatTuning t)
     {
         Authored.Positive(Path, "playerHealth", t.PlayerHealth);
-        Authored.AtLeast(Path, "powerHoldSeconds", t.PowerHoldSeconds, 0);
         Authored.Within(Path, "attackMovementScale", t.AttackMovementScale, 0, 1);
         Authored.Require(t.KickWindow.Length == 2 && t.KickWindow[0] >= 0 && t.KickWindow[1] <= 1 && t.KickWindow[0] < t.KickWindow[1],
             Path, "kickWindow", "must be two cycles, the first below the second, within [0, 1].");

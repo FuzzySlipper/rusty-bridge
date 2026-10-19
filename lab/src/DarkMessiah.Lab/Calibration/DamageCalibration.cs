@@ -40,11 +40,13 @@ internal static class DamageCalibration
                 // A swing that kills goes on to touch the body: those contacts ask nothing of a victim already at 0.
                 if (!d.Attacker.IsPlayer || d.Victim.Class != "npc_orc_sword" || d.Defended || d.HealthBefore <= 0) continue;
                 bool kick = (d.DamageType & CombatModel.KickDamage) != 0;
-                // The newest move layer (an earlier move's can be fading under it), as the lab plays it: its fast or
-                // neutral power attack for the donor's variants.
+                // The newest move layer (an earlier move's can be fading under it), as the lab plays it: the same clip
+                // (A, B, each power attack's direction), or its family's neutral move for one the lab lacks.
                 string? family = kick ? "kick" : d.Attacker.Layers.Select(Replay.InputTimeline.Family).LastOrDefault(f => f is not null);
-                string? move = family switch { "kick" => clips.Kick.Clip, "fast attack" => clips.Fast.Clip, "power attack" => clips.Power.Clip, _ => null };
-                string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? move ?? "";
+                string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? "";
+                string? move = kick ? clips.Kick.Clip : clips.Moves.Any(m => m.Clip == donorMove) ? donorMove
+                    : family switch { "fast attack" => clips.Fast.Clip, "power attack" => clips.Power.Clip, _ => null };
+                if (donorMove.Length == 0) donorMove = move ?? "";
                 if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
                 var player = d.Attacker with { Layers = [move] };
                 float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore);

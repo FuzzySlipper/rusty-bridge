@@ -672,7 +672,7 @@ themselves. One 48-byte record per slot (16 bytes in v12 and v13):
 | 12 | `released` u32 | `m_afButtonReleased` (+0x1FCC): bits that went up in it |
 | 16 | `forward_move`, `side_move`, `up_move` f32 | v14: the newest command's forwardmove (+0x18), sidemove (+0x1C), upmove (+0x24) |
 | 28 | `command_buttons` u32 | v14: the commands' `IN_*` buttons (+0x28), OR'd over the tick |
-| 32 | `actions` u32 | v14: bit *i* set when Arkane's action byte +0x95+*i* is set in any of the tick's commands; bit 2 (+0x97) is the kick |
+| 32 | `actions` u32 | v14: bit *i* set when Arkane's action byte +0x95+*i* is set in any of the tick's commands; bit 0 (+0x95) is sprint, bit 2 (+0x97) the kick |
 | 36 | `impulse` u8, 3 reserved | v14: the newest command's impulse (+0x2C) |
 | 40 | `command_number` i32, reserved u32 | v14: the newest command's number (+0x4) |
 
@@ -698,7 +698,10 @@ went in through the agent's desktop lease:
 - **W:** forwardmove 500 then 1000, `IN_FORWARD`.
 - **Left and right click:** `IN_ATTACK` and `IN_ATTACK2`.
 - **Space and E:** `IN_JUMP` and `IN_USE`.
-- **F:** byte +0x97 set for as long as it was held, and nothing else. The other action bytes aren't identified yet.
+- **F:** byte +0x97 set for as long as it was held, and nothing else.
+- **Sprint (+0x95), from the hand-played fights:** running ticks with it set have a median speed of 229 units/s, against
+  195 for all running ticks, and the stamina it drains at 2 a second explains the kicks refused for stamina
+  (docs/lab.md, "Stamina"). The other action bytes aren't identified yet.
 
 **How the offsets were found (2026-10-19, server.dll, image base 0x22000000).**
 These fields aren't networked, so no send table names them. `CBasePlayer`'s

@@ -114,6 +114,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         }
         bool attackHeld = cubes.Held is null && (physical.Held(PointerButton.Primary) || physical.Held(ControllerButton.Button7));
         bool blockHeld = physical.Held(PointerButton.Secondary) || physical.Held(ControllerButton.Button6);
+        bool kickHeld = physical.Held(KeyboardControl.KeyF);
         float delta = (float)facts.FixedDeltaSeconds;
         for (uint step = 0; step < facts.AdmittedStepCount; step++)
         {
@@ -126,7 +127,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             if (usePending) cubes.Use();
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
-            combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickPending, player.Eye, player.Forward, player.Feet);
+            combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
+                move: frame.Movement, grounded: player.Motion.Grounded, sprinting: frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero);
             kickPending = attackPending = blockPending = false;
             scene.Step(delta, cubes.PrepareStep());
         }
@@ -204,7 +206,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         "crouch" => new(id, "ControlLeft", 200, true),
         "sprint" => new(id, "ShiftLeft", 200, true, HeldKeys: new[] { "KeyW" }),
         "use" => new(id, "KeyE", 100, false),
-        // A tap is a fast attack; a hold past combat.json's powerHoldSeconds is a power attack.
+        // A tap is a fast attack; a hold past the wind-up (its _in clip) is a power attack.
         "attack" => new(id, "Primary", 100, false, cubes.Held is null && !combat.Sword.Busy,
             cubes.Held is not null ? "Holding a cube: primary throws it" : combat.Sword.Busy ? "A swing is under way" : null),
         "power" => new(id, "Primary", 900, false, cubes.Held is null && !combat.Sword.Busy,
@@ -297,7 +299,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     /// <summary>The input frame the replay body last stepped with (the smoke checks held jump and crouch carry through).</summary>
     internal FpsInputFrame LastReplayInput { get; private set; }
 
-    (Vector3 Feet, bool Jumped) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds)
+    (Vector3 Feet, bool Jumped, bool Grounded) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds)
     {
         var flat = new Vector2(forward.X, forward.Z);
         if (flat.LengthSquared() > 1e-6f) player.Face(MathF.Atan2(forward.X, -forward.Z), MathF.Asin(Math.Clamp(-forward.Y, -1, 1)));
@@ -308,7 +310,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         if (use) cubes.Use();
         cubes.Interaction.Update();
         scene.Step(seconds, cubes.PrepareStep());
-        return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0);
+        return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded);
     }
 
     void IReplayBody.End() => ResetLab();

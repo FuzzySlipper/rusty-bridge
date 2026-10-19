@@ -66,8 +66,9 @@ internal sealed class LabCombat : IDisposable
         sweep = new HitSweep(engine, session);
         model = new CombatModel(donor.Combat);
         FirstPerson = new FirstPerson(engine, donor);
-        Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning), tuning);
+        Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning));
         Orc = new Orc(engine, donor, tuning.Orc);
+        Stamina = new PlayerStamina(StaminaRules.From(donor));
         PlayerHealth = tuning.PlayerHealth;
     }
 
@@ -75,6 +76,8 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The combat model the fight decides with, read from the imported .qct files and settings.</summary>
     internal CombatModel Model => model;
     internal PlayerSword Sword { get; }
+    /// <summary>The player's stamina: sprinting drains it, a kick needs and costs it.</summary>
+    internal PlayerStamina Stamina { get; }
     internal FirstPerson FirstPerson { get; }
     internal Orc Orc { get; }
     internal float PlayerHealth { get; private set; }
@@ -93,17 +96,22 @@ internal sealed class LabCombat : IDisposable
     internal void Retune(CombatTuning next)
     {
         Tuning = next;
-        Sword.Retune(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, next), next);
+        Sword.Retune(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, next));
         Orc.Retune(next.Orc);
     }
 
     /// <summary>One admitted step of the fight.</summary>
+    /// <param name="kickHeld">The kick button is down: a press asks for a kick, which starts once the body may kick.</param>
     /// <param name="orcPose">In a replay, the recorded orc the lab's follows this step instead of fighting on its own.</param>
-    internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickPressed, Vector3 eye, Vector3 forward, Vector3 feet,
-        OrcPose? orcPose = null)
+    /// <param name="move">The movement input (side, forward): it picks a power attack's direction.</param>
+    /// <param name="grounded">The body is on the ground: Dark Messiah doesn't kick in the air.</param>
+    /// <param name="sprinting">The body sprints this step, which drains stamina.</param>
+    internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
+        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false)
     {
         int swingsBefore = Sword.Swing;
-        Sword.Step(seconds, attackHeld, blockHeld, kickPressed);
+        Stamina.Step(seconds, sprinting);
+        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick);
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
@@ -137,9 +145,9 @@ internal sealed class LabCombat : IDisposable
         float front = toPlayer.LengthSquared() > 1e-6f ? Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) : 0;
         var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, Orc.DefenseState));
         string what = struck == Struck.Body ? $"hit group {targets[0].Model.Hitboxes[c.Hitbox].Group}" : struck == Struck.Weapon ? "its cleaver" : "its shield";
+        // The swing plays on: the donor's sword doesn't bounce off an orc's parry or shield (none of 23 recorded did).
         if (verdict is DefenseResult.Parry or DefenseResult.Shield)
         {
-            Sword.Bounce();
             Player = verdict == DefenseResult.Parry ? Player with { Parried = Player.Parried + 1 } : Player with { Blocked = Player.Blocked + 1 };
             Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, $"{verdict} ({what})"), blow: true);
             Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, 0, null));
@@ -161,6 +169,7 @@ internal sealed class LabCombat : IDisposable
         Vector3 toOrc = Orc.Feet + Vector3.UnitY * 1.0f - eye;
         Vector3 flat = toOrc with { Y = 0 };
         bool reaches = Orc.Alive && flat.Length() <= Tuning.KickRange && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(flat)) > .5f;
+        Stamina.Kicked(reaches);
         if (!reaches)
         {
             Player = Player with { Missed = Player.Missed + 1 };
@@ -263,6 +272,7 @@ internal sealed class LabCombat : IDisposable
     internal void Reset()
     {
         Sword.Reset();
+        Stamina.Reset();
         Orc.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();

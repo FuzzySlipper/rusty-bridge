@@ -483,12 +483,13 @@ public struct WirePlayerInput
 
 /// <summary>
 /// Arkane's action bytes in its CUserCmd (+0x95..+0xA1), one bit each in <see cref="WirePlayerInput.Actions"/>: bit i
-/// is byte +0x95+i. The kick (F) is +0x97; the others aren't identified yet.
+/// is byte +0x95+i. Sprint (Megasprint) is +0x95 and the kick (F) +0x97; the others aren't identified yet.
 /// </summary>
 [Flags]
 public enum PlayerActions : uint
 {
     None = 0,
+    Sprint = 1 << 0,
     Kick = 1 << 2,
 }
 

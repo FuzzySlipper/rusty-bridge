@@ -44,7 +44,6 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
 
     private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] SwordControls =
     [
-        ("power-hold", "Power hold s", 0, 1, .01f, "/powerHoldSeconds", t => t.PowerHoldSeconds, (t, v) => t with { PowerHoldSeconds = v }),
         ("move", "Move while busy", 0, 1, .05f, "/attackMovementScale", t => t.AttackMovementScale, (t, v) => t with { AttackMovementScale = v }),
         ("kick-range", "Kick range m", .3f, 3, .05f, "/kickRange", t => t.KickRange, (t, v) => t with { KickRange = v }),
         ("kick-push", "Kick push m", 0, 4, .1f, "/kickPush", t => t.KickPush, (t, v) => t with { KickPush = v }),

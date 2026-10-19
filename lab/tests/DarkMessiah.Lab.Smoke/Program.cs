@@ -21,12 +21,15 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(80, .25f, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
+var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
-var clips = new SwordClips(M("idle", 2, true), M("in", .5f), M("hold", 1, true), M("fast", .3f, open: .33f, close: .78f), M("power", 1, open: .125f, close: .22f),
-    M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("bounce", .4f), M("broken", .8f));
+PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
+var clips = new SwordClips(M("idle", 2, true),
+    new Dictionary<PowerDirection, PowerClips> { [PowerDirection.Neutral] = Charge(""), [PowerDirection.T] = Charge("T-", .7f), [PowerDirection.B] = Charge("B-"), [PowerDirection.L] = Charge("L-") },
+    M("fast", .3f, open: .33f, close: .78f), M("fast-b", .4f, open: .3f, close: .7f), M("fast-end", .5f),
+    M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("broken", .8f));
 const float Tick = 1f / 60;
-var sword = new PlayerSword(clips, tuning);
+var sword = new PlayerSword(clips);
 for (int i = 0; i < 6; i++) sword.Step(Tick, true, false, false);
 Check(sword.Move == SwordMove.Charge && sword.Clip.Clip == "in", "pressing attack winds up");
 sword.Step(Tick, false, false, false);
@@ -34,10 +37,12 @@ Check(sword.Move == SwordMove.Fast && sword.SwingStarted, "releasing within the 
 var traced = new List<float>();
 for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) { sword.Step(Tick, false, false, false); if (sword.Traced) traced.Add(sword.TraceCycle); }
 Check(traced.Count > 0 && traced.Min() >= .33f && traced.Max() <= .78f, FormattableString.Invariant($"the blade is traced only inside the fast attack's window: {traced.Count} steps"));
-Check(sword.Move == SwordMove.Ready, "the fast attack ends ready");
-for (int i = 0; i < 30; i++) sword.Step(Tick, true, false, false);
+Check(sword.Move == SwordMove.FastEnd && sword.Clip.Clip == "fast-end", "an A nothing chains onto recovers (fastattack_end)");
+for (int i = 0; i < 40 && sword.Move != SwordMove.Ready; i++) sword.Step(Tick, false, false, false);
+Check(sword.Move == SwordMove.Ready, "then the arm is ready");
+for (int i = 0; i < 40; i++) sword.Step(Tick, true, false, false);
 sword.Step(Tick, false, false, false);
-Check(sword.Move == SwordMove.Power, "releasing after the power hold is a power attack");
+Check(sword.Move == SwordMove.Power, "releasing from the held wind-up is a power attack");
 for (int i = 0; i < 80; i++) sword.Step(Tick, false, false, false);
 for (int i = 0; i < 12; i++) sword.Step(Tick, false, true, false);
 Check(sword.Parrying && sword.Clip.Clip == "parry-hold", "holding block parries, then holds the guard");
@@ -46,11 +51,125 @@ Check(sword.Move == SwordMove.ParryOut, "releasing block lowers the guard");
 for (int i = 0; i < 20; i++) sword.Step(Tick, false, false, false);
 sword.Step(Tick, false, false, true);
 Check(sword.Move == SwordMove.Kick && sword.SwingStarted, "F kicks");
+for (int i = 0; i < 60; i++) sword.Step(Tick, false, false, false);
+
+// The fast-attack chain (docs/lab.md, "Fast and power attacks"): a press while A plays chains B when A ends; a press
+// during A's recovery starts A again at once; attack held through B charges a power attack.
+SwordMove Tap(PlayerSword s)
+{
+    s.Step(Tick, true, false, false);
+    s.Step(Tick, false, false, false);
+    return s.Move;
+}
+sword = new PlayerSword(clips);
+Tap(sword);
+int aSwing = sword.Swing;
+for (int i = 0; i < 5; i++) sword.Step(Tick, false, false, false);
+Tap(sword);
+var chain = new List<string>();
+for (int i = 0; i < 30 && sword.Swing == aSwing; i++) { sword.Step(Tick, false, false, false); chain.Add(sword.Clip.Clip); }
+Check(sword.Move == SwordMove.Fast && sword.Clip.Clip == "fast-b" && sword.SwingStarted && chain.Count(c => c == "fast") >= 10,
+    $"a press while A plays chains B when A ends ({chain.Count(c => c == "fast")} steps of A)");
+for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) sword.Step(Tick, false, false, false);
+Check(sword.Move == SwordMove.Ready, "B unchained ends ready, with no recovery clip");
+sword = new PlayerSword(clips);
+Tap(sword);
+for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) sword.Step(Tick, false, false, false);
+sword.Step(Tick, false, false, false);
+int ended = sword.Swing;
+Tap(sword);
+Check(sword.Move == SwordMove.FastEnd && sword.Swing == ended, FormattableString.Invariant($"a press early in A's recovery is dropped (cycle {sword.Cycle:0.00})"));
+while (sword.Cycle < PlayerSword.FastEndOpen) sword.Step(Tick, false, false, false);
+Check(Tap(sword) == SwordMove.Fast && sword.Clip.Clip == "fast" && sword.Swing == ended + 1, "one in its second half starts A again at once");
+sword = new PlayerSword(clips);
+Tap(sword);
+for (int i = 0; i < 3; i++) sword.Step(Tick, false, false, false);
+for (int i = 0; i < 60 && !(sword.Move == SwordMove.Charge); i++) sword.Step(Tick, true, false, false, new Vector2(-1, 0));
+Check(sword.Move == SwordMove.Charge && sword.Clip.Clip == "L-hold", $"attack held through B charges the power attack the movement picks then: {sword.Clip.Clip}");
+sword.Step(Tick, false, false, false);
+Check(sword.Move == SwordMove.Power && sword.Clip.Clip == "L-power", "and its release is that power attack");
+
+// Directional power attacks: the movement as the charge begins picks it; back wins over a strafe, a strafe over forward.
+foreach (var (move, expect) in new (Vector2, string)[] { (Vector2.Zero, "power"), (new(0, 1), "T-power"), (new(0, -.15f), "B-power"), (new(-1, 1), "L-power"),
+    (new(-1, -.15f), "B-power"), (new(1, 0), "power") })
+{
+    var d = new PlayerSword(clips);
+    d.Step(Tick, true, false, false, move);
+    for (int i = 0; i < 50; i++) d.Step(Tick, true, false, false);
+    d.Step(Tick, false, false, false);
+    Check(d.Move == SwordMove.Power && d.Clip.Clip == expect,
+        FormattableString.Invariant($"movement ({move.X}, {move.Y}) as the charge begins releases {d.Clip.Clip} ({expect}{(expect == "power" && move != Vector2.Zero ? ": no R clip authored, the neutral one" : "")})"));
+}
+
+// The wind-up, not a fixed hold, decides: T's is longer than the neutral one, so a release the neutral charge would
+// make a power attack is still T's fast attack.
+var wind = new PlayerSword(clips);
+wind.Step(Tick, true, false, false, new Vector2(0, 1));
+for (int i = 0; i < 36; i++) wind.Step(Tick, true, false, false);
+wind.Step(Tick, false, false, false);
+Check(wind.Move == SwordMove.Fast && wind.Clip.Clip == "fast", "released 0.6 s into T's 0.7 s wind-up, the attack is fast");
+
+// Kicks (docs/lab.md, "Kicks"): a press stands while held and starts once the body may kick, from any move but a kick.
+var k = new PlayerSword(clips);
+k.Step(Tick, false, false, true, mayKick: false);
+for (int i = 0; i < 5; i++) k.Step(Tick, false, false, true, mayKick: false);
+Check(k.Move == SwordMove.Ready && k.KickWanted, "a kick the body may not make yet waits while F is held");
+k.Step(Tick, false, false, true);
+Check(k.Move == SwordMove.Kick && k.SwingStarted && !k.KickWanted, "and starts the step it may");
+k = new PlayerSword(clips);
+k.Step(Tick, false, false, true, mayKick: false);
+k.Step(Tick, false, false, false);
+k.Step(Tick, false, false, false);
+Check(k.Move == SwordMove.Ready && !k.KickWanted, "released before it may, the kick is dropped");
+k.Step(Tick, false, false, true);
+int kicks = k.Swing;
+for (int i = 0; i < 6; i++) k.Step(Tick, false, false, false);
+k.Step(Tick, false, false, true);
+k.Step(Tick, false, false, false);
+for (int i = 0; i < 40; i++) k.Step(Tick, false, false, true);
+Check(k.Swing == kicks, "a tap during a kick is dropped; a held press needs to go down after the kick began");
+for (int i = 0; i < 60 && k.Swing == kicks; i++) k.Step(Tick, false, false, false);
+k = new PlayerSword(clips);
+k.Step(Tick, false, false, true);
+for (int i = 0; i < 6; i++) k.Step(Tick, false, false, false);
+k.Step(Tick, false, false, true);
+int heldFrom = k.Swing, waited = 0;
+while (k.Swing == heldFrom && waited < 80) { k.Step(Tick, false, false, true); waited++; }
+Check(k.Swing == heldFrom + 1 && k.Move == SwordMove.Kick && waited > 30, $"a press held through a kick kicks again as it ends ({waited} steps later)");
+k = new PlayerSword(clips);
+for (int i = 0; i < 5; i++) k.Step(Tick, true, false, false);
+k.Step(Tick, true, false, true);
+Check(k.Move == SwordMove.Kick, "a kick cuts a charge");
+k = new PlayerSword(clips);
+k.Step(Tick, false, false, true);
+while (k.Cycle < .5f) k.Step(Tick, false, false, false);
+k.Step(Tick, true, false, false);
+k.Step(Tick, false, false, false);
+Check(k.Move == SwordMove.Kick, "a tap of attack mid-kick does nothing");
+while (k.Cycle < PlayerSword.KickAttackOpen) k.Step(Tick, false, false, false);
+k.Step(Tick, true, false, false);
+k.Step(Tick, false, false, false);
+Check(k.Move == SwordMove.Power && k.Clip.Clip == "power" && k.SwingStarted, "one late in the kick releases the neutral power attack at once");
+
+// Stamina: Dark Messiah's numbers, a kick's threshold and cost, sprint's drain and the regeneration.
+var stamina = new PlayerStamina(StaminaRules.Shipped);
+for (int i = 0; i < 60; i++) stamina.Step(Tick, sprinting: true);
+Check(MathF.Abs(stamina.Value - 7) < .01f, FormattableString.Invariant($"sprinting drains 2 a second: 9 → {stamina.Value:0.00}"));
+stamina = new PlayerStamina(StaminaRules.Shipped);
+stamina.Kicked(npc: true);
+stamina.Kicked(npc: false);
+stamina.Kicked(npc: false);
+stamina.Kicked(npc: false);
+Check(stamina.Value == 3 && stamina.MayKick, "a kick on an NPC costs 3, one that lands on none 1; 3 left may still kick");
+stamina.Kicked(npc: false);
+Check(!stamina.MayKick, "under 3 it may not");
+for (int i = 0; i < 120; i++) stamina.Step(Tick, sprinting: false);
+Check(MathF.Abs(stamina.Value - (2 + 16 * .06f)) < .07f, FormattableString.Invariant($"it regains 0.06 every 0.12 s: {stamina.Value:0.00} after 2 s"));
 
 // Phase timing (review R10121-1): a fast attack's windup, active and recovery each scale its time; donor timing is ×1.
 float[] FastTiming(MovePhases p)
 {
-    var s = new PlayerSword(clips with { Fast = clips.Fast with { Phases = p } }, tuning);
+    var s = new PlayerSword(clips with { Fast = clips.Fast with { Phases = p } });
     for (int i = 0; i < 3; i++) s.Step(Tick, true, false, false);
     s.Step(Tick, false, false, false);
     float t = 0, open = float.NaN, close = float.NaN;
@@ -118,6 +237,7 @@ host.Call(engine =>
     moves.Clear();
     for (int i = 0; i < 40; i++) { Feed(1); moves.Add(combat.Sword.Move); }
     Check(combat.Player.Swings == swingsBefore + 2 && moves.Contains(SwordMove.Fast), "a press and release in one batch is one fast attack too");
+    for (int i = 0; i < 60; i++) Feed(1);
     Feed(1, Primary(InputEdge.Pressed));
     for (int i = 0; i < 30; i++) Feed(1);
     Feed(1, Primary(InputEdge.Released));
@@ -129,10 +249,16 @@ host.Call(engine =>
     combat.Orc.Spawn();
     Console.WriteLine($"donor content: {product.Donor.Source}");
     Check(combat.FirstPerson.Range > 2.4f && combat.FirstPerson.Range < 2.6f, FormattableString.Invariant($"the short sword's range is its rangeattack, 100 units: {combat.FirstPerson.Range:0.00} m"));
+    var rules = combat.Stamina.Rules;
+    Check(rules == StaminaRules.Shipped, $"stamina comes from player_basic.qct's skills, the settings and the ConVar defaults: {rules}");
     Check(MathF.Abs(combat.FirstPerson.AttackSpeed - 1.1f) < 1e-3f && MathF.Abs(orc.AttackSpeed - .8f) < 1e-3f,
         "attack clips play at the weapons' speed_attack: the short sword 1.10, the cleaver 0.80");
     var fast = combat.Sword.Clip;
     var real = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
+    Check(real.Charges.Count == 5 && real.Charge(PowerDirection.L).Out.Clip == "layer_bigslash_sword_noshield_L_out" && real.FastB.Traced,
+        $"the first-person model has the neutral and four directional power attacks, and B's own hit window ({real.FastB.Open:0.00}–{real.FastB.Close:0.00})");
+    Check(real.Moves.All(m => m.Traced) && MathF.Abs(real.Charge(PowerDirection.B).Out.Open - .105f) < .01f && MathF.Abs(real.Charge(PowerDirection.B).Out.Close - .21f) < .01f,
+        FormattableString.Invariant($"every move has a hit window; B's and T's, with no 2186/2190, run 2107–2110 (B {real.Charge(PowerDirection.B).Out.Open:0.00}–{real.Charge(PowerDirection.B).Out.Close:0.00})"));
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
@@ -152,11 +278,13 @@ host.Call(engine =>
         orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 1.3f);
         Advance(10);
     }
+    var swung = new List<SwordMove>();
     (int Hits, float Health) Swing(int holdSteps, bool block = false)
     {
         int hits = combat.Player.Hits;
+        swung.Clear();
         for (int i = 0; i < holdSteps; i++) combat.Step(Tick, step++, true, block, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
-        for (int i = 0; i < 90 && combat.Sword.Move != SwordMove.Ready; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+        for (int i = 0; i < 90 && combat.Sword.Move != SwordMove.Ready; i++) { combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); swung.Add(combat.Sword.Move); }
         return (combat.Player.Hits - hits, orc.Health);
     }
     combat.God = true;
@@ -189,6 +317,7 @@ host.Call(engine =>
     Swing(3);
     Console.WriteLine($"  against a parrying orc: {combat.LastBlow}");
     Check(combat.Player.Parried + combat.Player.Blocked == parried + 1, "an orc that parries turns the blade: the verdict reads its parry state");
+    Check(swung.Contains(SwordMove.FastEnd), "the parried swing plays on to its recovery: the donor's sword doesn't bounce off a parry");
     combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { ParryChance = 0 } });
     Face();
     float before = orc.Health;
@@ -291,10 +420,18 @@ host.Call(engine =>
         int donorMoves = report.Moves.Values.Sum(m => m.Donor), together = report.Moves.Values.Sum(m => m.Together);
         // A fight that used only the lab's own moves is held to them; one with the donor's variants (fast attack B
         // chained onto A, the directional power attacks) reports the gap the lab doesn't model yet.
-        if (report.Variants is not { Count: > 0 })
-            Check(together >= donorMoves * 8 / 10, $"{report.Name}: the lab begins the donor's moves with them ({together} of {donorMoves})");
-        else
-            Console.WriteLine($"  {report.Name}: the lab begins {together} of the donor's {donorMoves} moves; it lacks the variants above");
+        Check(together >= donorMoves * 8 / 10, $"{report.Name}: the lab begins the donor's moves with them ({together} of {donorMoves})");
+        // From v14 each move is held to its own clip too: fast attack A or B, each power attack's direction.
+        if (report.Kicks is not null && report.Clips is { } byClip)
+        {
+            int clipDonor = byClip.Values.Sum(c => c.Donor), clipTogether = byClip.Values.Sum(c => c.Together);
+            Check(clipTogether >= clipDonor * 8 / 10, $"{report.Name}: the lab plays the donor's own clip with it ({clipTogether} of {clipDonor})");
+        }
+        if (report.Kicks is { } asked)
+        {
+            int agree = asked.Requests - asked.DonorBegan - asked.LabBegan + 2 * asked.Both;
+            Check(agree >= asked.Requests * 8 / 10, $"{report.Name}: the lab kicks or refuses as the donor did on {agree} of {asked.Requests} requests");
+        }
         Check(!combat.Orc.Following && combat.Log is null, $"{report.Name}: the lab's own fight comes back after the replay");
     }
 });

@@ -2,6 +2,7 @@ using System.Numerics;
 using DarkMessiah.Combat;
 using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Sword;
 using DarkMessiah.Shared;
 using Rusty.Engine;
@@ -50,6 +51,8 @@ internal sealed class LabCombat : IDisposable
     const double ShowSeconds = 1.2;
 
     readonly IEngineContext engine;
+    readonly DonorContent donor;
+    readonly StaminaRules staminaRules;
     readonly SpatialSession session;
     readonly HitSweep sweep;
     readonly CombatModel model;
@@ -68,7 +71,9 @@ internal sealed class LabCombat : IDisposable
         FirstPerson = new FirstPerson(engine, donor);
         Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning));
         Orc = new Orc(engine, donor, tuning.Orc);
-        Stamina = new PlayerStamina(StaminaRules.From(donor));
+        this.donor = donor;
+        staminaRules = StaminaRules.From(donor);
+        Stamina = new PlayerStamina(staminaRules);
         PlayerHealth = tuning.PlayerHealth;
     }
 
@@ -76,6 +81,37 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The combat model the fight decides with, read from the imported .qct files and settings.</summary>
     internal CombatModel Model => model;
     internal PlayerSword Sword { get; }
+    /// <summary>The player's build: the skill modules, weapon and off-hand the fight plays with (<see cref="Rebuild"/>).</summary>
+    internal CharacterBuild? Build { get; private set; }
+
+    /// <summary>
+    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry).
+    /// </summary>
+    internal void Rebuild(CharacterBuild build)
+    {
+        Build = build;
+        Stamina.Retune(staminaRules.For(build));
+        Sword.CanParry = build.Has("combat_parry");
+    }
+
+    /// <summary>The authored build the lab plays (<c>build.json</c>), as last applied; replays play the recording's for their length.</summary>
+    internal BuildFile? BuildFile { get; private set; }
+
+    /// <summary>Plays the build an authored file describes, checked first: an invalid file throws and changes nothing.</summary>
+    internal void Rebuild(BuildFile file)
+    {
+        var build = BuildFrom(file);
+        BuildFile = file;
+        Rebuild(build);
+    }
+
+    /// <summary>The donor's skills, for the build page.</summary>
+    internal IReadOnlyDictionary<string, SkillInfo> Skills => donor.Tables.Skills;
+
+    /// <summary>The build an authored file describes, checked against the donor's tables.</summary>
+    internal CharacterBuild BuildFrom(BuildFile file) =>
+        CharacterBuild.From(file, donor.Tables, item => donor.Read(System.IO.Path.ChangeExtension(item, ".qct")) is not null);
+
     /// <summary>The player's stamina: sprinting drains it, a kick needs and costs it.</summary>
     internal PlayerStamina Stamina { get; }
     internal FirstPerson FirstPerson { get; }

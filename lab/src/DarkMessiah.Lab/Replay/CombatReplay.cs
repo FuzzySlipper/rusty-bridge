@@ -44,7 +44,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyDictionary<string, (int Donor, int Lab, int Together)> Moves, double MeanLagSeconds,
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
-    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null)
+    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -55,6 +55,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
             yield return $"  by clip: {string.Join("; ", c.OrderByDescending(x => x.Value.Donor).Select(x => $"{x.Key.Replace("layer_", "").Replace("_sword_noshield", "")} donor {x.Value.Donor}, lab {x.Value.Lab}, {x.Value.Together} together"))}";
         if (double.IsFinite(MeanLagSeconds))
             yield return FormattableString.Invariant($"  the lab begins a move {MeanLagSeconds * 1000:0} ms after the donor on average");
+        if (Build is { } build) yield return $"  build: {build}";
         if (Kicks is { } k) yield return $"  {k}";
         if (Body is { } b) yield return $"  {b}";
         foreach (var side in new[] { PlayerBlows, OrcBlows })
@@ -159,6 +160,9 @@ internal static class CombatReplay
         int jumps = 0, labJumps = 0, uses = 0;
         Vector3? lastDonor = null, lastLab = null;
         bool god = combat.God;
+        // From v15 the replay plays the donor player's build; the lab's own comes back after.
+        var ownBuild = combat.Build;
+        if (timeline.Build is { } recorded) combat.Rebuild(recorded);
         combat.Reset();
         combat.God = true;
         combat.Log = log;
@@ -196,6 +200,7 @@ internal static class CombatReplay
             if (driveBody) body!.End();
             combat.Log = null;
             combat.Orc.StopFollowing();
+            if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild);
             combat.Reset();
             combat.God = god;
         }
@@ -304,7 +309,8 @@ internal static class CombatReplay
             moveCounts, lags.Count > 0 ? lags.Average() : double.NaN,
             Compare("the player's blows on the followed orc", donorPlayer, log.Where(e => e.ByPlayer).Select(Lab).ToList()),
             Compare("the followed orc's blows on the player", donorOrc, log.Where(e => !e.ByPlayer).Select(Lab).ToList()),
-            notCompared, kicks, bodyReplay, byClip, excluded);
+            notCompared, kicks, bodyReplay, byClip, excluded,
+            timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, which the replay doesn't follow" : "")}" : null);
     }
 
     /// <summary>

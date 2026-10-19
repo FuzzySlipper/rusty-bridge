@@ -160,6 +160,11 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool Busy => Move is not (SwordMove.Ready or SwordMove.Parry);
     /// <summary>True on the step a swing (not a wind-up) begins: what an orc sees coming.</summary>
     internal bool SwingStarted { get; private set; }
+    /// <summary>
+    /// The build has <c>combat_parry</c>: holding block parries. Every build has it (the combat skill's level 0); the gate
+    /// is the module's name, not checked against the donor.
+    /// </summary>
+    internal bool CanParry { get; set; } = true;
     /// <summary>A kick was asked for and hasn't started: it starts on the first step it may.</summary>
     internal bool KickWanted => kickWanted;
 
@@ -205,7 +210,7 @@ internal sealed class PlayerSword(SwordClips clips)
         {
             case SwordMove.Ready:
                 if (attackHeld) Charge(move, 0);
-                else if (blockHeld) Play(SwordMove.Parry, clips.ParryIn);
+                else if (blockHeld && CanParry) Play(SwordMove.Parry, clips.ParryIn);
                 break;
             case SwordMove.Charge:
                 var charge = clips.Charge(direction);

@@ -1,3 +1,4 @@
+using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Sword;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Player;
@@ -81,12 +82,23 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
         Tunable CombatControl(string group, (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set) c) =>
             new(new TunableControl($"{group}.{c.Id}", c.Label, TunableKind.Slider, c.Min, c.Max, c.Step, c.Get(combat.Tuning)) { Source = new(CombatTuning.Path, c.Pointer) },
                 v => combat.Retune(CombatTuning.Validate(c.Set(combat.Tuning, v))));
+        // One slider per skill, 0 to its maximum level, applied through the build's own validation.
+        Tunable BuildControl(SkillInfo skill) =>
+            new(new TunableControl($"build.{skill.Name}", $"{skill.Name} (max {skill.MaxLevel})", TunableKind.Slider, 0, skill.MaxLevel, 1,
+                    combat.BuildFile?.Skills.GetValueOrDefault(skill.Name) ?? 0) { Source = new(BuildFile.Path, $"/skills/{skill.Name}") },
+                v =>
+                {
+                    var file = combat.BuildFile ?? throw new InvalidOperationException("No build loaded.");
+                    combat.Rebuild(file with { Skills = new Dictionary<string, int>(file.Skills) { [skill.Name] = (int)MathF.Round(v) } });
+                });
         return new TunablesPage("Dark Messiah combat lab",
         [
             new TunableGroup("body", "Body", Body.Select(BodyControl).ToArray()) { File = PlayerTuning.Path },
             new TunableGroup("view", "View", View.Select(BodyControl).ToArray()) { File = PlayerTuning.Path },
             new TunableGroup("sword", "Sword (the lab's; clips, damage and range are Arkane's)", SwordControls.Select(c => CombatControl("sword", c)).ToArray()) { File = CombatTuning.Path },
             new TunableGroup("orc", "Orc", OrcControls.Select(c => CombatControl("orc", c)).ToArray()) { File = CombatTuning.Path },
+            new TunableGroup("build", "Build (skill levels from mm_skills_infos.txt; a skill above 0 needs what it requires)",
+                combat.Skills.Values.OrderBy(s => s.Name, StringComparer.Ordinal).Select(BuildControl).ToArray()) { File = BuildFile.Path },
             new TunableGroup("world", "World time (not saved)",
             [
                 new Tunable(new TunableControl("world.rate", "World rate ×", TunableKind.Slider, .05f, 1, .05f, (float)time.Rate), v => time.SetRate(v)),
@@ -94,7 +106,7 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
             ]),
         ])
         {
-            Notice = "Changes apply at once. Save writes body and view to player.json and the sword and orc to combat.json; hand edits to those files reload live. World time is not saved.",
+            Notice = "Changes apply at once. Save writes body and view to player.json, the sword and orc to combat.json and the skill levels to build.json; hand edits to those files reload live. World time is not saved.",
         };
     }
 }

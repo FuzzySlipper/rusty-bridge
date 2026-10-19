@@ -34,5 +34,6 @@
     <!-- Reloaded in place under `rusty dev` (and by tunables Save): the body/camera feel and the fight's own numbers. -->
     <RustyEngineLiveContent Include="player.json" />
     <RustyEngineLiveContent Include="combat.json" />
+    <RustyEngineLiveContent Include="build.json" />
   </ItemGroup>
 </Project>

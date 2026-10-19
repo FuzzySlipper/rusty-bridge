@@ -57,6 +57,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
+        combat.Rebuild(BuildFile.Load(engine));
         time = new WorldTime(engine);
         developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);
         hud = engine.Ui.OpenStream(new UiStreamRequest("darkmessiah-lab", "rusty-bridge.lab.hud"));
@@ -278,6 +279,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             {
                 if (change.Path == PlayerTuning.Path) player.Retune(PlayerTuning.Load(engine));
                 else if (change.Path == CombatTuning.Path) combat.Retune(CombatTuning.Load(engine));
+                else if (change.Path == BuildFile.Path) combat.Rebuild(BuildFile.Load(engine));
                 else continue;
                 notice = $"Reloaded {change.Path}";
             }

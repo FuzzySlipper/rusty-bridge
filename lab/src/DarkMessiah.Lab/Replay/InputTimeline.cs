@@ -1,6 +1,7 @@
 using System.Numerics;
 using DarkMessiah.Combat;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Player;
 using RustyBridge.Wire;
 using RustyBridge.Wire.Donor;
 
@@ -52,6 +53,12 @@ internal sealed class InputTimeline
     internal IReadOnlyList<(int Tick, string Victim, string Class, float Damage)> Kicks { get; private init; } = [];
     /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
     internal bool HasCommands { get; private init; }
+    /// <summary>
+    /// From Wire v15, the donor player's build at the first frame with stats (<see cref="CharacterBuild.FromRecording"/>);
+    /// null before v15. <see cref="BuildChanges"/> counts later changes to its modules or items, which the replay doesn't follow.
+    /// </summary>
+    internal CharacterBuild? Build { get; private init; }
+    internal int BuildChanges { get; private init; }
     /// <summary>Recorded frames without input (older Wire, or no player): not replayed.</summary>
     internal int Skipped { get; private init; }
 
@@ -79,6 +86,9 @@ internal sealed class InputTimeline
         double lastTime = double.NaN;
         int skipped = 0;
         bool commands = false;
+        CharacterBuild? build = null;
+        int buildChanges = 0;
+        (SkillModules, string?, string?) lastKit = default;
         var lastCommand = (Buttons: InputButtons.None, Actions: PlayerActions.None);
         using (var stream = File.OpenRead(path))
             foreach (var f in RecordingReader.Frames(stream))
@@ -88,6 +98,14 @@ internal sealed class InputTimeline
                     if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
                         && f.Entities.TryGetValue(d.Victim, out var v) && f.Classes.GetValueOrDefault(v.ClassId) is { } cls && cls.StartsWith("npc_", StringComparison.Ordinal))
                         kicks.Add((d.Tick, $"#{d.Victim}.{d.VictimSerial:x}", cls, d.Damage));
+                if (f.Version >= 15 && f.Stats.Valid != 0)
+                {
+                    string? Model(ushort index) => index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var e) ? f.Models.GetValueOrDefault(e.ModelIndex) : null;
+                    var kit = (f.Stats.Modules, Model(f.Stats.Weapon), Model(f.Stats.Shield));
+                    if (build is null) build = CharacterBuild.FromRecording(f.Stats, kit.Item2, kit.Item3, Path.GetFileName(path));
+                    else if (kit != lastKit) buildChanges++;
+                    lastKit = kit;
+                }
                 var view = f.ClientView;
                 if (f.Version < 12 || f.Input.Valid == 0 || !view.Flags.HasFlag(ClientViewFlags.Player) || !view.Flags.HasFlag(ClientViewFlags.ViewAngles))
                 {
@@ -143,7 +161,8 @@ internal sealed class InputTimeline
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
-        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands };
+        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands,
+            Build = build, BuildChanges = buildChanges };
     }
 
     /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>

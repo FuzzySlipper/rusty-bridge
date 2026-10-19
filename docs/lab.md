@@ -74,6 +74,31 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 - the player's health;
 - the orc's spawn, engage distance, walk speed, attack cooldown, parry chance and health.
 
+## Builds
+
+The player's build is `content/build.json`, live and on the developer shell's tunables page (the Build group, one
+slider per skill, saved back to the file):
+- **Skills:** every skill of `scripts/mm_skills_infos.txt`, at a level from 0 to its `max_level`. A skill at level
+  *n* gives the modules of its levels 0 to *n*. Only `combat` has level-0 modules (`combat_big_slash`,
+  `combat_huge_slash`, `combat_parry`, `combat_fatality`), so every build has those, as a new donor game does
+  (Wire v15 shows exactly them).
+- **Requirements:** a skill above 0 needs one of the skills its `requires` names ("a|b" is either) above 0, and
+  those need theirs: `adrenaline` needs `critical_hit` or `extra_damage`, which need `combat` or `projectile`.
+- **Items:** the weapon and the off-hand by model path, each an imported item (its `.qct`). The lab plays only the
+  short sword and no shield yet, and refuses others, naming #10148 and #10149.
+- **Spells:** known spells by Arkane's id (`air_1`...), each in `spells.txt`; nothing reads them yet.
+
+An invalid file is refused with the field and the reason, and the last build stays. Mechanics ask the build
+(`CharacterBuild.Has`) for a module:
+- **Stamina:** `double_sprint` (the `stamina` skill's level 1) raises the maximum to `player_stamina_double_sprint_max`
+  (12), as the v15 recording shows after every skill was learned.
+- **The parry:** needs `combat_parry`. Every build has it, so this changes nothing yet; the gate is the module's
+  name, not checked against the donor.
+
+**Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats.
+The report says what it was, and how often it changed later (the replay doesn't follow changes). After the replay
+the lab plays `build.json` again.
+
 ## The player's moves
 
 `PlayerSword` plays the short sword's moves as the hand-played arena fights show them
@@ -205,7 +230,7 @@ reports where the outcomes agree. NAME is a path, or a file in
 **Each recorded tick is one lab step of that tick's game time:**
 - **The sword:** the held attack and attack2 buttons drive it (`PlayerSword`),
   from the recorded eye and view angles. From v14 the command's movement picks a power attack's direction, and its
-  sprint action drains stamina.
+  sprint action drains stamina. From v15 it plays the recording's build (above, "Builds").
 - **Kicks:** from v14, the command's kick action is F: going down asks for a kick, held keeps asking. The lab's
   sword can refuse it, as the donor can, by its own rules (busy kicking, in the air by the replayed body, short of
   stamina), so the report counts requests and which side began a kick on each. Before v14 the request isn't on
@@ -301,7 +326,7 @@ of 46 began together. The lab's extra fast attacks follow a move it got wrong:
 
 ```
 lab/
-  content/                 lab.json (arena), player.json (body and camera), combat.json (the fight's own numbers)
+  content/                 lab.json (arena), player.json (body and camera), combat.json (the fight's own numbers), build.json (skills and items)
   src/DarkMessiah.Lab/
     LabProduct.cs          composition: input, body, fight, cubes, world time, publish
     Donor/                 DonorContent (packs and opens dm-import's output; models, .qct numbers, CombatData), GameTables (spells, skills)
@@ -310,7 +335,7 @@ lab/
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
     Calibration/           SwordCalibration against recordings
     Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)
-    Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below)
+    Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below); Player/CharacterBuild is the lab's
   src/ui/                  HUD, pause menu, developer shell
   tests/DarkMessiah.Lab.Smoke/
 shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and HitSweep, used by the lab and the mirror

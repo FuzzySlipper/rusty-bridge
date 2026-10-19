@@ -4,6 +4,7 @@ using DarkMessiah.Lab;
 using DarkMessiah.Lab.Calibration;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Sword;
 using Rusty.Engine;
@@ -151,6 +152,11 @@ k.Step(Tick, true, false, false);
 k.Step(Tick, false, false, false);
 Check(k.Move == SwordMove.Power && k.Clip.Clip == "power" && k.SwingStarted, "one late in the kick releases the neutral power attack at once");
 
+// A build without combat_parry (#10140's gate) doesn't parry: holding block does nothing.
+var noParry = new PlayerSword(clips) { CanParry = false };
+for (int i = 0; i < 12; i++) noParry.Step(Tick, false, true, false);
+Check(noParry.Move == SwordMove.Ready, "without combat_parry, holding block doesn't parry");
+
 // Stamina: Dark Messiah's numbers, a kick's threshold and cost, sprint's drain and the regeneration.
 var stamina = new PlayerStamina(StaminaRules.Shipped);
 for (int i = 0; i < 60; i++) stamina.Step(Tick, sprinting: true);
@@ -267,6 +273,33 @@ host.Call(engine =>
         "item .qct read: the long sword's WDmg 3, the classic bow's ammo 30 and rangeattack 80");
     var daggers = donor.Model("models/items/weapons/daggers/daggers.mdl");
     Check(daggers.Joints.Count > 0, $"item models open: the daggers ({daggers.Joints.Count} joints, {daggers.Info.Collision.Count} hulls)");
+    // Builds (#10140): build.json's, checked against mm_skills_infos.txt and the item tables.
+    var own = combat.Build!;
+    Check(own.Source == BuildFile.Path && own.Modules.SetEquals(["combat_big_slash", "combat_huge_slash", "combat_parry", "combat_fatality"])
+        && own.Weapon == CharacterBuild.PlayableWeapon && own.OffHand is null,
+        $"the lab plays build.json: every skill at 0 gives the combat skill's level-0 modules, as a new donor game has ({own})");
+    var file = combat.BuildFile!;
+    string? Refused(BuildFile f) { try { combat.BuildFrom(f); return null; } catch (InvalidOperationException e) { return e.Message; } }
+    BuildFile WithSkill(string name, int level) => file with { Skills = new Dictionary<string, int>(file.Skills) { [name] = level } };
+    Check(Refused(WithSkill("swordplay", 1)) is string unknown && unknown.Contains("isn't a skill"), "a skill mm_skills_infos.txt lacks is refused");
+    Check(Refused(WithSkill("combat", 4)) is string high && high.Contains("0 to 3"), "a level above the skill's max_level is refused");
+    Check(Refused(WithSkill("adrenaline", 1)) is string needs && needs.Contains("critical_hit"), "a skill whose requirement isn't learned is refused (adrenaline needs critical_hit or extra_damage)");
+    var chain = new Dictionary<string, int>(file.Skills) { ["combat"] = 1, ["extra_damage"] = 1, ["adrenaline"] = 1 };
+    Check(Refused(file with { Skills = chain }) is null && Refused(file with { Skills = new Dictionary<string, int>(chain) { ["combat"] = 0 } }) is string chained && chained.Contains("extra_damage"),
+        "with one of its requirements it's accepted, and that one needs its own (extra_damage needs combat or projectile)");
+    Check(Refused(file with { Weapon = "models/items/weapons/sword_long/sword_long.mdl" }) is string weapon && weapon.Contains("#10148")
+        && Refused(file with { OffHand = "models/items/armors/shield_orc/shield_orc.mdl" }) is string shield && shield.Contains("#10149")
+        && Refused(file with { Weapon = "models/items/weapons/nothing/nothing.mdl" }) is string missing && missing.Contains("isn't an imported item"),
+        "weapons and shields the lab can't play yet are refused, naming their task; items the import lacks too");
+    combat.Rebuild(WithSkill("stamina", 1));
+    Check(combat.Build!.Has("double_sprint") && combat.Stamina.Rules.Max == 12, $"stamina 1 gives double_sprint, and stamina's maximum becomes 12: {combat.Stamina.Rules.Max}");
+    combat.Rebuild(file);
+    Check(combat.Stamina.Rules.Max == 9 && combat.Stamina.Value <= 9, "back at stamina 0 the maximum is 9 again");
+    combat.Rebuild(combat.Build! with { Modules = new HashSet<string>(), Source = "no modules" });
+    var parries = new List<SwordMove>();
+    for (int i = 0; i < 20; i++) { combat.Step(Tick, step++, false, true, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); parries.Add(combat.Sword.Move); }
+    Check(!parries.Contains(SwordMove.Parry), "a build without combat_parry can't parry in the fight");
+    combat.Rebuild(file);
     var rules = combat.Stamina.Rules;
     Check(rules == StaminaRules.Shipped, $"stamina comes from player_basic.qct's skills, the settings and the ConVar defaults: {rules}");
     Check(MathF.Abs(combat.FirstPerson.AttackSpeed - 1.1f) < 1e-3f && MathF.Abs(orc.AttackSpeed - .8f) < 1e-3f,
@@ -452,6 +485,19 @@ host.Call(engine =>
         }
         Check(!combat.Orc.Following && combat.Log is null, $"{report.Name}: the lab's own fight comes back after the replay");
     }
+
+    // A v15 recording replays with the donor player's build (#10140): l01_a-v15-stats starts with the combat skill's
+    // level 0 and the short sword, then learns every skill, which the replay notes but doesn't follow.
+    string stats = Path.Combine(recordings, "experiments", "l01_a-v15-stats.rbrec");
+    if (File.Exists(stats))
+    {
+        var report = CombatReplay.Run(combat, stats, product);
+        Console.WriteLine($"  {report.Name}: build: {report.Build}");
+        Check(report.Build is string b && b.StartsWith("l01_a-v15-stats.rbrec: 4 modules", StringComparison.Ordinal) && b.Contains("sword_short.mdl") && b.Contains("changed"),
+            "a v15 recording's replay runs the recording's build, and says when it changed later");
+        Check(combat.Build?.Source == BuildFile.Path, "after the replay the lab plays build.json again");
+    }
+    else Console.WriteLine("skip the v15 build replay: no local/recordings/experiments/l01_a-v15-stats.rbrec");
 });
 return failures == 0 ? 0 : 1;
 

@@ -34,6 +34,8 @@ internal sealed class InputTimeline
     internal const string OrcClass = "npc_orc_sword";
     /// <summary>The orc the lab follows is the one nearest the player's aim within this far, metres; else the nearest.</summary>
     const float FacingRange = 4;
+    /// <summary>The command's movement for a full run: what the lab's movement input of length 1 stands for.</summary>
+    internal const float RunMove = 1000;
     /// <summary>Dark Messiah's kick damage bit (docs/combat.md).</summary>
     const uint KickDamage = 0x40000;
 
@@ -51,7 +53,18 @@ internal sealed class InputTimeline
     /// <summary>Recorded frames without input (older Wire, or no player): not replayed.</summary>
     internal int Skipped { get; private init; }
 
-    /// <param name="moves">The first-person clips whose starts count as the donor's moves (fast, power, kick).</param>
+    /// <summary>
+    /// The move family a first-person clip plays: Dark Messiah's fast attacks (A, and B that alternates with it), its
+    /// power attacks' releases (the neutral one and the directional T, B, L and R ones), and its kicks. Null for
+    /// anything else (charges, idles, parries, movement).
+    /// </summary>
+    internal static string? Family(string clip) =>
+        clip.Contains("fastattack", StringComparison.Ordinal) && !clip.EndsWith("_end", StringComparison.Ordinal) ? "fast attack"
+        : clip.Contains("bigslash", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "power attack"
+        : clip.Contains("kick", StringComparison.Ordinal) ? "kick"
+        : null;
+
+    /// <param name="moves">The lab's first-person clips (fast, power, kick); the donor's moves are their families' clips, variants included.</param>
     /// <param name="kick">The kick's first-person clip.</param>
     internal static InputTimeline Read(string path, IReadOnlyCollection<string> moves, string kick)
     {
@@ -85,13 +98,13 @@ internal sealed class InputTimeline
                 var now = new Dictionary<string, float>();
                 if (view.Flags.HasFlag(ClientViewFlags.ViewmodelLayers) && f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is { } names)
                     foreach (var l in view.ViewmodelLayers)
-                        if (l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && moves.Contains(names[l.Sequence]))
+                        if (l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && Family(names[l.Sequence]) is not null)
                             now[names[l.Sequence]] = l.Cycle;
                 foreach (var (clip, cycle) in now)
                     if (!playing.TryGetValue(clip, out float was) || cycle < was - .05f)
                     {
                         swings.Add(new DonorSwing(f.Tick, f.Curtime, clip));
-                        kicked |= clip == kick;
+                        kicked |= Family(clip) == "kick";
                     }
                 playing = now;
 
@@ -114,8 +127,9 @@ internal sealed class InputTimeline
                     jump = now2.Item1.HasFlag(InputButtons.Jump) && !lastCommand.Buttons.HasFlag(InputButtons.Jump);
                     use = now2.Item1.HasFlag(InputButtons.Use) && !lastCommand.Buttons.HasFlag(InputButtons.Use);
                     lastCommand = now2;
-                    var m = new Vector2(f.Input.SideMove, f.Input.ForwardMove);
-                    move = m.LengthSquared() > 1 ? Vector2.Normalize(m) : default;
+                    // A forwardmove of 1000 is a run; 150 the slow walk the game sends while charging or guarding.
+                    var m = new Vector2(f.Input.SideMove, f.Input.ForwardMove) / RunMove;
+                    move = m.LengthSquared() > 1 ? Vector2.Normalize(m) : m;
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use));
             }

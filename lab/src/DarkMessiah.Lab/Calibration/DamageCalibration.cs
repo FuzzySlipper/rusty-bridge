@@ -29,7 +29,6 @@ internal static class DamageCalibration
 
     internal static List<DamageComparison> Measure(IEnumerable<string> recordings, LabCombat combat, SwordClips clips)
     {
-        string[] swings = [clips.Fast.Clip, clips.Power.Clip];
         var settings = combat.Model.Data.Settings;
         var results = new List<DamageComparison>();
         foreach (var path in recordings)
@@ -38,14 +37,20 @@ internal static class DamageCalibration
             using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
             foreach (var d in fight.Damage)
             {
-                if (!d.Attacker.IsPlayer || d.Victim.Class != "npc_orc_sword" || d.Defended) continue;
+                // A swing that kills goes on to touch the body: those contacts ask nothing of a victim already at 0.
+                if (!d.Attacker.IsPlayer || d.Victim.Class != "npc_orc_sword" || d.Defended || d.HealthBefore <= 0) continue;
                 bool kick = (d.DamageType & CombatModel.KickDamage) != 0;
-                string? move = kick ? clips.Kick.Clip : d.Attacker.Layers.FirstOrDefault(swings.Contains);
+                // The newest move layer (an earlier move's can be fading under it), as the lab plays it: its fast or
+                // neutral power attack for the donor's variants.
+                string? family = kick ? "kick" : d.Attacker.Layers.Select(Replay.InputTimeline.Family).LastOrDefault(f => f is not null);
+                string? move = family switch { "kick" => clips.Kick.Clip, "fast attack" => clips.Fast.Clip, "power attack" => clips.Power.Clip, _ => null };
+                string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? move ?? "";
                 if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
                 var player = d.Attacker with { Layers = [move] };
                 float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore);
                 string reason =
-                    d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0 ? "a critical (×2): the lab rolls none"
+                    donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
+                    : d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0 ? "a critical (×2): the lab rolls none"
                     : d.VictimAlert is int alert && alert <= settings.NotAlertedLevel && d.VictimNpcState != CombatModel.NotAlertedExemptState
                         ? $"the orc wasn't alert (×{settings.NotAlertedMultiplier:0.#}): the lab's always is"
                     : d.VictimAlert is null ? "before Wire v11: neither the critical byte nor the orc's alert level is on the Wire"

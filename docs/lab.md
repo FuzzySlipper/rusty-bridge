@@ -166,6 +166,19 @@ The moves each side began are paired by clip the same way.
   rusty-fptester's, not yet calibrated to Dark Messiah's speeds.
 - **Jumps:** the one jump came through.
 
+**Hand-played (`l01_a-v14-arena-hand.rbrec`, 150 s, and `-hand2`, 51 s)**, which used moves the bot never does:
+- **The moves:** the donor plays variants the lab doesn't model yet. The lab plays each as its neutral move:
+  - fast attack B, chained onto A before A ends (16 times);
+  - the directional power attacks (`bigslash_*_T`, `_B`, `_L`, `_R`);
+  - a jumping attack, sprint and quick draw.
+
+  So the lab begins 14 of the donor's 20 moves in the first fight and 21 of 46 in the second, against all of
+  them for the bot. The donor began 27 fast attacks to the lab's 19, and 9 power attacks to its 6.
+- **Kicks:** 19 and 15 requests. The donor began 6 and 10, the lab 9 and 9. Why the donor refused so many isn't checked yet; sprinting and jumping are likely.
+- **Movement:** commands run at 1000, about 1400 on a diagonal, and 150 for the slow walk while charging or guarding.
+  The replay scales them against a run. The lab's body averages 4.20 against the donor's 4.69 m/s, and 2.78 against 1.68.
+- **Jumps:** all 12 came through.
+
 **Where they differ:**
 - **Which part a swing strikes:**
   - Donor blows on hit group 1 (4.2 and 9 damage) were the lab's on group 4 (1.4 and 3).

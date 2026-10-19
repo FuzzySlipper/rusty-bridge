@@ -43,13 +43,15 @@ internal sealed record BlowComparison(string Side, IReadOnlyList<BlowMatch> Matc
 internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int Skipped,
     IReadOnlyDictionary<string, (int Donor, int Lab, int Together)> Moves, double MeanLagSeconds,
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
-    KickRequests? Kicks = null, BodyReplay? Body = null)
+    KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, int>? Variants = null)
 {
     internal IEnumerable<string> Lines()
     {
         yield return FormattableString.Invariant($"{Name}: {Ticks} ticks replayed ({Seconds:0.0} s), {Skipped} recorded frames without input");
         foreach (var (clip, m) in Moves)
             yield return $"  {clip}: donor {m.Donor}, lab {m.Lab}, {m.Together} begin together";
+        if (Variants is { Count: > 0 } v)
+            yield return $"  the donor's variants, which the lab plays as its neutral move: {string.Join(", ", v.OrderByDescending(x => x.Value).Select(x => $"{x.Key} ×{x.Value}"))}";
         if (double.IsFinite(MeanLagSeconds))
             yield return FormattableString.Invariant($"  the lab begins a move {MeanLagSeconds * 1000:0} ms after the donor on average");
         if (Kicks is { } k) yield return $"  {k}";
@@ -195,13 +197,14 @@ internal static class CombatReplay
         var notCompared = new List<string>();
         var fight = timeline.Fight;
 
-        // The moves each side began, paired by clip within the window.
+        // The moves each side began, paired by family within the window: the donor's variants (fast attack B, the
+        // directional power attacks) count as their family's move, which the lab plays as its neutral one.
         var moveCounts = new Dictionary<string, (int, int, int)>();
         var lags = new List<double>();
-        foreach (var clip in moves)
+        foreach (var family in moves.Select(InputTimeline.Family).OfType<string>())
         {
-            var donor = timeline.Swings.Where(s => s.Clip == clip).ToList();
-            var lab = labSwings.Where(s => s.Clip == clip).ToList();
+            var donor = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == family).ToList();
+            var lab = labSwings.Where(s => InputTimeline.Family(s.Clip) == family).ToList();
             var used = new HashSet<DonorSwing>();
             int together = 0;
             foreach (var d in donor)
@@ -211,8 +214,9 @@ internal static class CombatReplay
                     together++;
                     lags.Add(l.Time - d.Time);
                 }
-            moveCounts[clip] = (donor.Count, lab.Count, together);
+            moveCounts[family] = (donor.Count, lab.Count, together);
         }
+        var variants = timeline.Swings.Where(s => !moves.Contains(s.Clip)).GroupBy(s => s.Clip).ToDictionary(g => g.Key, g => g.Count());
 
         // The player's blows on NPCs: the first contact of each swing on each victim, with its verdict and the damage it
         // asked. A swing is a move starting on the view model (DonorSwing): the player's body animation doesn't show it.
@@ -220,7 +224,8 @@ internal static class CombatReplay
         var otherVictims = new Dictionary<string, int>();
         var taken = new HashSet<(int Swing, string Victim)>();
         bool First(int tick, string victim) => taken.Add((SwingAt(timeline.Swings, tick), victim));
-        string Move(IReadOnlyList<string> layers) => layers.FirstOrDefault(moves.Contains) ?? layers.FirstOrDefault() ?? "?";
+        // The newest move layer: an earlier move's can still be fading out under it.
+        string Move(IReadOnlyList<string> layers) => layers.LastOrDefault(l => InputTimeline.Family(l) is not null) ?? layers.LastOrDefault() ?? "?";
         foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc).OrderBy(d => d.Tick))
         {
             if (!First(d.Tick, d.Victim.Id)) continue;
@@ -270,9 +275,9 @@ internal static class CombatReplay
         KickRequests? kicks = null;
         if (timeline.HasCommands)
         {
-            bool Began(IEnumerable<DonorSwing> swings, double at) => swings.Any(s => s.Clip == clips.Kick.Clip && s.Time >= at - .05 && s.Time <= at + Window);
-            var donorKicks = timeline.Swings.Where(s => s.Clip == clips.Kick.Clip).ToList();
-            var labKicks = labSwings.Where(s => s.Clip == clips.Kick.Clip).ToList();
+            bool Began(IEnumerable<DonorSwing> swings, double at) => swings.Any(s => s.Time >= at - .05 && s.Time <= at + Window);
+            var donorKicks = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == "kick").ToList();
+            var labKicks = labSwings.Where(s => InputTimeline.Family(s.Clip) == "kick").ToList();
             kicks = new KickRequests(requests.Count, requests.Count(r => Began(donorKicks, r)), requests.Count(r => Began(labKicks, r)),
                 requests.Count(r => Began(donorKicks, r) && Began(labKicks, r)));
         }
@@ -283,7 +288,7 @@ internal static class CombatReplay
             moveCounts, lags.Count > 0 ? lags.Average() : double.NaN,
             Compare("the player's blows on the followed orc", donorPlayer, log.Where(e => e.ByPlayer).Select(Lab).ToList()),
             Compare("the followed orc's blows on the player", donorOrc, log.Where(e => !e.ByPlayer).Select(Lab).ToList()),
-            notCompared, kicks, bodyReplay);
+            notCompared, kicks, bodyReplay, variants);
     }
 
     /// <summary>

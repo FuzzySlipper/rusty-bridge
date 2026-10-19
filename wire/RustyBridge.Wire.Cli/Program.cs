@@ -129,7 +129,8 @@ int Dump()
     if (snap.Player.Index != WireLayout.NoEntity)
         Console.WriteLine($"  player #{snap.Player.Index}: {PlayerState(snap.Player)}");
     if (snap.Input.Valid != 0)
-        Console.WriteLine($"  input: held {snap.Input.Buttons}, pressed {snap.Input.Pressed}, released {snap.Input.Released} (0x{(uint)snap.Input.Buttons:X})");
+        Console.WriteLine($"  input: held {snap.Input.Buttons}, pressed {snap.Input.Pressed}, released {snap.Input.Released} (0x{(uint)snap.Input.Buttons:X}); " +
+            FormattableString.Invariant($"{snap.Input.Commands} commands, move {snap.Input.ForwardMove:0}/{snap.Input.SideMove:0}, buttons {snap.Input.CommandButtons}, actions {snap.Input.Actions}"));
     if (snap.ClientView.Flags != ClientViewFlags.None)
     {
         Console.WriteLine($"  client: {ClientView(snap.ClientView)}");

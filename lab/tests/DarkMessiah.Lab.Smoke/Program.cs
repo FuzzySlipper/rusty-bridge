@@ -237,7 +237,25 @@ host.Call(engine =>
     combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000 } });
     foreach (var path in found.Where(p => RecordingVersion(p) >= 12))
     {
-        var report = CombatReplay.Run(combat, path);
+        var report = CombatReplay.Run(combat, path, product);
+        // From Wire v14 the commands drive it: kicks are requests, and movement, jump and use move the lab's own body.
+        if (report.Kicks is { } kicks && report.Body is { } moved)
+        {
+            Check(kicks.Requests >= kicks.DonorBegan && kicks.Requests >= kicks.LabBegan && kicks.Requests > 0,
+                $"{report.Name}: kicks are the recorded requests ({kicks})");
+            Check(moved.MoveTicks == 0 || moved.LabSpeed > .5f * moved.DonorSpeed && moved.LabSpeed < 2f * moved.DonorSpeed,
+                $"{report.Name}: the recorded movement moves the lab's body ({moved})");
+            Check(moved.JumpPresses == 0 || moved.LabJumps > 0, $"{report.Name}: a recorded jump makes the lab's body jump");
+        }
+        // Two swings while the player's body animation runs on (review R10122-3): every blow is accounted for.
+        if (Path.GetFileName(path) == "l01_a-v12-arena-bot.rbrec")
+        {
+            var timeline = InputTimeline.Read(path, [real.Fast.Clip, real.Power.Clip, real.Kick.Clip], real.Kick.Clip);
+            bool counted = report.PlayerBlows.Matches.Any(m => m.Donor?.Tick == 16618)
+                || report.NotCompared.Any(n => n.Contains("player blows on npc_orc_sword", StringComparison.Ordinal));
+            Check(CombatReplay.SwingAt(timeline.Swings, 16396) != CombatReplay.SwingAt(timeline.Swings, 16618) && counted,
+                "the parried fast attack at tick 16396 and the power attack at 16618 are separate swings, and the later one is counted");
+        }
         foreach (var line in report.Lines()) Console.WriteLine($"  {line}");
         Check(report.Ticks > 0 && report.Moves.Values.Sum(m => m.Lab) > 0, $"{report.Name}: its input drives the lab's sword");
         int donorMoves = report.Moves.Values.Sum(m => m.Donor), together = report.Moves.Values.Sum(m => m.Together);

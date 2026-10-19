@@ -79,7 +79,8 @@ function recording(frames, version = 6) {
         for (let i = 0; i < 8; i++) { u16(i === 0 && client?.layer ? client.layer.seq : 0); u16(0); f32(i === 0 && client?.layer ? client.layer.cycle : 0); f32(i === 0 && client?.layer ? 1 : 0); }
       }
     }
-    if (version >= 12) { u16(input ? 1 : 0xffff); u8(input ? 1 : 0); u8(0); u32(input?.buttons ?? 0); u32(input?.pressed ?? 0); u32(0); }  // the player's input
+    if (version >= 12) { u16(input ? 1 : 0xffff); u8(input ? 1 : 0); u8(input?.commands ?? 0); u32(input?.buttons ?? 0); u32(input?.pressed ?? 0); u32(0); }  // the player's input
+    if (version >= 14) { f32(input?.forward ?? 0); f32(input?.side ?? 0); f32(0); u32(input?.buttons ?? 0); u32(input?.actions ?? 0); u32(0); u32(0); u32(0); }  // its commands
   }));
   return new Uint8Array(bytes).buffer;
 }
@@ -177,6 +178,15 @@ test('v12: the player\'s input, held and pressed, by button name', () => {
   assert.equal(rec.frames[1].input, undefined);
   assert.equal(vm.runInContext('inputText({ buttons: 9 | (1 << 11), pressed: 1 << 11, released: 0 })', context), 'attack forward attack2 (pressed attack2)');
   assert.equal(vm.runInContext('inputText({ buttons: 1 << 27, pressed: 0, released: 0 })', context), '0x8000000');
+});
+
+test('v14: the player\'s commands, the kick among Arkane\'s actions', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 8, pressed: 0, commands: 2, forward: 450, side: 0, actions: 4 } },
+  ], 14));
+  const i = rec.frames[0].input;
+  assert.deepEqual([i.commands, i.forward, i.actions], [2, 450, 4]);
+  assert.equal(vm.runInContext(`inputText(${JSON.stringify(i)})`, context), 'forward kick · move 450/0');
 });
 
 test('v13: a blow carries the victim\'s animation as it arrived', () => {

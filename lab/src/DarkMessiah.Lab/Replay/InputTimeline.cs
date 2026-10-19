@@ -11,10 +11,16 @@ namespace DarkMessiah.Lab.Replay;
 /// looks from and stands, and the orc it faces.
 /// </summary>
 /// <param name="Seconds">Game time since the previous tick: the step the lab takes.</param>
-/// <param name="Kick">The donor began a kick this tick. Dark Messiah's kick isn't a button bit (docs/wire.md, "The
-/// player's input"), so the press is read from the kick clip starting on the view model.</param>
+/// <param name="Kick">
+/// A kick was asked for this tick. From Wire v14 that is the user command's kick action going down (Arkane's byte
+/// +0x97), whether or not the donor then kicked; before v14 the press isn't on the Wire, so it is the kick clip
+/// starting on the view model (docs/wire.md, "The player's input").
+/// </param>
+/// <param name="Move">v14: the command's movement, side and forward, as a unit direction (zero when none).</param>
+/// <param name="Jump">v14: jump went down in this tick's commands.</param>
+/// <param name="Use">v14: use went down in them.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
-    Vector3 Feet, OrcPose? Orc);
+    Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -40,6 +46,8 @@ internal sealed class InputTimeline
     /// names it) and the damage asked. <see cref="Blows"/> keeps slash and club blows only.
     /// </summary>
     internal IReadOnlyList<(int Tick, string Victim, string Class, float Damage)> Kicks { get; private init; } = [];
+    /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
+    internal bool HasCommands { get; private init; }
     /// <summary>Recorded frames without input (older Wire, or no player): not replayed.</summary>
     internal int Skipped { get; private init; }
 
@@ -54,11 +62,14 @@ internal sealed class InputTimeline
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
         double lastTime = double.NaN;
         int skipped = 0;
+        bool commands = false;
+        var lastCommand = (Buttons: InputButtons.None, Actions: PlayerActions.None);
         using (var stream = File.OpenRead(path))
             foreach (var f in RecordingReader.Frames(stream))
             {
                 foreach (var d in f.Damage)
-                    if ((d.DamageType & KickDamage) != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
+                    // A kick's push is a call of its own, zero damage and untraced: not the kick's blow.
+                    if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
                         && f.Entities.TryGetValue(d.Victim, out var v) && f.Classes.GetValueOrDefault(v.ClassId) is { } cls && cls.StartsWith("npc_", StringComparison.Ordinal))
                         kicks.Add((d.Tick, $"#{d.Victim}.{d.VictimSerial:x}", cls, d.Damage));
                 var view = f.ClientView;
@@ -89,11 +100,28 @@ internal sealed class InputTimeline
                 var forward = SourceSpace.Direction(SourceForward(view.ViewPitch, view.ViewYaw));
                 float seconds = double.IsNaN(lastTime) ? f.TickInterval : (float)Math.Clamp(f.Curtime - lastTime, 0, .1);
                 lastTime = f.Curtime;
-                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, f.Input.Buttons, kicked, eye, forward, feet, Orc(f, eye, forward, streamed)));
+                // From v14 the user commands say what was asked, before the game decided: a kick request, movement,
+                // jump and use. A tick without commands holds the last ones.
+                var held = f.Input.Buttons;
+                Vector2 move = default;
+                bool jump = false, use = false;
+                if (f.Version >= 14)
+                {
+                    commands = true;
+                    var now2 = f.Input.Commands > 0 ? (f.Input.CommandButtons, f.Input.Actions) : lastCommand;
+                    held = now2.Item1;
+                    kicked = now2.Item2.HasFlag(PlayerActions.Kick) && !lastCommand.Actions.HasFlag(PlayerActions.Kick);
+                    jump = now2.Item1.HasFlag(InputButtons.Jump) && !lastCommand.Buttons.HasFlag(InputButtons.Jump);
+                    use = now2.Item1.HasFlag(InputButtons.Use) && !lastCommand.Buttons.HasFlag(InputButtons.Use);
+                    lastCommand = now2;
+                    var m = new Vector2(f.Input.SideMove, f.Input.ForwardMove);
+                    move = m.LengthSquared() > 1 ? Vector2.Normalize(m) : default;
+                }
+                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
-        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped };
+        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands };
     }
 
     /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>

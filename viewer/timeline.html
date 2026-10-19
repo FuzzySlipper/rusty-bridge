@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 13) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 13).`);
+  if (version < 1 || version > 14) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 14).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
   const DAMAGE_BYTES = version < 5 ? 128 : version < 13 ? 152 : 360, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
@@ -350,7 +350,10 @@ function parseRecording(buf) {
       if (version >= 12) {
         // The player's input as the server ran the tick: m_nButtons, and the buttons that went down and up.
         if (v.getUint8(p + 2)) fr.input = { buttons: v.getUint32(p + 4, true), pressed: v.getUint32(p + 8, true), released: v.getUint32(p + 12, true) };
-        p += 16;
+        // v14: the user commands as the player received them: movement, their buttons, and Arkane's action bytes (bit 2 the kick).
+        if (version >= 14 && fr.input) Object.assign(fr.input, { commands: v.getUint8(p + 3), forward: v.getFloat32(p + 16, true),
+          side: v.getFloat32(p + 20, true), commandButtons: v.getUint32(p + 28, true), actions: v.getUint32(p + 32, true) });
+        p += version >= 14 ? 48 : 16;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -821,7 +824,11 @@ const BUTTONS = ["attack", "jump", "duck", "forward", "back", "use", "cancel", "
 function buttonNames(bits) { return BUTTONS.filter((_, i) => bits & (1 << i)).concat(bits >>> BUTTONS.length ? [`0x${(bits >>> BUTTONS.length << BUTTONS.length >>> 0).toString(16)}`] : []); }
 function inputText(input) {
   const held = buttonNames(input.buttons), pressed = buttonNames(input.pressed);
-  return (held.length ? held.join(" ") : "none") + (pressed.length ? ` (pressed ${pressed.join(" ")})` : "");
+  let text = (held.length ? held.join(" ") : "none") + (pressed.length ? ` (pressed ${pressed.join(" ")})` : "");
+  // v14: the commands' movement and Arkane's actions.
+  if (input.actions & 4) text += " kick";
+  if (input.forward || input.side) text += ` · move ${Math.round(input.forward)}/${Math.round(input.side)}`;
+  return text;
 }
 // v7: game time over wall time across the last half second, when it isn't 1.
 function timeScaleText(fi) {

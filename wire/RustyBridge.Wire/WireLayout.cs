@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 13;
+    public const uint Version = 14;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -455,15 +455,41 @@ public struct WirePlayerInput
 {
     public ushort Player;
     public byte Valid;
-    public byte Reserved;
+    /// <summary>v14: the user commands the player received this tick.</summary>
+    public byte Commands;
     /// <summary>m_nButtons: held this tick.</summary>
     public InputButtons Buttons;
     /// <summary>m_afButtonPressed: went down in the tick's command.</summary>
     public InputButtons Pressed;
     /// <summary>m_afButtonReleased: went up in it.</summary>
     public InputButtons Released;
+    // v14: the user commands themselves, as CBasePlayer::ProcessUsercmds received them, before the game consumed any.
+    /// <summary>v14: the newest command's forwardmove, sidemove and upmove (Source units per second; 450 walking, 1000 running).</summary>
+    public float ForwardMove, SideMove, UpMove;
+    /// <summary>v14: the commands' IN_* buttons, OR'd over the tick.</summary>
+    public InputButtons CommandButtons;
+    /// <summary>v14: Arkane's action bytes, set when any of the tick's commands had them (<see cref="PlayerActions.Kick"/> among them).</summary>
+    public PlayerActions Actions;
+    /// <summary>v14: the newest command's impulse.</summary>
+    public byte Impulse;
+    public byte Reserved2;
+    public ushort Reserved3;
+    /// <summary>v14: the newest command's number.</summary>
+    public int CommandNumber;
+    public uint Reserved4;
 
     public static WirePlayerInput None => new() { Player = WireLayout.NoEntity };
+}
+
+/// <summary>
+/// Arkane's action bytes in its CUserCmd (+0x95..+0xA1), one bit each in <see cref="WirePlayerInput.Actions"/>: bit i
+/// is byte +0x95+i. The kick (F) is +0x97; the others aren't identified yet.
+/// </summary>
+[Flags]
+public enum PlayerActions : uint
+{
+    None = 0,
+    Kick = 1 << 2,
 }
 
 /// <summary>Source's IN_* button bits as the 2006 SDK numbers them. Dark Messiah's kick isn't among them (docs/wire.md, "The player's input").</summary>

@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v13
+## Recording v14
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 13, reserved u32), then records until the end of the file. Each older
+= 14, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 13 | 80 bytes | 360 bytes | 56 bytes | |
+| 14 | 80 bytes | 360 bytes | 56 bytes | |
+| 13 | 80 | 360 | 56 | the user commands (a 16-byte player input) |
 | 12 | 80 | 152 (no victim animation) | 56 | |
 | 11 | 80 | 152 | 56 | the player input |
 | 10 | 80 | 152 (no critical byte, alert level) | 48 (no defense state) | |
@@ -28,7 +29,7 @@ version is the newer one with less in it:
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-thirteen. Each record is
+fourteen. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -37,7 +38,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the 16-byte player input |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14 |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior

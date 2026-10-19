@@ -42,7 +42,8 @@ internal sealed record BlowComparison(string Side, IReadOnlyList<BlowMatch> Matc
 /// </summary>
 internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int Skipped,
     IReadOnlyDictionary<string, (int Donor, int Lab, int Together)> Moves, double MeanLagSeconds,
-    BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared)
+    BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
+    KickRequests? Kicks = null, BodyReplay? Body = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -51,6 +52,8 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
             yield return $"  {clip}: donor {m.Donor}, lab {m.Lab}, {m.Together} begin together";
         if (double.IsFinite(MeanLagSeconds))
             yield return FormattableString.Invariant($"  the lab begins a move {MeanLagSeconds * 1000:0} ms after the donor on average");
+        if (Kicks is { } k) yield return $"  {k}";
+        if (Body is { } b) yield return $"  {b}";
         foreach (var side in new[] { PlayerBlows, OrcBlows })
         {
             yield return $"  {side}";
@@ -60,6 +63,38 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     }
 
     public override string ToString() => string.Join(Environment.NewLine, Lines());
+}
+
+/// <summary>
+/// From Wire v14, the kicks the player asked for (the command's kick action going down), and which of them each side
+/// began within <see cref="CombatReplay.Window"/>: a request can be refused, by the donor or by the lab's sword.
+/// </summary>
+internal sealed record KickRequests(int Requests, int DonorBegan, int LabBegan, int Both)
+{
+    public override string ToString() =>
+        $"kick requests: {Requests}; the donor began a kick on {DonorBegan}, the lab on {LabBegan}, both on {Both}";
+}
+
+/// <summary>
+/// The lab player's body driven by the recorded movement, jump and use (Wire v14), against the donor's: mean planar
+/// speed over the ticks with movement input, and jumps.
+/// </summary>
+internal sealed record BodyReplay(int MoveTicks, float DonorSpeed, float LabSpeed, int JumpPresses, int LabJumps, int UsePresses)
+{
+    public override string ToString() => FormattableString.Invariant(
+        $"movement: {MoveTicks} ticks with movement input, donor {DonorSpeed:0.00} m/s, lab {LabSpeed:0.00} m/s on average; jump presses {JumpPresses}, lab jumps {LabJumps}; use presses {UsePresses}");
+}
+
+/// <summary>
+/// A lab player body a replay drives with the recorded movement (a unit side/forward direction), view, jump and use,
+/// in the lab's own arena: the donor's level isn't the lab's, so the body's own position isn't compared, only how it
+/// moves. <see cref="Step"/> returns its feet and whether it left the ground in a jump.
+/// </summary>
+internal interface IReplayBody
+{
+    void Begin();
+    (Vector3 Feet, bool Jumped) Step(Vector2 move, Vector3 forward, bool jump, bool use, float seconds);
+    void End();
 }
 
 /// <summary>
@@ -77,19 +112,30 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
 /// </summary>
 internal static class CombatReplay
 {
+    /// <summary>
+    /// Which of the donor's swings a blow at <paramref name="tick"/> belongs to: the latest move started on the view
+    /// model at or before it (its index in <paramref name="swings"/>), or -1 before the first.
+    /// </summary>
+    internal static int SwingAt(IReadOnlyList<DonorSwing> swings, int tick)
+    {
+        int at = -1;
+        for (int i = 0; i < swings.Count && swings[i].Tick <= tick; i++) at = i;
+        return at;
+    }
+
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
 
     static readonly OrcPose Absent = new("", new Vector3(0, -1000, 0), Vector3.UnitZ, 0, "combatidle", 0, 1, null, 0, true);
 
     /// <summary>Reads <paramref name="path"/> for replay with the lab's move clips, and replays it.</summary>
-    internal static ReplayReport Run(LabCombat combat, string path)
+    internal static ReplayReport Run(LabCombat combat, string path, IReplayBody? body = null)
     {
         var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
-        return Run(combat, InputTimeline.Read(path, [clips.Fast.Clip, clips.Power.Clip, clips.Kick.Clip], clips.Kick.Clip));
+        return Run(combat, InputTimeline.Read(path, [clips.Fast.Clip, clips.Power.Clip, clips.Kick.Clip], clips.Kick.Clip), body);
     }
 
-    internal static ReplayReport Run(LabCombat combat, InputTimeline timeline)
+    internal static ReplayReport Run(LabCombat combat, InputTimeline timeline, IReplayBody? body = null)
     {
         var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
         string[] moves = [clips.Fast.Clip, clips.Power.Clip, clips.Kick.Clip];
@@ -97,23 +143,47 @@ internal static class CombatReplay
         var labSwings = new List<DonorSwing>();
         var followed = new Dictionary<int, string>();
         var times = new Dictionary<int, double>();
+        var requests = new List<double>();
+        // The body: lab and donor planar speeds over ticks with movement input, and jumps.
+        bool driveBody = body is not null && timeline.HasCommands;
+        var donorSpeeds = new List<float>();
+        var labSpeeds = new List<float>();
+        int jumps = 0, labJumps = 0, uses = 0;
+        Vector3? lastDonor = null, lastLab = null;
         bool god = combat.God;
         combat.Reset();
         combat.God = true;
         combat.Log = log;
+        if (driveBody) body!.Begin();
         try
         {
             foreach (var t in timeline.Ticks)
             {
                 times[t.Tick] = t.Time;
                 if (t.Orc is { } o) followed[t.Tick] = o.Id;
+                if (t.Kick && timeline.HasCommands) requests.Add(t.Time);
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Held.HasFlag(InputButtons.Attack), t.Held.HasFlag(InputButtons.Attack2), t.Kick,
                     t.Eye, t.Forward, t.Feet, t.Orc ?? Absent);
                 if (combat.Sword.SwingStarted) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                if (driveBody)
+                {
+                    var (feet, jumped) = body!.Step(t.Move, t.Forward, t.Jump, t.Use, t.Seconds);
+                    if (t.Move != Vector2.Zero && t.Seconds > 0 && lastDonor is Vector3 d0 && lastLab is Vector3 l0)
+                    {
+                        donorSpeeds.Add(new Vector2(t.Feet.X - d0.X, t.Feet.Z - d0.Z).Length() / t.Seconds);
+                        labSpeeds.Add(new Vector2(feet.X - l0.X, feet.Z - l0.Z).Length() / t.Seconds);
+                    }
+                    lastDonor = t.Feet;
+                    lastLab = feet;
+                    jumps += t.Jump ? 1 : 0;
+                    uses += t.Use ? 1 : 0;
+                    labJumps += jumped ? 1 : 0;
+                }
             }
         }
         finally
         {
+            if (driveBody) body!.End();
             combat.Log = null;
             combat.Orc.StopFollowing();
             combat.Reset();
@@ -144,30 +214,31 @@ internal static class CombatReplay
             moveCounts[clip] = (donor.Count, lab.Count, together);
         }
 
-        // The player's blows on NPCs: the first contact of each swing, with its verdict and the damage it asked.
+        // The player's blows on NPCs: the first contact of each swing on each victim, with its verdict and the damage it
+        // asked. A swing is a move starting on the view model (DonorSwing): the player's body animation doesn't show it.
         var donorPlayer = new List<ReplayBlow>();
         var otherVictims = new Dictionary<string, int>();
-        var taken = new HashSet<(int Tick, string Victim)>();
+        var taken = new HashSet<(int Swing, string Victim)>();
+        bool First(int tick, string victim) => taken.Add((SwingAt(timeline.Swings, tick), victim));
         string Move(IReadOnlyList<string> layers) => layers.FirstOrDefault(moves.Contains) ?? layers.FirstOrDefault() ?? "?";
-        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && d.Contact == 0).OrderBy(d => d.Tick))
+        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc).OrderBy(d => d.Tick))
         {
+            if (!First(d.Tick, d.Victim.Id)) continue;
             if (Followed(d.Tick) != d.Victim.Id) { otherVictims[d.Victim.Class] = otherVictims.GetValueOrDefault(d.Victim.Class) + 1; continue; }
             var verdict = fight.Defense.FirstOrDefault(v => v.Tick == d.Tick && v.Victim.Id == d.Victim.Id && v.Attacker.IsPlayer)?.Donor ?? DefenseResult.Hit;
             bool kick = (d.DamageType & 0x40000) != 0;
-            taken.Add((d.Tick, d.Victim.Id));
             donorPlayer.Add(new ReplayBlow(d.Tick, TimeOf(d.Tick), kick ? clips.Kick.Clip : Move(d.Attacker.Layers),
                 verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect ? verdict : DefenseResult.Hit,
                 d.Defended ? 0 : d.Requested, kick ? null : d.HitGroup));
         }
         // A parried or blocked swing makes no damage call: its verdict is its only record.
-        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield))
+        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield).OrderBy(v => v.Tick))
         {
-            if (taken.Contains((v.Tick, v.Victim.Id))) continue;
+            if (!First(v.Tick, v.Victim.Id)) continue;
             if (Followed(v.Tick) != v.Victim.Id) { otherVictims[v.Victim.Class] = otherVictims.GetValueOrDefault(v.Victim.Class) + 1; continue; }
-            taken.Add((v.Tick, v.Victim.Id));
             donorPlayer.Add(new ReplayBlow(v.Tick, TimeOf(v.Tick), Move(v.Attacker.Layers), v.Donor, 0, null));
         }
-        foreach (var k in timeline.Kicks.Where(k => taken.Add((k.Tick, k.Victim))))
+        foreach (var k in timeline.Kicks.Where(k => First(k.Tick, k.Victim)))
         {
             if (Followed(k.Tick) != k.Victim) { otherVictims[k.Class] = otherVictims.GetValueOrDefault(k.Class) + 1; continue; }
             donorPlayer.Add(new ReplayBlow(k.Tick, TimeOf(k.Tick), clips.Kick.Clip, DefenseResult.Hit, k.Damage, null));
@@ -195,11 +266,24 @@ internal static class CombatReplay
         if (otherNpcs > 0) notCompared.Add($"{otherNpcs} blows on the player by other NPCs");
 
         ReplayBlow Lab(CombatEvent e) => new((int)e.Tick, TimeOf((int)e.Tick), e.Move, e.Verdict, e.Damage, e.Group);
+        // Each kick request against the kicks each side began after it, within the window.
+        KickRequests? kicks = null;
+        if (timeline.HasCommands)
+        {
+            bool Began(IEnumerable<DonorSwing> swings, double at) => swings.Any(s => s.Clip == clips.Kick.Clip && s.Time >= at - .05 && s.Time <= at + Window);
+            var donorKicks = timeline.Swings.Where(s => s.Clip == clips.Kick.Clip).ToList();
+            var labKicks = labSwings.Where(s => s.Clip == clips.Kick.Clip).ToList();
+            kicks = new KickRequests(requests.Count, requests.Count(r => Began(donorKicks, r)), requests.Count(r => Began(labKicks, r)),
+                requests.Count(r => Began(donorKicks, r) && Began(labKicks, r)));
+        }
+        BodyReplay? bodyReplay = driveBody
+            ? new BodyReplay(donorSpeeds.Count, donorSpeeds.Count > 0 ? donorSpeeds.Average() : 0, labSpeeds.Count > 0 ? labSpeeds.Average() : 0, jumps, labJumps, uses)
+            : null;
         return new ReplayReport(timeline.Name, timeline.Ticks.Count, timeline.Ticks.Sum(t => t.Seconds), timeline.Skipped,
             moveCounts, lags.Count > 0 ? lags.Average() : double.NaN,
             Compare("the player's blows on the followed orc", donorPlayer, log.Where(e => e.ByPlayer).Select(Lab).ToList()),
             Compare("the followed orc's blows on the player", donorOrc, log.Where(e => !e.ByPlayer).Select(Lab).ToList()),
-            notCompared);
+            notCompared, kicks, bodyReplay);
     }
 
     /// <summary>

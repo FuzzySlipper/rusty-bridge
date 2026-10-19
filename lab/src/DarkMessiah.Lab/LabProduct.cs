@@ -5,6 +5,7 @@ using DarkMessiah.Lab.Developer;
 using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Interaction;
 using DarkMessiah.Lab.Player;
+using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Scene;
 using DarkMessiah.Lab.Sword;
 using DarkMessiah.Lab.Time;
@@ -22,7 +23,7 @@ namespace DarkMessiah.Lab;
 /// published. Every update reads input, turns the view and publishes the camera; the world advances only per
 /// Engine-admitted step. Built from rusty-fptester's <c>FpTesterProduct</c> (docs/lab.md, "Provenance").
 /// </summary>
-public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
+public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IReplayBody
 {
     private readonly IEngineContext engine;
     private readonly DonorContent donor;
@@ -57,7 +58,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
         time = new WorldTime(engine);
-        developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, Observe, Publish);
+        developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);
         hud = engine.Ui.OpenStream(new UiStreamRequest("darkmessiah-lab", "rusty-bridge.lab.hud"));
         notice = $"Donor content: {donor.Source}";
         PlaceAtSpawn();
@@ -288,6 +289,25 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
 
     private static bool ResetClaimed(ProductInputEvent input) =>
         input.Kind == InputEventKind.DirectDigital && input.Intent.Span.SequenceEqual("reset"u8) && input.X > .5f;
+
+    // A replay drives the lab's own player body with the recorded movement, view, jump and use, in the arena, through
+    // the same step the player takes in play (CombatReplay; docs/lab.md, "Replay").
+    void IReplayBody.Begin() => ResetLab();
+
+    (Vector3 Feet, bool Jumped) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool use, float seconds)
+    {
+        var flat = new Vector2(forward.X, forward.Z);
+        if (flat.LengthSquared() > 1e-6f) player.Face(MathF.Atan2(forward.X, -forward.Z), MathF.Asin(Math.Clamp(-forward.Y, -1, 1)));
+        bool grounded = player.Motion.Grounded;
+        var frame = new FpsInputFrame(move, jump, jump, false, false, use, use, default, default);
+        player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders());
+        if (use) cubes.Use();
+        cubes.Interaction.Update();
+        scene.Step(seconds, cubes.PrepareStep());
+        return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0);
+    }
+
+    void IReplayBody.End() => ResetLab();
 
     private void ResetLab()
     {

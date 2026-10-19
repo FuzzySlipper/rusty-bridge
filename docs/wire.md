@@ -1,4 +1,4 @@
-# Wire v13
+# Wire v14
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -27,11 +27,13 @@ Since v9 the client view also carries the camera the client
 drew with and the client viewmodel's own sequence, cycle and overlay layers.
 Since v12 each tick carries the player's input: the button words the server
 ran its command with. Since v13 each damage record carries the victim's
-animation as the blow arrived, pose parameters included. A control file beside the Wire holds the donor
+animation as the blow arrived, pose parameters included. Since v14 the
+player's input carries its user commands as the server received them: the
+movement, the buttons and Arkane's action bytes, the kick among them. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v13 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
+v2–v14 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -54,7 +56,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 194,648 | Ring of slots |
+| 590,080 | 128 × 194,680 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -74,7 +76,7 @@ at 72), then:
 - at 188,768, up to 256 overlay layer records of 20 bytes
 - at 193,888, up to 16 slow-time records of 32 bytes
 - at 194,400, the 232-byte client view (80 bytes in v8)
-- at 194,632, the 16-byte player input (v12)
+- at 194,632, the 48-byte player input (16 bytes in v12 and v13)
 
 Entities:
 
@@ -657,21 +659,46 @@ live vtables of `VEngineClient012` (engine.dll), `VClientEntityList003` and
 ## The player's input
 
 v12 streams what the player pressed, so a recorded fight can drive the combat
-lab with the same input (docs/lab.md, "Replay"). One 16-byte record per slot:
+lab with the same input (docs/lab.md, "Replay"). v14 adds the user commands
+themselves. One 48-byte record per slot (16 bytes in v12 and v13):
 
 | Offset | Field | Source |
 | --- | --- | --- |
 | 0 | `player` u16 | the edict the buttons were read from (1); 0xFFFF when not read |
-| 2 | `valid` u8, reserved u8 | 1 when read |
+| 2 | `valid` u8 | 1 when read |
+| 3 | `commands` u8 | v14: user commands the player received this tick |
 | 4 | `buttons` u32 | `m_nButtons` (+0x1FB8): `IN_*` bits held in the tick's command |
 | 8 | `pressed` u32 | `m_afButtonPressed` (+0x1FC8): bits that went down in it |
 | 12 | `released` u32 | `m_afButtonReleased` (+0x1FCC): bits that went up in it |
+| 16 | `forward_move`, `side_move`, `up_move` f32 | v14: the newest command's forwardmove (+0x18), sidemove (+0x1C), upmove (+0x24) |
+| 28 | `command_buttons` u32 | v14: the commands' `IN_*` buttons (+0x28), OR'd over the tick |
+| 32 | `actions` u32 | v14: bit *i* set when Arkane's action byte +0x95+*i* is set in any of the tick's commands; bit 2 (+0x97) is the kick |
+| 36 | `impulse` u8, 3 reserved | v14: the newest command's impulse (+0x2C) |
+| 40 | `command_number` i32, reserved u32 | v14: the newest command's number (+0x4) |
 
-The tap reads them from the player's server entity after each frame, so they
+The v12 words are read from the player's server entity after each frame, so they
 are what the last command left. The view angles are the client view's
-(above). Movement shows only as the `IN_FORWARD`, `IN_BACK`,
-`IN_MOVELEFT` and `IN_MOVERIGHT` bits. The analogue forward and side moves
-aren't read: the keyboard sets them in step with those bits.
+(above).
+
+**The user commands (v14).** The tap hooks `CBasePlayer::ProcessUsercmds`
+(server.dll+0x430350; `CBasePlayer`'s and `CHL2_Player`'s vtable slot 0x864):
+- **When it runs:** the engine's command reader (+0x14880A) calls it with each batch it read. It copies
+  the commands into the player's command context, to run later in the frame, so the hook sees them before
+  any game code consumes them.
+- **Which command:** `cmds[0]` is the newest of the `numcmds` new ones.
+- **Patching:** the first 10 bytes are checked before patching (`push ecx; push ebx; mov ebx,ecx; mov eax,[ebx+0x23BC]`),
+  and restored on unload.
+
+Arkane's `CUserCmd` is 0xBC bytes, and the delta reader at +0x45E950 gives its fields:
+- **The SDK's:** up to +0x48 (command number, tick, view angles, the three moves, buttons, impulse, weapon select, random seed, mouse).
+- **Its own:** +0x4C to +0x5C, +0x88 to +0x90, single bytes +0x95 to +0xA1, and +0xA4.
+
+**How the kick was found (2026-10-19).** A temporary build logged every command the reader filled while known keys
+went in through the agent's desktop lease:
+- **W:** forwardmove 500 then 1000, `IN_FORWARD`.
+- **Left and right click:** `IN_ATTACK` and `IN_ATTACK2`.
+- **Space and E:** `IN_JUMP` and `IN_USE`.
+- **F:** byte +0x97 set for as long as it was held, and nothing else. The other action bytes aren't identified yet.
 
 **How the offsets were found (2026-10-19, server.dll, image base 0x22000000).**
 These fields aren't networked, so no send table names them. `CBasePlayer`'s
@@ -688,17 +715,16 @@ The same scan gave `m_afButtonLast` +0x1FD0 and `m_nImpulse` +0x2678, which
 the tap doesn't read. Nothing is patched. The tap reads only when edict 1's
 class is `player`, inside a fault guard.
 
-**What the bits showed (`l01_a-v12-arena-bot.rbrec`, 120 s, the parry bot
+**What the v12 bits showed (`l01_a-v12-arena-bot.rbrec`, 120 s, the parry bot
 swinging, kicking and blocking):**
 - **Held and pressed bits:** only `IN_ATTACK`, `IN_ATTACK2`, `IN_FORWARD`,
   `IN_LEFT` and `IN_RIGHT` ever appear. `IN_LEFT` and `IN_RIGHT` are the bot's turning binds.
 - **No kick bit:** none of the recording's kicks (eight started the kick
-  clip) set a bit, in `buttons` or in `pressed`. Dark Messiah's kick reaches the server some other way: its own
-  command, or an impulse consumed before the frame ends.
-- **Reading a kick press:** the start of the kick's first-person clip
-  (`layer_sword_noshield_kick_medium`), which the client view's layers carry.
-  The lab's replay does that, so a replayed kick starts with the donor's
-  clip rather than at the key press, which can be a tick or two earlier.
+  clip) set a bit, in `buttons` or in `pressed`. The kick is an action byte in the user command (above), which v14 records.
+- **Kicks before v14:** the lab's replay reads a kick press from the start of
+  the kick's first-person clip (`layer_sword_noshield_kick_medium`), which the
+  client view's layers carry. That misses a kick the game refused. From v14
+  it replays the requests themselves.
 
 **The view model after a save load.** A loaded save recreates the view
 model, often at a high edict index; l01_a's `rb_start` put it at 1279. The

@@ -20,7 +20,7 @@ namespace DarkMessiah.Lab.Developer;
 /// clearance adapters).
 /// </summary>
 internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, PlayerController player, CubeInteraction cubes,
-    LabCombat combat, WorldTime time, string donorSource, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
+    LabCombat combat, WorldTime time, string donorSource, IReplayBody replayBody, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
 {
     private const float ProbeLimit = 8, ClearanceLimit = 8;
     // The most cells one grid readout answers.
@@ -82,7 +82,7 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         string? path = File.Exists(recording) ? recording
             : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(donorSource.TrimEnd('/', '\\')))!, "recordings", recording) is var local && File.Exists(local) ? local : null;
         if (path is null) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, $"No recording {recording} (a path, or a name in local/recordings).");
-        var report = CombatReplay.Run(combat, path);
+        var report = CombatReplay.Run(combat, path, replayBody);
         changed();
         return report.Ticks == 0
             ? DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, $"{report.Name} has no input to replay: it needs Wire v12 or later.")

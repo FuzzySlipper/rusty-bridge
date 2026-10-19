@@ -789,8 +789,27 @@ static void WritePlayerState(wire::SlotHeader* s) {
     }
 }
 
+// v14: the player's user commands as CBasePlayer::ProcessUsercmds receives them (hooked below), gathered
+// over the tick and written with the frame.
+static struct {
+    uint8_t commands;
+    float forward, side, up;
+    uint32_t buttons, actions;
+    uint8_t impulse;
+    int32_t number;
+} g_commands;
+
 static void WritePlayerInput(wire::PlayerInput* in) {
     memset(in, 0, sizeof *in);
+    in->commands = g_commands.commands;
+    in->forward_move = g_commands.forward;
+    in->side_move = g_commands.side;
+    in->up_move = g_commands.up;
+    in->command_buttons = g_commands.buttons;
+    in->actions = g_commands.actions;
+    in->impulse = g_commands.impulse;
+    in->command_number = g_commands.number;
+    memset(&g_commands, 0, sizeof g_commands);
     in->player = wire::kNoEntity;
     const char* cls = ClassNameAt(1);
     if (!cls || strcmp(cls, "player") != 0) return;
@@ -1434,6 +1453,81 @@ static void InstallDamageHook() {
     Log("damage hook: CBaseEntity::TakeDamage at %p hooked", site);
 }
 
+// --- User commands (Wire v14) -------------------------------------------------------
+// CBasePlayer::ProcessUsercmds(CUserCmd* cmds, int numcmds, int totalcmds, int dropped, bool paused),
+// server.dll+0x430350 (CBasePlayer's and CHL2_Player's vtable slot 0x864, called from the engine's
+// command reader at +0x14880A). It copies the commands into the player's command context, to run
+// later in the frame; cmds[0] is the newest of the numcmds new ones. Arkane's CUserCmd is 0xBC bytes:
+// the SDK's fields up to +0x48, then its own. The reader (+0x45E950) gives their offsets; a kick is
+// byte +0x97 (docs/wire.md, "The player's input"). The first 10 bytes are checked before patching.
+static const uint32_t kProcessUsercmdsRva = 0x430350;
+static const unsigned char kProcessUsercmdsPrologue[] = { 0x51, 0x53, 0x8B, 0xD9, 0x8B, 0x83, 0xBC, 0x23, 0x00, 0x00 };
+typedef void (__thiscall* ProcessUsercmdsFn)(void* player, unsigned char* cmds, int numcmds, int totalcmds, int dropped, bool paused);
+static ProcessUsercmdsFn g_processUsercmds;
+static unsigned char* g_processUsercmdsSite;
+static const int kUsercmdBytes = 0xBC, kActionFirst = 0x95, kActionCount = 13;
+
+static int EdictIndexOf(void* entity);
+
+static void __fastcall ProcessUsercmdsHook(void* player, void* /*edx*/, unsigned char* cmds, int numcmds, int totalcmds, int dropped, bool paused) {
+    __try {
+        if (cmds && numcmds > 0 && numcmds <= totalcmds && EdictIndexOf(player) == 1) {
+            const unsigned char* newest = cmds;
+            g_commands.forward = *(const float*)(newest + 0x18);
+            g_commands.side = *(const float*)(newest + 0x1C);
+            g_commands.up = *(const float*)(newest + 0x24);
+            g_commands.impulse = newest[0x2C];
+            g_commands.number = *(const int32_t*)(newest + 0x4);
+            for (int i = 0; i < numcmds; ++i) {
+                const unsigned char* c = cmds + i * kUsercmdBytes;
+                g_commands.buttons |= *(const uint32_t*)(c + 0x28);
+                for (int a = 0; a < kActionCount; ++a)
+                    if (c[kActionFirst + a]) g_commands.actions |= 1u << a;
+            }
+            int total = g_commands.commands + numcmds;
+            g_commands.commands = (uint8_t)(total > 255 ? 255 : total);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+    }
+    g_processUsercmds(player, cmds, numcmds, totalcmds, dropped, paused);
+}
+
+static void InstallUsercmdHook() {
+    unsigned char* base = (unsigned char*)GetModuleHandleA("server.dll");
+    if (!base) return;
+    unsigned char* site = base + kProcessUsercmdsRva;
+    if (memcmp(site, kProcessUsercmdsPrologue, sizeof kProcessUsercmdsPrologue) != 0) {
+        Log("usercmd hook: unexpected bytes at server.dll+0x%X, not hooking", kProcessUsercmdsRva);
+        return;
+    }
+    unsigned char* tramp = (unsigned char*)VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) { Log("usercmd hook: VirtualAlloc failed (%lu)", GetLastError()); return; }
+    memcpy(tramp, site, sizeof kProcessUsercmdsPrologue);
+    tramp[10] = 0xE9;
+    *(int32_t*)(tramp + 11) = (int32_t)((site + 10) - (tramp + 15));
+    g_processUsercmds = (ProcessUsercmdsFn)tramp;
+    DWORD old;
+    VirtualProtect(site, 10, PAGE_EXECUTE_READWRITE, &old);
+    site[0] = 0xE9;
+    *(int32_t*)(site + 1) = (int32_t)((unsigned char*)&ProcessUsercmdsHook - (site + 5));
+    memset(site + 5, 0x90, 5);
+    VirtualProtect(site, 10, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 10);
+    g_processUsercmdsSite = site;
+    Log("usercmd hook: CBasePlayer::ProcessUsercmds at %p hooked", site);
+}
+
+static void RemoveUsercmdHook() {
+    if (!g_processUsercmdsSite) return;
+    DWORD old;
+    VirtualProtect(g_processUsercmdsSite, 10, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_processUsercmdsSite, kProcessUsercmdsPrologue, 10);
+    VirtualProtect(g_processUsercmdsSite, 10, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), g_processUsercmdsSite, 10);
+    g_processUsercmdsSite = nullptr;
+}
+
 // --- Defense hook ----------------------------------------------------------------
 // When a melee blow lands, the game asks the victim for a verdict through a
 // virtual (slot 0x624/4), called from several places: Arkane's melee damage
@@ -1876,13 +1970,14 @@ public:
         WireOpen();
         ControlOpen();
         InstallDamageHook();
+        InstallUsercmdHook();
         InstallDefenseHook();
         InstallParryHook();
         InstallBulletTimeHook();
         InstallRequestSlowTimeHook();
         return true;
     }
-    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); ControlClose(); WireClose(); }
+    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); RemoveUsercmdHook(); ControlClose(); WireClose(); }
     virtual void Pause() { Log("Pause"); }
     virtual void UnPause() { Log("UnPause"); }
     virtual const char* GetPluginDescription() { return "Rusty Bridge tap"; }

@@ -117,15 +117,22 @@ The smoke also checks, on the real product headless:
 
 ## Replay
 
-Recordings of Wire v12 and later carry the player's buttons (docs/wire.md,
+Recordings of Wire v12 and later carry the player's buttons, and from v14 the
+user commands themselves: movement, buttons and the kick request (docs/wire.md,
 "The player's input"). `lab.replay NAME` replays one against the lab and
 reports where the outcomes agree. NAME is a path, or a file in
 `local/recordings`. The smoke replays every such recording it finds.
 
 **Each recorded tick is one lab step of that tick's game time:**
-- **The sword:** the held attack and attack2 bits drive it (`PlayerSword`),
-  from the recorded eye and view angles. Kicks aren't a button bit, so a kick
-  starts when the donor's kick clip starts on the view model.
+- **The sword:** the held attack and attack2 buttons drive it (`PlayerSword`),
+  from the recorded eye and view angles.
+- **Kicks:** from v14, a kick request (the command's kick action going down) presses the lab's kick. The lab's sword
+  can refuse it, as the donor can, so the report counts requests and which side began a kick on each. Before v14
+  the request isn't on the Wire, and a kick starts when the donor's kick clip starts on the view model.
+- **The body (v14):** the recorded movement, view, jump and use drive the lab's own player body
+  (`IReplayBody`, `LabProduct`), through the same step it takes in play, in the lab's arena. The donor's level isn't
+  the lab's, so its position isn't compared, only how it moves: mean speed over the ticks with movement input, and
+  jumps. The fight still uses the donor's recorded eye and feet, so its encounter stays the donor's.
 - **The orc:** the lab's orc follows the donor orc the player aims at,
   within 4 m (else the nearest) (`Orc.Follow`):
   - it stands, faces, plays and has the health the recording gives it, and plays on between
@@ -151,6 +158,13 @@ The moves each side began are paired by clip the same way.
 | Fast attacks, power attacks, kicks begun | 7, 9, 8 | 8, 9, 8 | 24 of 24 begin together, the lab 4 ms ahead on average |
 | The player's blows on the followed orc | 16 | 14 | 4 agree, 6 differ |
 | The orc's blows on the player | 40 | 54 | 38 agree |
+
+**`l01_a-v14-arena-bot.rbrec`** (90 s: the parry bot, then scripted walking, a jump, kick spam and kicks mid-swing):
+- **Kicks:** 15 requests. The donor began a kick on 13, the lab on 9, both on 8. The lab's sword refuses more: it
+  only lets a kick cut off a swing after its hit window.
+- **Movement:** the lab's body moves at 4.28 m/s on average where the donor moved at 2.36. The lab's controller is
+  rusty-fptester's, not yet calibrated to Dark Messiah's speeds.
+- **Jumps:** the one jump came through.
 
 **Where they differ:**
 - **Which part a swing strikes:**

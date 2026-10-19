@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 13;
+const uint32_t kVersion = 14;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -284,15 +284,28 @@ struct ClientView {
 struct PlayerInput {
     uint16_t player;            // edict index the buttons are read from; kNoEntity if none
     uint8_t valid;              // 1 when read
-    uint8_t reserved;
+    uint8_t commands;           // v14: user commands the player received this tick
     uint32_t buttons;           // m_nButtons (+0x1FB8): held
     uint32_t pressed;           // m_afButtonPressed (+0x1FC8): went down in this tick's command
     uint32_t released;          // m_afButtonReleased (+0x1FCC): went up in it
+    // v14: the user commands themselves, as CBasePlayer::ProcessUsercmds received
+    // them (server.dll+0x430350), before the game consumed any of them.
+    float forward_move;         // the newest command's forwardmove (+0x18)
+    float side_move;            //   sidemove (+0x1C)
+    float up_move;              //   upmove (+0x24)
+    uint32_t command_buttons;   // its IN_* buttons (+0x28), OR'd over this tick's commands
+    uint32_t actions;           // Arkane's action bytes (+0x95..+0xA1), bit i set when byte +0x95+i is
+                                //   nonzero in any of this tick's commands; bit 2 (+0x97) is the kick
+    uint8_t impulse;            // the newest command's impulse (+0x2C)
+    uint8_t reserved2;
+    uint16_t reserved3;
+    int32_t command_number;     // the newest command's number (+0x4)
+    uint32_t reserved4;
 };
 
 #pragma pack(pop)
 
-static_assert(sizeof(PlayerInput) == 16, "PlayerInput layout");
+static_assert(sizeof(PlayerInput) == 48, "PlayerInput layout");
 static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
 static_assert(sizeof(ClientView) == 232, "ClientView layout");
 static_assert(sizeof(Header) == 144, "Header layout");

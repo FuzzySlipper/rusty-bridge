@@ -157,6 +157,9 @@ internal sealed class PlayerController : IDisposable
         return clear - Vector3.UnitY * half;
     }
 
+    /// <summary>Looks along a yaw and pitch, radians (a replay's recorded view).</summary>
+    internal void Face(float yawRadians, float pitchRadians) => LookState = new LookState(yawRadians, pitchRadians);
+
     internal void LookBy(double yawDegrees, double pitchDegrees)
     {
         LookState = Look.IntegrateClamped(new LookRequest(LookState,

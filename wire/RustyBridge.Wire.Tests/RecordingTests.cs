@@ -94,8 +94,8 @@ public sealed class RecordingTests : IDisposable
         // Record header (5) + frame fields (21) + one changed entity (80) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8)
-        // + v8/v9: the client view (232) + v12: the player's input (16).
-        Assert.Equal(422, recorder.Bytes - afterKey);
+        // + v8/v9: the client view (232) + v12/v14: the player's input (48).
+        Assert.Equal(454, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version13CarriesWallClockPlayerStateSlowTimeLinksParentsTheClientViewAndInput()
+    public void Version14CarriesWallClockPlayerStateSlowTimeLinksParentsTheClientViewAndInput()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
@@ -299,7 +299,8 @@ public sealed class RecordingTests : IDisposable
         };
         client.SetViewmodelLayers([new WireClientLayer { Sequence = 30, Order = 2, Cycle = 0.4f, Weight = 1 }]);
         writer.Client(client);
-        writer.Input(new WirePlayerInput { Player = 1, Valid = 1, Buttons = InputButtons.Attack | InputButtons.Forward, Pressed = InputButtons.Attack });
+        writer.Input(new WirePlayerInput { Player = 1, Valid = 1, Buttons = InputButtons.Attack | InputButtons.Forward, Pressed = InputButtons.Attack,
+            Commands = 2, ForwardMove = 450, SideMove = -450, CommandButtons = InputButtons.Attack | InputButtons.Forward, Actions = PlayerActions.Kick, CommandNumber = 1234 });
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
         writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
         writer.FrameEntities(10,
@@ -321,7 +322,8 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(13u, f.Version);
+        Assert.Equal(14u, f.Version);
+        Assert.Equal((2, 450f, -450f, PlayerActions.Kick, 1234), (f.Input.Commands, f.Input.ForwardMove, f.Input.SideMove, f.Input.Actions, f.Input.CommandNumber));
         Assert.Equal(InputButtons.Attack | InputButtons.Forward, f.Input.Buttons);
         Assert.Equal(InputButtons.Attack, f.Input.Pressed);
         Assert.Equal((ushort)7, f.Entities[9].Parent);

@@ -64,20 +64,41 @@ public sealed class LevelImport
         return file;
     }
 
-    public LevelImportResult FromRecording(string recordingPath)
+    public LevelImportResult FromRecording(string recordingPath) => FromRecordings([recordingPath]);
+
+    /// <summary>
+    /// The level of one or more recordings of the same map: every model path
+    /// any of them reports, imported once. The first recording is the one the
+    /// assets travel with (the mirror replays it); the provenance lists all.
+    /// </summary>
+    public LevelImportResult FromRecordings(IReadOnlyList<string> recordingPaths)
     {
+        if (recordingPaths.Count == 0) throw new ArgumentException("no recordings", nameof(recordingPaths));
+        string recordingPath = recordingPaths[0];
         string map = "";
-        var models = new SortedDictionary<int, string>();
+        // Model paths in first-seen order: model indices differ between recordings, the paths are the keys.
+        var models = new List<string>();
+        var known = new HashSet<string>(StringComparer.Ordinal);
         var sequences = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        using (var stream = File.OpenRead(recordingPath))
-            foreach (var frame in RecordingReader.Frames(stream))
-            {
-                map = frame.Map;
-                foreach (var (index, path) in frame.Models) models[index] = path;
-                foreach (var (index, names) in frame.Sequences)
-                    if (frame.Models.TryGetValue(index, out var path)) sequences[path] = names;
-            }
-        if (map.Length == 0) throw new InvalidDataException($"{recordingPath}: no level record");
+        foreach (var recording in recordingPaths)
+        {
+            string level = "";
+            var indexed = new SortedDictionary<int, string>();
+            using (var stream = File.OpenRead(recording))
+                foreach (var frame in RecordingReader.Frames(stream))
+                {
+                    level = frame.Map;
+                    foreach (var (index, path) in frame.Models) indexed[index] = path;
+                    foreach (var (index, names) in frame.Sequences)
+                        if (frame.Models.TryGetValue(index, out var path)) sequences[path] = names;
+                }
+            if (level.Length == 0) throw new InvalidDataException($"{recording}: no level record");
+            if (map.Length > 0 && !level.Equals(map, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"{recording} is of {level}, {recordingPath} of {map}: one level import takes recordings of one map");
+            map = level;
+            foreach (var path in indexed.Values)
+                if (known.Add(path)) models.Add(path);
+        }
 
         var assets = new JsonArray();
         var unresolved = new List<string>();
@@ -88,7 +109,7 @@ public sealed class LevelImport
 
         int resolved = 0, checkedSequences = 0, differ = 0;
         var done = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in models.Values.Distinct(StringComparer.Ordinal))
+        foreach (var path in models)
         {
             string? file = null;
             string kind = "model";
@@ -140,6 +161,7 @@ public sealed class LevelImport
                 ["donor"] = "Dark Messiah of Might and Magic",
                 ["map"] = map,
                 ["recording"] = Path.GetFileName(recordingPath),
+                ["recordings"] = new JsonArray(recordingPaths.Select(r => (JsonNode)Path.GetFileName(r)).ToArray()),
                 ["convention"] = SourceSpace.Convention,
                 ["invisible"] = new JsonArray(invisible.Select(u => (JsonNode)u).ToArray()),
                 ["invisibleMeans"] = "brush models with no drawable faces (triggers, clips, tool brushes): the Wire reports them, nothing draws them, no GLB",
@@ -155,7 +177,7 @@ public sealed class LevelImport
 
         string indexPath = Path.Combine(_output, $"{map}.assets.json");
         File.WriteAllText(indexPath, descriptor.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        return new LevelImportResult(indexPath, models.Values.Distinct(StringComparer.Ordinal).Count(), resolved, invisible, unresolved, checkedSequences, differ);
+        return new LevelImportResult(indexPath, models.Count, resolved, invisible, unresolved, checkedSequences, differ);
     }
 
     static JsonObject Asset(string id, string path, string kind = "model") => new() { ["id"] = id, ["kind"] = kind, ["path"] = path };

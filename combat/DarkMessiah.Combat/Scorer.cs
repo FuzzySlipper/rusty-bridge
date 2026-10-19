@@ -170,7 +170,10 @@ public static class Scorer
             return "pose timing: posed as the blow's own frame, the sweep meets the donor's part";
         if (!c.Traced)
             return "swing path: the donor reached without a trace, and its reach point falls short of the victim's hit boxes";
-        if (float.IsNaN(c.Miss)) return "not posed: the struck entity's model isn't in the import (import the level from a recording that has it)";
+        if (float.IsNaN(c.Miss))
+            return c.Donor.Class == "prop_ragdoll"
+                ? "not posed: the trace struck a ragdoll, whose bones aren't on the Wire"
+                : "not posed: the struck entity's model isn't in the import (import the level from a recording that has it)";
         if (c.Miss > OnPart) return "pose timing: the donor's hit point is off the part it named, as posed from the victim's last streamed state";
         if (c.Before is not null && c.DonorAlong is not null) return "swing path: the donor's part is where its trace ended, and the straight sweep meets another part first";
         return "shape fit: the donor's hit point is on its part, and the sweep misses it";

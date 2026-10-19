@@ -95,7 +95,7 @@ while the player is mounted.
 l01_a opens with a two-minute horse ride, and `setpos` is ignored while the player is mounted. To skip it, there is a save just after the ride:
 - **The save:** `rb_start`, in `mm\save` on den-win11. Made with `save rb_start` before any cheat. It stands in the scripted corridor scene, at 15 of 50 health, with enemies near.
 - **Launching into it:** `opts-arena.ps1` (in `C:\Users\agent\rusty-bridge`) sets the launch options to `-condebug -console -window -w 1280 -h 720 -novid +load rb_start`. `opts-normal.ps1` sets them back to `+map l01_a`. Each restarts Steam.
-- **The fight:** `tap/darkmessiah/rbarena.cfg` (copy it to `mm\cfg\`) gives god mode, every skill module (`mm_player_skills_grosbill 1`) and a short sword, and spawns two orcs at the gate. Run `exec rbarena` as soon as the level is up: without `god` the save's enemies kill the player within about 20 s.
+- **The fight:** `tap/darkmessiah/rbarena.cfg` (copy it to `mm\cfg\`) gives god mode and a short sword, and spawns two orcs at the gate. `mm_player_skills_grosbill 1` unlocks every skill module, Trample among them. The combat model doesn't see skills, so it is off by default, and fights recorded with it go in `local/recordings/experiments/`. Run `exec rbarena` as soon as the level is up: without `god` the save's enemies kill the player within about 20 s.
 - **Not during the load:** a command sent while the save is still loading shuts the game down. Wait for the tap log's `dump (level+5s)` line.
 - **Toggles:** `god` and `ai_disable` toggle whatever their argument, so a second `exec rbarena` turns god mode off.
 - **Lines in a cfg:** they split at `;`, comments included.

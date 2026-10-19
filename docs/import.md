@@ -17,19 +17,17 @@ scp -r 'den-win11:C:/Program Files (x86)/Steam/steamapps/common/Dark Messiah Mig
 Then, from the repository:
 
 ```
-dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec
+dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec local/recordings
 dotnet run --project import/DarkMessiah.Import.Tool -- model models/npc/orc/npc_orc.mdl
 dotnet run --project import/DarkMessiah.Import.Tool -- map maps/l01_a.bsp
 ```
 
-`level` imports the recording's map, every model path in the recording's
-model table, and its sprites, and writes `local/import/<map>.assets.json`.
-It also copies the recording into `local/import/recordings/`, so the folder
-is the whole content root for the mirror ([mirror.md](mirror.md)).
-It checks each model's clip order against the sequence names the
-recording carries and reports any difference. For l01_a-parrybot it
-finishes in about 10 s: 337 of 337 Wire model paths resolve, 231 GLBs and
-284 MB, and 112 of 112 clip lists match. `--vpks DIR` and `--out DIR` override
+`level` imports the recordings' map, every model path in their model
+tables, and their sprites, and writes `local/import/<map>.assets.json`.
+- **Several recordings:** it takes one or more recordings, or folders of them. They must all be of one map; it refuses a mix. The import covers the union of their model paths, so every recording of the map replays on it. The provenance lists them all (`recordings`).
+- **The recording that travels:** the first is copied into `local/import/recordings/` and named as `recording`/`recordingFile`, so the folder is the whole content root for the mirror ([mirror.md](mirror.md)). Put `l01_a-parrybot` first: the mirror smoke seeks into its fight.
+- **Clip check:** it checks each model's clip order against the sequence names the recordings carry and reports any difference.
+- **Scale:** for l01_a with the 19 local recordings it finishes in about 11 s. All 358 Wire model paths resolve (158 of them invisible brush models), into 197 GLBs and 321 MB, and 132 of 132 clip lists match. `--vpks DIR` and `--out DIR` override
 the defaults (`local/donor/vpks`, falling back to the Steam install, and
 `local/import`).
 

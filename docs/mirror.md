@@ -14,11 +14,13 @@ The mirror's content is `local/import`, which isn't tracked. Build it
 first, as `docs/import.md` describes:
 
 ```
-dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec
+dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec local/recordings
 ```
 
-`level` copies the recording into `local/import/recordings/` and names it in
-`l01_a.assets.json`, so the folder holds everything the mirror reads.
+`level` copies the first recording into `local/import/recordings/` and names
+it in `l01_a.assets.json`, so the folder holds everything the mirror reads.
+The models of every recording given are imported, so any of them replays on
+the same assets.
 Staging stops with that command when the folder has no index.
 
 Then, from `mirror/`:
@@ -69,6 +71,8 @@ from the Wire and import tools, which don't need the Engine.
   item whose streamed parent is drawn hangs from it, that nothing hangs by
   inference, and that cleavers hang from `RightHand` (7) and the shield from
   `LeftShield` (11).
+- It checks that every local recording of the imported map finds each model
+  path it reports in the import (#10100).
 - It exits non-zero on a failed check.
 
 ## How it's built

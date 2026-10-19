@@ -63,6 +63,26 @@ if (index is null)
     return failures == 0 ? 0 : 1;
 }
 
+// Every local recording of the imported map finds each model path it reports in the import (#10100: one
+// level import takes the union of several recordings' models).
+{
+    var descriptorJson = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(index))!;
+    var ids = descriptorJson["assets"]!.AsArray().Select(a => a!["id"]!.GetValue<string>())
+        .Concat(descriptorJson["provenance"]!["invisible"]!.AsArray().Select(a => a!.GetValue<string>())).ToHashSet(StringComparer.Ordinal);
+    string importedMap = descriptorJson["provenance"]!["map"]!.GetValue<string>();
+    string recordings = Path.Combine(repo ?? ".", "local", "recordings");
+    foreach (var file in Directory.Exists(recordings) ? Directory.GetFiles(recordings, "*.rbrec").Order(StringComparer.Ordinal).ToArray() : Array.Empty<string>())
+    {
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        string recordedMap = "";
+        using (var stream = File.OpenRead(file))
+            foreach (var f in RecordingReader.Frames(stream)) { recordedMap = f.Map; paths.UnionWith(f.Models.Values); }
+        if (!recordedMap.Equals(importedMap, StringComparison.OrdinalIgnoreCase)) continue;
+        var missing = paths.Where(p => !ids.Contains(p) && !p.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase)).ToList();
+        Check(missing.Count == 0, $"{Path.GetFileName(file)}: every model path is imported{(missing.Count > 0 ? $"; missing {string.Join(", ", missing.Take(5))}" : "")}");
+    }
+}
+
 // The real product on the imported level, through the Engine's test host.
 var content = Directory.GetFiles(import, "*", SearchOption.AllDirectories)
     .ToDictionary(path => Path.GetRelativePath(import, path).Replace('\\', '/'), path => (ReadOnlyMemory<byte>)File.ReadAllBytes(path));

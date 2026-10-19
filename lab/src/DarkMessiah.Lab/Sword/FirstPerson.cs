@@ -50,7 +50,7 @@ internal sealed class FirstPerson : IDisposable
         var idle = arms.Model.Clip("layer_sword_noshield_idle");
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
         if (move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
-        else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Cycle, 1));
+        else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
         // Facing first, then the offset that puts the model's eyes attachment at the camera.
         var facing = new Transform(Vector3.Zero, Rig.Facing(forward, Vector3.UnitY), Vector3.One);
         var atOrigin = Rig.Pose(engine, arms, facing);

@@ -62,7 +62,9 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
 **The lab's own numbers**, in `content/combat.json`, which reloads live and is tunable:
 - each move's phase timing (`phases`): the fast attack's, power attack's and kick's windup (before the hit window),
   active part (the window, the blade traced) and recovery (after it), as multiples of the donor clip's own time.
-  All are 1 by default, so the moves play as Arkane timed them. The Sword tunables page has a slider for each;
+  All are 1 by default, so the moves play as Arkane timed them. The Sword tunables page has a slider for each.
+  A window tuned shorter than a step is still traced: a step whose cycles overlap it traces the blade at a cycle
+  inside it, once per swing;
 - the power-hold threshold;
 - movement while attacking;
 - the kick's window, range and push;

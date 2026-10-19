@@ -87,7 +87,12 @@ internal sealed class PlayerSword(SwordClips clips, CombatTuning tuning)
     /// <summary>Counts swings and kicks; a swing hits each target at most once.</summary>
     internal int Swing { get; private set; }
     /// <summary>The blade is traced this step: a swing's or kick's hit window is open.</summary>
-    internal bool Traced => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick && Clip.Traced && Cycle >= Clip.Open && Cycle <= Clip.Close;
+    /// A step that crosses the whole window (a phase tuned shorter than a step) still counts: the window overlaps the
+    /// cycles the step covered.
+    internal bool Traced => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick && Clip.Traced && stepFrom <= Clip.Close && Cycle >= Clip.Open;
+    /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
+    internal float TraceCycle => Clip.Traced ? Math.Clamp(Cycle, Clip.Open, Clip.Close) : Cycle;
+    float stepFrom;
     /// <summary>Parrying: the guard is up (in, or held), which turns an orc's blow aside unless it breaks parries.</summary>
     internal bool Parrying => Move == SwordMove.Parry;
     /// <summary>A swing or kick is under way: the body moves at <see cref="CombatTuning.AttackMovementScale"/>.</summary>
@@ -101,6 +106,7 @@ internal sealed class PlayerSword(SwordClips clips, CombatTuning tuning)
     internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickPressed)
     {
         SwingStarted = false;
+        stepFrom = Cycle;
         Cycle = Clip.Advance(Cycle, seconds);
         bool done = !Clip.Loop && Cycle >= 1;
         if (Clip.Loop && Cycle >= 1) Cycle -= MathF.Floor(Cycle);
@@ -144,6 +150,7 @@ internal sealed class PlayerSword(SwordClips clips, CombatTuning tuning)
         Move = move;
         Clip = clip;
         Cycle = 0;
+        stepFrom = 0;
         if (swing) { Swing++; SwingStarted = true; }
     }
 }

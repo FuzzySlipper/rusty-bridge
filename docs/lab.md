@@ -44,7 +44,9 @@ rusty dev
 ## Where the numbers come from
 
 Almost everything the fight decides is Arkane's, read from the imported `.qct`
-files, `scripts/mm_game_settings.txt` and the clips' animation events:
+files, `scripts/mm_game_settings.txt` and the clips' animation events. The import also carries the game's other
+tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spells and skills through
+`DonorContent.Tables`, and every weapon's, shield's and item's `.qct` and model:
 
 | What | Source |
 | --- | --- |
@@ -302,7 +304,7 @@ lab/
   content/                 lab.json (arena), player.json (body and camera), combat.json (the fight's own numbers)
   src/DarkMessiah.Lab/
     LabProduct.cs          composition: input, body, fight, cubes, world time, publish
-    Donor/DonorContent.cs  packs and opens dm-import's output; models, .qct numbers, CombatData
+    Donor/                 DonorContent (packs and opens dm-import's output; models, .qct numbers, CombatData), GameTables (spells, skills)
     Sword/                 PlayerSword (the moves), PlayerStamina, FirstPerson (arms, sword, blade trace), Rig, CombatTuning
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay

@@ -14,6 +14,9 @@ public sealed class VpkIndex
 
     public int Count => _entries.Count;
 
+    /// <summary>Every file's path, normalized as <see cref="Normalize"/> gives it.</summary>
+    public IEnumerable<string> Paths => _entries.Keys;
+
     public VpkIndex(string vpksDirectory)
     {
         foreach (var dir in Directory.GetFiles(vpksDirectory, "*_dir.vpk").OrderBy(p => p, StringComparer.Ordinal))

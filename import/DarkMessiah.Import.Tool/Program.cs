@@ -8,6 +8,8 @@
 //                                       models, and the first travels with the assets
 //   dm-import model MODEL.mdl           one studio model
 //   dm-import map maps/NAME.bsp         one map's world and brush models
+//   dm-import tables                    the gameplay tables alone (scripts, item .qct, item models;
+//                                       `level` copies them too), added to the output's level indexes
 //
 //   --vpks DIR   the game's vpks folder (default: local/donor/vpks, then the Steam install)
 //   --out DIR    where assets go (default: local/import)
@@ -28,9 +30,9 @@ for (int i = 1; i < args.Length; i++)
         default: positional.Add(args[i]); break;
     }
 }
-if (args.Length == 0 || positional.Count == 0 || positional.Count > 1 && args[0] != "level" || args[0] is not ("level" or "model" or "map"))
+if (args.Length == 0 || args[0] != "tables" && positional.Count == 0 || positional.Count > 1 && args[0] != "level" || args[0] is not ("level" or "model" or "map" or "tables"))
 {
-    Console.Error.WriteLine("usage: dm-import level IN.rbrec [IN.rbrec ...|DIR] | model MODEL.mdl | map maps/NAME.bsp [--vpks DIR] [--out DIR]");
+    Console.Error.WriteLine("usage: dm-import level IN.rbrec [IN.rbrec ...|DIR] | model MODEL.mdl | map maps/NAME.bsp | tables [--vpks DIR] [--out DIR]");
     return 2;
 }
 
@@ -63,11 +65,23 @@ switch (args[0])
         Console.WriteLine($"{level.IndexPath}: {level.Resolved} of {level.Requested} Wire model paths resolve ({level.Invisible.Count} of them invisible brush models, no GLB)");
         Console.WriteLine($"clip lists checked against the recording's sequence names: {level.SequencesChecked} models, {level.SequencesDiffer} differ");
         foreach (var missing in level.Unresolved) Console.WriteLine($"  unresolved: {missing}");
+        if (level.Tables is { } t) Tables(t);
+        break;
+    case "tables":
+        var (refreshed, indexes) = importer.RefreshTables();
+        Tables(refreshed);
+        foreach (var index in indexes) Console.WriteLine($"  item models indexed in {index}");
         break;
 }
 foreach (var warning in log.Warnings) Console.WriteLine($"warning: {warning}");
 Console.WriteLine($"{clock.Elapsed.TotalSeconds:F1} s, output in {output}");
 return 0;
+
+static void Tables(TablesImportResult t)
+{
+    Console.WriteLine($"gameplay tables: {t.Scripts.Count} scripts, {t.ItemTables.Count} item .qct, {t.Models.Count} item models");
+    foreach (var missing in t.Unresolved) Console.WriteLine($"  not copied: {missing}");
+}
 
 static string FindRepository()
 {

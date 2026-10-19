@@ -20,6 +20,7 @@ Then, from the repository:
 dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec local/recordings
 dotnet run --project import/DarkMessiah.Import.Tool -- model models/npc/orc/npc_orc.mdl
 dotnet run --project import/DarkMessiah.Import.Tool -- map maps/l01_a.bsp
+dotnet run --project import/DarkMessiah.Import.Tool -- tables
 ```
 
 `level` imports the recordings' map, every model path in their model
@@ -27,6 +28,7 @@ tables, and their sprites, and writes `local/import/<map>.assets.json`.
 - **Several recordings:** it takes one or more recordings, or folders of them. They must all be of one map; it refuses a mix. The import covers the union of their model paths, so every recording of the map replays on it. The provenance lists them all (`recordings`).
 - **The recording that travels:** the first is copied into `local/import/recordings/` and named as `recording`/`recordingFile`, so the folder is the whole content root for the mirror ([mirror.md](mirror.md)). Put `l01_a-parrybot` first: the mirror smoke seeks into its fight.
 - **Clip check:** it checks each model's clip order against the sequence names the recordings carry and reports any difference.
+- **Gameplay tables:** it also copies them (below), and indexes the item models.
 - **Scale:** for l01_a with the 19 local recordings it finishes in about 11 s. All 358 Wire model paths resolve (158 of them invisible brush models), into 197 GLBs and 321 MB, and 132 of 132 clip lists match. `--vpks DIR` and `--out DIR` override
 the defaults (`local/donor/vpks`, falling back to the Steam install, and
 `local/import`).
@@ -71,7 +73,7 @@ A studio model is one skinned GLB:
   Arkane's ids: 2186 opens a hit window and 2190 closes it, and 2102 and
   2139 are the struck parts. A few events with a non-finite cycle are left out.
 - **Game data:** the level import writes each model's `.qct` beside its GLB,
-  under the same lowercased name, and copies `scripts/mm_game_settings.txt`.
+  under the same lowercased name, and copies the gameplay tables (below).
   The combat lab reads Arkane's numbers from them at run time ([lab.md](lab.md)).
 - **Attachments:** weapon grips and other attachments are in
   `asset.extras.attachments`, each a joint name and a local matrix.
@@ -92,6 +94,34 @@ in 24 MB, and the orc 334 clips in 10 MB. Should a model ever exceed the
 budget, the importer keeps the clips that fit, in sequence order, and warns
 about the rest. A model with no triangles is written as a skeleton with
 clips, which the Engine admits without a mesh.
+
+### Gameplay tables
+
+`level` copies the game's tables a product reads at run time, and `tables` refreshes just them in an existing
+import (about 3 s), adding the item models to each `<map>.assets.json` there. `provenance.tables` records what was
+copied: the scripts, the item folders, how many item tables and models, and anything the donor lacked.
+- **Scripts**, under their own paths:
+
+  | Script | What it holds |
+  | --- | --- |
+  | `mm_game_settings.txt` | melee, stamina, AI and stealth settings |
+  | `spells.txt` | `spelldatas`: each spell's mana cost, effect, duration and recovery (`air_1` is telekinesis) |
+  | `spells_entityspellcaster.txt` | spell entities, such as traps |
+  | `mm_skills_infos.txt` | skills: requirements, maximum level, each level's cost and modules |
+  | `mm_relationship.txt` | factions |
+  | `propdata.txt`, `surfaceproperties*.txt` | physics and materials |
+  | `kb_act.lst` | the bindable actions |
+  | `plugin_animations.txt` | the animation plugin table |
+
+- **Item tables:** every `.qct` under `models/items/weapons`, `armors`, `provisions` and `magic` (166 in this
+  donor): each item's `entity_data` (`WDmg`, `speed_attack`, `rangeattack`, a bow's `ammo`), shown in the
+  inventory as `prop_data`.
+- **Item models:** every weapon model (swords, daggers, staffs, axes, clubs, bows, arrows, quivers) and every whole
+  shield, as GLBs with their `.qct` beside them: 74 here. Shields' break chunks aren't imported. The four
+  `models/items/weapons/animations/*_animations.mdl` are clips only, written as skeletons.
+
+The lab reads them through `DonorContent`: `Tables.Spells`/`Spell`, `Tables.Skills`, and `Number` for an item's
+`entity_data` (docs/lab.md).
 
 ### Maps
 

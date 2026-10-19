@@ -182,6 +182,37 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
     }
 
     [Fact]
+    public void ItemModelsAreWeaponsAndWholeShields()
+    {
+        Assert.True(LevelImport.ItemModel("models/items/weapons/daggers/daggers.mdl"));
+        Assert.True(LevelImport.ItemModel("models/items/armors/shield_orc/shield_orc_small.mdl"));
+        Assert.False(LevelImport.ItemModel("models/items/armors/shield_orc/shield_orc_chunk1.mdl"));
+        Assert.False(LevelImport.ItemModel("models/items/armors/helmets/helmet_wisdom/helmet_wisdom.mdl"));
+        Assert.False(LevelImport.ItemModel("models/items/weapons/daggers/daggers.qct"));
+    }
+
+    [Fact]
+    public void GameplayTablesCopyScriptsItemTablesAndItemModels()
+    {
+        if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }
+        var files = new DonorFiles(new RustyBridge.Wire.Donor.VpkIndex(vpks));
+        string dir = Directory.CreateTempSubdirectory("dm-import-").FullName;
+        try
+        {
+            var tables = new LevelImport(files, new ImportLog(), dir).Tables();
+            Assert.Equal(LevelImport.Scripts, tables.Scripts);
+            Assert.All(LevelImport.Scripts, s => Assert.True(File.Exists(Path.Combine(dir, s)), s));
+            Assert.Contains("models/items/weapons/sword_long/sword_long.qct", tables.ItemTables);
+            Assert.Contains("models/items/weapons/bow_classic/bow_classic.qct", tables.ItemTables);
+            Assert.Contains(tables.Models, m => m.DonorPath == "models/items/weapons/daggers/daggers.mdl");
+            Assert.Empty(tables.Unresolved);
+            Assert.True(File.Exists(Path.Combine(dir, "models/items/weapons/daggers/daggers.glb")));
+            Assert.True(File.Exists(Path.Combine(dir, "models/items/weapons/daggers/daggers.qct")));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void OrcClipsFollowTheWiresSequenceNumbering()
     {
         if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }

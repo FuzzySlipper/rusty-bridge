@@ -22,7 +22,7 @@ internal sealed class DonorModel(string donorPath, RenderResource mesh, ModelInf
 
 /// <summary>
 /// The donor's content the lab plays with: dm-import's output (models with their clips, hit boxes, hulls and events,
-/// each model's .qct and the game's settings), packed into one content container and opened at run time. The import is
+/// each model's .qct, the item models and tables, and the game's scripts), packed into one content container and opened at run time. The import is
 /// derived from the game and never tracked, so it isn't part of the lab's staged content: the lab finds
 /// <c>local/import</c> above where it runs (or <c>RUSTY_BRIDGE_IMPORT</c>, a container or an import folder), packs it
 /// into <c>local/import.rpak</c> when the pack is missing or older than the import, and opens the pack.
@@ -33,6 +33,7 @@ internal sealed class DonorContent : IDisposable
     readonly ProductContentBundle bundle;
     readonly Dictionary<string, DonorModel> models = new(StringComparer.OrdinalIgnoreCase);
     CombatData? combat;
+    GameTables? tables;
 
     DonorContent(IEngineContext engine, ProductContentBundle bundle, string source)
     {
@@ -86,6 +87,9 @@ internal sealed class DonorContent : IDisposable
     /// <summary>Arkane's combat tables from the imported .qct files and settings, with clip events from the GLBs.</summary>
     public CombatData Combat => combat ??= new CombatData(Read, model => Model(model).Info.Clips.Values
         .ToDictionary(c => c.Name, c => (IReadOnlyList<(float, int)>)c.Events, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>The gameplay tables beyond the models': spells and skills (docs/import.md, "Gameplay tables").</summary>
+    public GameTables Tables => tables ??= new GameTables(Read);
 
     /// <summary>A number in a block of a model's .qct (<c>entity_data</c>'s <c>speed_attack</c>, say); null when absent.</summary>
     public float? Number(string model, string block, string key) =>

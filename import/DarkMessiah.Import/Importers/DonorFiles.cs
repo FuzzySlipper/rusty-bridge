@@ -20,6 +20,13 @@ public sealed class DonorFiles
         return _vpk.Read(path);
     }
 
+    /// <summary>The VPKs' files under <paramref name="folder"/> (a donor path prefix, any case), in path order.</summary>
+    public IEnumerable<string> Under(string folder)
+    {
+        string prefix = VpkIndex.Normalize(folder).TrimEnd('/') + "/";
+        return _vpk.Paths.Where(p => p.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal);
+    }
+
     /// <summary>Searches a map's PAKFILE lump (a zip) first until the returned scope ends.</summary>
     public IDisposable WithPak(byte[] zip)
     {

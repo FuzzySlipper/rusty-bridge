@@ -34,9 +34,10 @@ internal sealed record CombatEvent(ulong Tick, bool ByPlayer, string Move, Defen
 /// <item>the first contact of a swing is the blow: the orc's verdict (<see cref="CombatModel.Verdict"/>) by what it
 /// struck and its parry state, then the damage the blow asks (<see cref="CombatModel.Damage"/>);</item>
 /// <item>a kick reaches an orc in front within <see cref="CombatTuning.KickRange"/>, asks its damage and pushes it;</item>
-/// <item>an orc's blow isn't traced, as the donor's on the player isn't: it lands when the player is within
-/// <see cref="OrcTuning.Reach"/> in front of the orc, the player's parry turns it unless the part breaks parries
-/// (<see cref="CombatModel.PlayerParry"/>), and otherwise it asks its damage.</item>
+/// <item>an orc's blow isn't traced, as the donor's on the player isn't: it lands when the donor's reach test passes
+/// (<see cref="CombatModel.Reach"/>: a sweep for the attack part's range toward the player, entering the player's
+/// box), the player's parry turns it unless the part breaks parries (<see cref="CombatModel.PlayerParry"/>), and
+/// otherwise it asks its damage.</item>
 /// </list>
 /// Hit tests use a spatial session of their own, so the hulls never touch the player's body or the loose cubes.
 /// </summary>
@@ -78,6 +79,8 @@ internal sealed class LabCombat : IDisposable
     internal bool God { get; set; }
     internal string Message { get; private set; } = "";
     internal SwingTrace? LastBlow { get; private set; }
+    /// <summary>The reach test of the orc's last blow: where its sweep entered the player's box, and its range (Source units).</summary>
+    internal ReachResult? LastOrcReach { get; private set; }
     /// <summary>When set, every decided blow is added to it (a replay's comparison).</summary>
     internal List<CombatEvent>? Log { get; set; }
     internal (int Swings, int Hits, int Parried, int Blocked, int Missed, float Dealt) Player { get; private set; }
@@ -177,7 +180,12 @@ internal sealed class LabCombat : IDisposable
     {
         OrcStats = OrcStats with { Blows = OrcStats.Blows + 1 };
         Vector3 toPlayer = (feet - Orc.Feet) with { Y = 0 };
-        if (toPlayer.Length() > Tuning.Orc.Reach || toPlayer.LengthSquared() > 1e-6f && Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) < Tuning.Orc.FrontCosine) return;
+        // The donor's reach test, in Source units on its axes (lab X is Source Y, lab Z Source X).
+        static Vector2 Source(Vector3 v) => new Vector2(v.Z, v.X) / SourceSpace.MetresPerUnit;
+        var reach = model.Reach(new ReachCase((int)tick, "npc_orc_sword", Npc.Orc.Model, blow.Attack, blow.Part, "player",
+            Source(toPlayer), Vector2.Normalize(Source(Orc.Facing)), Reaches.PlayerHalfWidth, false));
+        LastOrcReach = reach;
+        if (!reach.Lands) return;
         OrcStats = OrcStats with { Reached = OrcStats.Reached + 1 };
         var orc = Orc.Party() with { Cycle = blow.Cycle };
         bool broken = false;
@@ -234,7 +242,10 @@ internal sealed class LabCombat : IDisposable
                 items.Add(OverlayItem.Label(OverlayPlace.World, p + Vector3.UnitY * .15f, t.Outcome, color, onTop: true));
             }
         }
-        if (Orc.Alive) items.Add(OverlayItem.WireSphere(OverlayPlace.World, Orc.Feet + Vector3.UnitY, Tuning.Orc.Reach, new Color(1, .55f, .3f, .5f), onTop: false));
+        // The orc's reach: its attacks' range plus the player's box and the sweep's half-size, here its first attack's.
+        if (Orc.Alive && model.Data.Character(Npc.Orc.Model)?.Attack("attack_Right")?.Events[0].Range is float range)
+            items.Add(OverlayItem.WireSphere(OverlayPlace.World, Orc.Feet + Vector3.UnitY,
+                (range + Reaches.PlayerHalfWidth + CombatModel.SweepHalfSize) * SourceSpace.MetresPerUnit, new Color(1, .55f, .3f, .5f), onTop: false));
         engine.Graphics.PublishOverlaySet(new OverlaySetRequest(Set, items.ToArray(), []));
     }
 

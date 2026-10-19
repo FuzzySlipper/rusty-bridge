@@ -55,8 +55,6 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
     [
         ("engage", "Engage distance m", .5f, 4, .05f, "/orc/engageDistance", t => t.Orc.EngageDistance, (t, v) => t with { Orc = t.Orc with { EngageDistance = v } }),
         ("walk", "Walk speed m/s", .2f, 6, .1f, "/orc/walkSpeed", t => t.Orc.WalkSpeed, (t, v) => t with { Orc = t.Orc with { WalkSpeed = v } }),
-        ("reach", "Blow reach m", .5f, 4, .05f, "/orc/reach", t => t.Orc.Reach, (t, v) => t with { Orc = t.Orc with { Reach = v } }),
-        ("front", "Front cosine", -1, 1, .05f, "/orc/frontCosine", t => t.Orc.FrontCosine, (t, v) => t with { Orc = t.Orc with { FrontCosine = v } }),
         ("cooldown", "Attack cooldown s", 0, 5, .05f, "/orc/attackCooldown", t => t.Orc.AttackCooldown, (t, v) => t with { Orc = t.Orc with { AttackCooldown = v } }),
         ("parry", "Parry chance", 0, 1, .05f, "/orc/parryChance", t => t.Orc.ParryChance, (t, v) => t with { Orc = t.Orc with { ParryChance = v } }),
         ("health", "Health", 1, 400, 1, "/orc/health", t => t.Orc.Health, (t, v) => t with { Orc = t.Orc with { Health = v } }),

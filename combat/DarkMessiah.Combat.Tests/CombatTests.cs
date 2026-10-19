@@ -1,3 +1,4 @@
+using System.Numerics;
 using DarkMessiah.Combat;
 using RustyBridge.Wire;
 using Xunit;
@@ -21,10 +22,10 @@ static class GameData
                "hitboxes_modifier" { "1" "3" "2" "1.0" } }
             "combatmovedatas"
             {
-            attack_Right { "HitPow" "1" "breakparade" "0" }
+            attack_Right { "HitPow" "1" "breakparade" "0" "AttackMove" "1" "range" "70" }
             attack_Bash { "HitPow" "1.5" "forcebreakparade" "1" }
             attack_Fast { "event0" { "HitPow" "0.4" "breakparade" "0" } "event1" { "HitPow" "0.8" "breakparade" "0" } }
-            attack_KickBash { "event0" { "HitPow" "0.5" "breakparade" "1" } "event1" { "HitPow" "1.5" "breakparade" "0" } }
+            attack_KickBash { "event0" { "HitPow" "0.5" "breakparade" "1" "AttackMove" "4" "range" "60" } "event1" { "HitPow" "1.5" "breakparade" "0" } }
             layer_attack_right { "HitPow" "1" }
             }
             """),
@@ -232,6 +233,36 @@ public sealed class ModelTests
         Assert.Equal(7f, Model.Data.Weapon(Cleaver)!.Damage);
         Assert.Equal(1, Model.Data.Part(OrcModel, "attack_Fast", 0.56f));
         Assert.Equal(0, Model.Data.Part(OrcModel, "attack_Fast", 0.2f));
+        // Each event its own range and move; a block without one takes the move default.
+        Assert.Equal([60f, 120f], orc.Attack("attack_KickBash")!.Events.Select(e => e.Range));
+        Assert.Equal((70f, 1), (orc.Attack("attack_Right")!.Events[0].Range, orc.Attack("attack_Right")!.Events[0].Move));
+        Assert.Equal(4, orc.Attack("attack_KickBash")!.Events[0].Move);
+        Assert.Equal(CharacterData.DefaultBaseAttackLength, Model.Data.Character(GhoulModel)!.BaseAttackLength);
+    }
+
+    static ReachCase Reach(string model, string attack, int part, Vector2 toVictim, bool armed, Vector2? facing = null) =>
+        new(1, model == OrcModel ? "npc_orc_sword" : "npc_ghoul", model, attack, part, "player", toVictim, facing ?? Vector2.UnitX, Reaches.PlayerHalfWidth, false, Armed: armed);
+
+    /// <summary>
+    /// The sweep runs from the attacker toward the victim for the part's range (an armed attacker) or its
+    /// baseattacklength (an unarmed one), and lands where it enters the player's box grown by the sweep's 1.5.
+    /// </summary>
+    [Fact]
+    public void AnAttackReachesWhenItsSweepEntersTheVictimsBox()
+    {
+        Assert.True(Model.Reach(Reach(OrcModel, "attack_Right", 0, new(87, 0), armed: true)).Lands);       // enters at 69.5 of 70
+        Assert.False(Model.Reach(Reach(OrcModel, "attack_Right", 0, new(88, 0), armed: true)).Lands);
+        Assert.False(Model.Reach(Reach(OrcModel, "attack_KickBash", 0, new(80, 0), armed: true)).Lands);    // the kick part reaches 60
+        Assert.True(Model.Reach(Reach(OrcModel, "attack_KickBash", 1, new(80, 0), armed: true)).Lands);     // the bash part 120
+        Assert.True(Model.Reach(Reach(GhoulModel, "attack_bash", 0, new(67, 0), armed: false)).Lands);      // 49.5 of 50
+        Assert.False(Model.Reach(Reach(GhoulModel, "attack_bash", 0, new(68, 0), armed: false)).Lands);
+        // The box is world-aligned: on a diagonal the sweep meets its corner, 17.5 × √2 short of the centre.
+        var diagonal = Model.Reach(Reach(GhoulModel, "attack_bash", 0, Vector2.Normalize(new(1, 1)) * 70, armed: false, Vector2.Normalize(new(1, 1))));
+        Assert.Equal(70 - 17.5f * MathF.Sqrt(2), diagonal.Entry, 2);
+        // Outside the aim cone (cos 0.3) the sweep follows the facing and passes the victim.
+        var behind = Model.Reach(Reach(OrcModel, "attack_Right", 0, new(0, 40), armed: true));
+        Assert.False(behind.Lands);
+        Assert.False(behind.FacingLands);
     }
 }
 
@@ -397,15 +428,22 @@ public sealed class RecordedFightTests(Xunit.Abstractions.ITestOutputHelper outp
 
     [Theory]
     [InlineData("l01_a-parrybot.rbrec")]
+    [InlineData("l01_a-layers.rbrec")]
+    [InlineData("l01_a-v12-arena-ghoul.rbrec")]
     [InlineData("l01_a-orcs-vs-guards-damage.rbrec")]
     public void EveryMismatchHasAReason(string name)
     {
         if (Recording(name) is not string path || Vpks() is null) { output.WriteLine($"no local/recordings/{name} or local/donor/vpks; skipped"); return; }
-        using var stream = File.OpenRead(path);
-        var report = Scorer.Score(Blows.Read(name, stream), CombatModel());
+        var model = CombatModel();
+        FightCases fight;
+        List<ReachCase> reaches;
+        using (var stream = File.OpenRead(path)) fight = Blows.Read(name, stream);
+        using (var stream = File.OpenRead(path)) reaches = Reaches.Read(RecordingReader.Frames(stream), model.Data);
+        var report = Scorer.Score(fight, model, reaches: reaches);
         output.WriteLine(report.Format());
         Assert.DoesNotContain(report.Mismatches, m => m.Reason.StartsWith("unexplained", StringComparison.Ordinal));
         Assert.NotEmpty(report.Scores);
+        Assert.All(report.Scores.Where(s => s.Decision == "reach" && s.Cases >= 20), s => Assert.True(s.Agree >= s.Cases * 9 / 10, $"reach {s.Agree} of {s.Cases}"));
     }
 
     /// <summary>

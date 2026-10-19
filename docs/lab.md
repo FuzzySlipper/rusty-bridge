@@ -57,15 +57,14 @@ files, `scripts/mm_game_settings.txt` and the clips' animation events:
 | The orc's verdict, damage, the player's parry | `CombatModel` (docs/combat.md): the same rules scored against recordings |
 | The kick's damage | the settings' `kick_damage` (1) |
 | Which part of an orc's attack lands | its clip's 2102 and 2139 events |
+| Whether an orc's blow reaches the player | the donor's reach test (`CombatModel.Reach`, docs/combat.md "Reach"): a 1.5-unit sweep for the part's `range` (60 to 120), meeting the player's ±16 box |
 
 **The lab's own numbers**, in `content/combat.json`, which reloads live and is tunable:
 - the power-hold threshold;
 - movement while attacking;
 - the kick's window, range and push;
 - the player's health;
-- the orc's spawn, engage distance, walk speed, reach, front cone, attack cooldown, parry chance and health.
-
-The orc's reach stands in for the donor's reach test until #10099 measures it.
+- the orc's spawn, engage distance, walk speed, attack cooldown, parry chance and health.
 
 ## Calibration
 
@@ -130,7 +129,7 @@ The moves each side began are paired by clip the same way.
 | --- | --- | --- | --- |
 | Fast attacks, power attacks, kicks begun | 7, 9, 8 | 8, 9, 8 | 24 of 24 begin together, the lab 4 ms ahead on average |
 | The player's blows on the followed orc | 16 | 14 | 4 agree, 6 differ |
-| The orc's blows on the player | 40 | 51 | 36 agree |
+| The orc's blows on the player | 40 | 54 | 38 agree |
 
 **Where they differ:**
 - **Which part a swing strikes:**
@@ -142,9 +141,10 @@ The moves each side began are paired by clip the same way.
   the orc's shield and decided Shield.
 - **Kicks:** three donor kicks landed where the lab's missed. The lab's kick
   reach is its own number (`KickRange`).
-- **The orc's reach:** the lab-only orc blows land by the lab's fixed reach
-  (`OrcTuning.Reach`) at moments when the donor recorded no blow. The donor's
-  reach test is #10099's.
+- **The orc's blows:** they use the donor's reach test. The lab-only ones are
+  parts the lab's followed orc fires where the donor's orc struck nothing.
+  - **The likely cause:** the lab plays the orc on between streamed states, so it fires parts on its own timing, not the donor's thinks.
+  - **Not checked case by case:** the reach model alone agrees on 80 of the recording's 84 attack parts (docs/combat.md).
 - **Two parts at once:** the lab sometimes lands both of an attack's parts in
   one step (`attack_KickSwing`, `attack_Fast`), where the donor lands one.
 
@@ -219,7 +219,7 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 ## Not done yet
 
 - **Orc AI:** a minimal loop stands in for it. It walks in, attacks in turn, sometimes parries, reacts to hits and kicks. Its behaviour is next to measure against Shadow decisions.
-- **Reach and pose** (#10099, #10098): the orc's reach test and NPC pose timing.
+- **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
   - knockdowns into ragdolls;
   - a kick that throws the orc into walls;

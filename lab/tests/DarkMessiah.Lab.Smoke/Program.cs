@@ -20,7 +20,7 @@ void Check(bool condition, string message)
 }
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
-var tuning = new CombatTuning(80, .25f, .5f, [.36f, .42f], 1.4f, 1.5f, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 2.1f, .5f, 1, .5f, 3));
+var tuning = new CombatTuning(80, .25f, .5f, [.36f, .42f], 1.4f, 1.5f, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 var clips = new SwordClips(M("idle", 2, true), M("in", .5f), M("hold", 1, true), M("fast", .3f, open: .33f, close: .78f), M("power", 1, open: .125f, close: .22f),
     M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("bounce", .4f), M("broken", .8f));

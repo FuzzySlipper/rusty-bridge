@@ -164,7 +164,7 @@ A victim the blow killed leaves the Wire in the blow's frame. It is taken as las
 **Some blows aren't traced.** These are scored apart, as "contact, untraced":
 - **Which:** a blow on the player, and one naming hit box 0 in hit group 0 on an NPC whose hit box 0 is in another group (villagers and guards hit by a ghoul).
 - **Where the trace ends:** at a reach point, not on a surface. On the player it is at mid height (36 units), a fixed distance from the player's axis for each attack: 16.8 for most of the orc's, 11.2 to 25.3 for the ghoul's.
-- **What's scored:** these only need the sweep to meet the victim's body at all. A miss there means the reach point falls short of the victim's hit boxes ("swing path"). The donor's reach test, not geometry, decided the blow.
+- **What's scored:** these only need the sweep to meet the victim's body at all. A miss there means the reach point falls short of the victim's hit boxes ("swing path"). The donor's reach test, not geometry, decided the blow. That test is scored separately, as "reach" (below).
 
 ### Contact scores
 
@@ -186,6 +186,54 @@ Every mismatch is put down to one of:
 In `l01_a-layers` the traced mismatches are 8 pose timing and 4 swing path. In `l01_a-parrybot` they are 2 shape fits.
 
 The tool also reports a struck entity that couldn't be posed. That happens when the import has no model for it, such as the goblin in `l01_a-orcs-vs-guards-damage`: the level was imported from `l01_a-parrybot`.
+
+## Reach
+
+The decision behind an untraced blow is whether the attack reaches. The melee routine
+(`server.dll+0x3B1A90`, docs/wire.md "The melee sweep") decides it with a swept box:
+- **Start:** the attacker's centre.
+- **Aim:** toward its enemy when the enemy is within cos 0.3 of its facing, otherwise along its facing.
+- **Width:** a box of half-size 1.5, the ConVar `collision_inc_size_ray`.
+- **Length, armed attacker:** the attack part's `range` from its `.qct` `combatmovedatas` (`event0`, `event1`
+  for a split attack). An attack without one takes the move default, 120. The orc's are 60 to 120.
+- **Length, unarmed attacker:** its `entity_data` `baseattacklength`, default 50. The ghoul gives none, so 50.
+- **What lands:** the sweep meets the victim's collision box first: the player's ±16 (`VEC_HULL`), or an NPC's
+  hull (13 for humans and ghouls, 16 for orcs). The box is world-aligned, so on a diagonal the reach ends at its corner.
+
+`CombatModel.Reach` is that test. `Reaches.Read` takes its cases from a recording:
+- **On the player:** every NPC attack part (2102, 2139) that fires while the player is in its aim, within twice the
+  reach. It fires in the attacker's think, the first streamed state past the event's cycle.
+- **Landed:** the attacker's blow on the player, or the player's parry of it, within 12 ticks.
+- **On NPCs:** every untraced blow on an NPC (hit box 0 in group 0) is a case that landed.
+
+**What the recorded blows show:**
+- **The geometry:** an untraced blow's trace runs from the attacker's centre straight at the victim.
+- **On an NPC:** it ends where it enters the victim's box grown by 1.5. Every ghoul blow on a guard or villager ends
+  14.5 from the victim's axis along the nearer box face.
+- **On the player:** the end is moved to a fixed radius by a second, cylinder test (16.8 for most orc attacks). That
+  changes only where the blow lands, not whether.
+- **The lengths:** measured live with a temporary hook on the trace routine, 70 and 60 for the orc's attacks and
+  50 for the ghoul's, as above.
+
+| Recording | Reach | Landed parts on the player | Missed parts | Untraced blows on NPCs |
+| --- | --- | --- | --- | --- |
+| l01_a-parrybot (v4) | 83 / 87 | 70 | 11 | 6 |
+| l01_a-layers (v6) | 84 / 86 | 71 | 8 | 7 |
+| l01_a-v7-bot (v7) | 155 / 162 | 140 | 14 | 8 |
+| l01_a-v11-damage (v11) | 118 / 123 | 90 | 21 | 12 |
+| l01_a-v12-arena-bot (v12) | 80 / 84 | 75 | 9 | 0 |
+| l01_a-v12-arena-ghoul (v12) | 103 / 107 | 78 | 26 | 3 |
+| All 17 recordings with cases | 853 / 893 (95.5 %) | | | |
+
+Every mismatch is put down to one of:
+- **Struck first:** the sweep stops at the first entity it meets, and the attacker's blow struck another NPC, its
+  weapon or an entity gone by the frame instead (24 of the 40). Two orcs side by side in the arena strike each other.
+- **Another enemy** (8): the routine aims at the attacker's enemy, which the Wire doesn't carry.
+  - Either another NPC was in its aim cone;
+  - or a sweep along its facing, its aim when the enemy is out of the cone, passes the player.
+- **Near the reach's end** (7): the sweep ends within 12 units of the player's box. The Wire has the attacker and player
+  as the frame ended, not at the sweep inside the attacker's think.
+- **A lunge** (1): the attack moves the attacker (`AttackMove` above 1: 12 is the orc's jump). The Wire has it only at its thinks.
 
 ## How the donor computes melee damage
 

@@ -1,3 +1,4 @@
+using System.Numerics;
 using RustyBridge.Wire;
 
 namespace DarkMessiah.Combat;
@@ -184,4 +185,57 @@ public sealed class CombatModel(CombatData data)
     /// </summary>
     public static float HealthAfter(DamageCase c) =>
         c.HealthBefore - c.Requested * (c.Attacker.IsNpc && c.Attacker.Class == c.Victim.Class ? SameClassScale : 1f);
+
+    /// <summary>The melee sweep's half-size: the ConVar <c>collision_inc_size_ray</c> (1.5), for an NPC's ordinary attacks.</summary>
+    public const float SweepHalfSize = 1.5f;
+
+    /// <summary>The melee routine aims at its enemy when the enemy is within this cosine of its facing (server.dll+0x3B1CED), else along its facing.</summary>
+    public const float AimCosine = 0.3f;
+
+    /// <summary>
+    /// The reach decision for an untraced blow: does the attack part's sweep reach the victim? The melee routine
+    /// (server.dll+0x3B1A90) sweeps a box of half-size <see cref="SweepHalfSize"/> from the attacker's centre, toward
+    /// its enemy when within <see cref="AimCosine"/> of its facing:
+    /// <list type="bullet">
+    /// <item>an armed attacker's sweep runs for the part's <c>range</c> (traced at server.dll+0x3B2009);</item>
+    /// <item>an unarmed one's for its <c>baseattacklength</c> (server.dll+0x3B2270).</item>
+    /// </list>
+    /// It lands when the sweep meets the victim's collision box (world-aligned), so the reach ends where the line from
+    /// the attacker enters the box grown by the sweep's half-size.
+    /// </summary>
+    public ReachResult Reach(ReachCase c)
+    {
+        var character = data.Character(c.AttackerModel);
+        var attack = character?.Attack(c.Attack) ?? character?.Attack(c.Attack.Replace("layer_", "", StringComparison.OrdinalIgnoreCase));
+        var part = attack?.Events.ElementAtOrDefault(c.Part) ?? attack?.Events.LastOrDefault();
+        float range = c.Armed ? part?.Range ?? AttackEvent.DefaultRange : character?.BaseAttackLength ?? CharacterData.DefaultBaseAttackLength;
+        var to = c.ToVictim;
+        var aim = to.LengthSquared() > 0 && Vector2.Dot(Vector2.Normalize(to), c.Facing) >= AimCosine ? Vector2.Normalize(to) : c.Facing;
+        float entry = BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, aim);
+        return new ReachResult(entry <= range, entry, range, part, BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, c.Facing) <= range);
+    }
+
+    /// <summary>How far along <paramref name="dir"/> from the origin a ray enters a square of half-size <paramref name="half"/> at <paramref name="centre"/>; infinity when it misses.</summary>
+    static float BoxEntry(Vector2 centre, float half, Vector2 dir)
+    {
+        float near = float.NegativeInfinity, far = float.PositiveInfinity;
+        foreach (var (c, d) in new[] { (centre.X, dir.X), (centre.Y, dir.Y) })
+        {
+            if (MathF.Abs(d) < 1e-6f)
+            {
+                if (MathF.Abs(c) > half) return float.PositiveInfinity;
+                continue;
+            }
+            float t1 = (c - half) / d, t2 = (c + half) / d;
+            near = MathF.Max(near, MathF.Min(t1, t2));
+            far = MathF.Min(far, MathF.Max(t1, t2));
+        }
+        return far >= MathF.Max(near, 0) ? MathF.Max(near, 0) : float.PositiveInfinity;
+    }
 }
+
+/// <summary>
+/// What the reach model decided: whether the sweep reaches, where it enters the victim's box, the part's range and
+/// its data, and whether a sweep along the attacker's facing (its aim when its enemy is someone else) would reach too.
+/// </summary>
+public sealed record ReachResult(bool Lands, float Entry, float Range, AttackEvent? Part, bool FacingLands);

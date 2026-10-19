@@ -50,7 +50,8 @@ public static class Scorer
     const float Tolerance = 0.01f;
 
     /// <param name="contacts">Recomputed contacts for the fight's melee blows (#10078), when they were swept; null leaves the decision out.</param>
-    public static ScoreReport Score(FightCases fight, CombatModel model, IReadOnlyList<ContactCase>? contacts = null)
+    /// <param name="reaches">The reach decision's cases (<see cref="Reaches.Read"/>); null leaves it out.</param>
+    public static ScoreReport Score(FightCases fight, CombatModel model, IReadOnlyList<ContactCase>? contacts = null, IReadOnlyList<ReachCase>? reaches = null)
     {
         var scores = new List<DecisionScore>();
         var mismatches = new List<Mismatch>();
@@ -123,6 +124,7 @@ public static class Scorer
             excludedNotes.Add($"damage applied: {group.Count()} blows on a {group.Key.Class} that {group.Key.Why} in this fight");
 
         if (contacts is { Count: > 0 }) ScoreContacts(contacts, scores, mismatches, tested);
+        if (reaches is { Count: > 0 }) ScoreReaches(reaches, model, scores, mismatches, tested);
 
         return new ScoreReport(fight.Name, fight.Version, scores, mismatches, untested, excludedNotes, tested);
     }
@@ -159,6 +161,47 @@ public static class Scorer
         }
         var body = contacts.Where(c => c.Traced && c.Agrees && c.Donor.Struck == Struck.Body).ToList();
         if (body.Count > 0) tested.Add($"contact: {body.Count(c => c.Before!.Hitbox == c.Donor.Hitbox)} of {body.Count} agreeing body contacts on the donor's own hit box");
+    }
+
+    /// <summary>
+    /// The reach decision (#10099): whether an NPC attack part's sweep reaches a victim it doesn't trace against
+    /// shapes (<see cref="CombatModel.Reach"/>), against whether the donor's blow landed. Cases on the player include
+    /// parts that missed; untraced blows on NPCs all landed.
+    /// </summary>
+    static void ScoreReaches(IReadOnlyList<ReachCase> cases, CombatModel model, List<DecisionScore> scores, List<Mismatch> mismatches, List<string> tested)
+    {
+        int agree = 0;
+        foreach (var c in cases)
+        {
+            var r = model.Reach(c);
+            if (r.Lands == c.Landed) { agree++; continue; }
+            mismatches.Add(new("reach", c.ToString(), c.Landed ? "landed" : "missed",
+                FormattableString.Invariant($"{(r.Lands ? "reaches" : "falls short")} (box at {r.Entry:F0} of range {r.Range:F0})"), ReachReason(c, r)));
+        }
+        scores.Add(new("reach", cases.Count, agree, 0));
+        tested.Add($"reach: {cases.Count(c => c.Landed && !c.FromDamage)} landed and {cases.Count(c => !c.Landed)} missed attack parts on the player, {cases.Count(c => c.FromDamage)} untraced blows on NPCs");
+    }
+
+    /// <summary>A sweep that ends within this many Source units of the victim's box is near the reach's end.</summary>
+    const float ReachEdge = 12;
+
+    static string ReachReason(ReachCase c, ReachResult r)
+    {
+        if (!c.Landed && c.StruckFirst.Length > 0)
+            return c.StruckFirst == "?"
+                ? "struck first: the sweep stops at the first entity it meets, and it met one gone from the Wire by its frame"
+                : $"struck first: the sweep stops at the first entity it meets, and it met a {c.StruckFirst}";
+        if (!c.Landed && c.FacingOther.Length > 0)
+            return $"another enemy: the routine aims at the attacker's enemy, which the Wire doesn't carry, and a {c.FacingOther} was in its aim too";
+        if (!c.Landed && !r.FacingLands)
+            return "another enemy: when the attacker's enemy isn't the player (the Wire doesn't carry it), the sweep runs along its facing, which passes the player";
+        if (MathF.Abs(r.Entry - r.Range) <= ReachEdge)
+            return "near the reach's end (within 12 units): the Wire has the attacker and player as its frame ended, not at the sweep inside the attacker's think";
+        if (r.Part is { Move: > 1 } part)
+            return $"a lunge (AttackMove {part.Move}): the attacker moves through the attack, and the Wire has it only at its thinks";
+        if (r.Part is null && c.Armed)
+            return "no combatmovedatas entry for the attack: the model takes the move default (120)";
+        return "unexplained";
     }
 
     /// <summary>A point within this many Source units of a hit box counts as on it: the Wire's float rounding and the box edge.</summary>
@@ -203,6 +246,8 @@ public static class Scorer
         // Not taken further (#10077): the same attack at the same cycle asked 0 and 12 in one fight, and
         // nothing streamed (flags, type, hit group, force) tells the contacts apart.
         ("npc_ghoul", "Turn_strike_90_right", uint.MaxValue, "not taken further: asked 0 and 12 at the same cycle in one fight; nothing on the Wire tells them apart"),
+        // Its mirror, the same pattern: 0 on another ghoul where its table asks 12 (l01_a-v12-arena-ghoul, 2026-10-19).
+        ("npc_ghoul", "Turn_strike_90_left", uint.MaxValue, "not taken further: asked 0 where its table gives 12, as its mirror Turn_strike_90_right does; nothing on the Wire tells them apart"),
     ];
 
     static string DamageReason(DamageCase c, float model, uint version) =>

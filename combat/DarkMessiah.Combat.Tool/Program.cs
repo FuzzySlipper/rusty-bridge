@@ -43,7 +43,9 @@ foreach (var path in recordings)
     FightCases fight;
     using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
     var swept = contacts ? Sweep(path) : null;
-    var report = Scorer.Score(fight, model, swept);
+    List<ReachCase> reaches;
+    using (var stream = File.OpenRead(path)) reaches = Reaches.Read(RustyBridge.Wire.RecordingReader.Frames(stream), model.Data);
+    var report = Scorer.Score(fight, model, swept, reaches);
     Console.Write(report.Format(brief));
     unexplained += report.Mismatches.Count(m => m.Reason.StartsWith("unexplained", StringComparison.Ordinal));
 }

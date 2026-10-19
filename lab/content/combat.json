@@ -10,8 +10,6 @@
     "spawn": [12, 0, 8],
     "engageDistance": 1.6,
     "walkSpeed": 1.6,
-    "reach": 2.1,
-    "frontCosine": 0.5,
     "attackCooldown": 1.0,
     "parryChance": 0.5,
     "respawnSeconds": 3

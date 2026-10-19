@@ -441,6 +441,44 @@ The stepper shades the frames where `m_bInBulletTime` is set, lists each
 call with its caller, and shows the game-time scale next to the clock when
 it differs from 1. `rbwire info` groups calls by source and caller.
 
+## The melee sweep
+
+Nothing here is hooked; these are the addresses behind the reach model (docs/combat.md, "Reach"), found
+2026-10-19 in `server.dll` (image base 0x22000000) by disassembly and checked live.
+
+| Address | What |
+| --- | --- |
+| +0x3B1A90 | the attack resolver (`edi` the attacker), also named under "The player's parry" |
+| +0x3B1CED | aims at the attacker's enemy when the cosine to it is above 0.3 (a `double` at +0x56EA38), else along its facing |
+| +0x3B2009 | an armed attacker's sweep: its length is `[edi+0x11FC]`, the current attack part's `range` |
+| +0x3B2270 | an unarmed attacker's sweep: its length is `[edi+0x1258]`, its `baseattacklength` |
+| +0x3CB310 | the sweep (`thiscall` on the attacker: out, length, a flag, a type, start, direction, ignore list) |
+| +0x3CAE70 | a cylinder test the sweep calls for some victims; it moves a blow's end point on the player |
+| +0x3A7737, +0x3AC3D4 | the attack-data loader: `range` (default 120) into `+0x11FC` |
+| +0x3DD56C | a combat move's constructor: `range` defaults to 120 |
+| +0x3B16D7 | the entity-data loader: `baseattacklength` (default 50) into `+0x1258` |
+
+**The sweep's size is a ConVar per type.** The type picks one, by the attacker's weapon class:
+
+| Type | ConVar | Default |
+| --- | --- | --- |
+| 0 | `collision_inc_size_ray` | 1.5 |
+| 1 | `collision_inc_size_ray_less_prec` | 2 |
+| 2 | `collision_inc_size_ray_only_weapon` | 3 |
+| 3, 6 | `collision_inc_size_ray_only_npc` | 5 |
+| 4 | `collision_inc_size_trample` | 7 |
+
+- **The defaults:** read from the ConVars' static constructors at +0x54D920..+0x54DA81. `collision_inc_cylinder` (5) and
+  `collision_start_size_ray` (0) are there too.
+- **Debug view:** `mm_show_testattack 1` makes the routine draw its sweeps.
+
+**How the lengths were confirmed.** A temporary tap build hooked +0x3CB310 and logged each call's caller and
+arguments while the parry bot fought two orcs and a ghoul. It isn't committed.
+- **The orc:** called from +0x3B200E with 70 and 60, its attacks' ranges.
+- **The ghoul:** called from +0x3B2275 with 50, `baseattacklength`'s default, since its `.qct` gives none.
+- **Type:** both used type 0.
+- **The field at rest:** the ghoul's `+0x11FC` read 120 throughout, the move default, which the unarmed branch doesn't use.
+
 ## Kicks, knockdowns and adrenaline
 
 - **Kicks:** a kick is a damage record with damage type 0x40000, weapon flags 0x20,

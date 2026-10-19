@@ -2,8 +2,16 @@ using RustyBridge.Wire.Donor;
 
 namespace DarkMessiah.Combat;
 
-/// <summary>One contact of an attack: its damage factor (HitPow) and whether it breaks a parry.</summary>
-public sealed record AttackEvent(float HitPow, bool BreaksParry);
+/// <summary>
+/// One contact of an attack: its damage factor (HitPow), whether it breaks a parry, how far its sweep reaches
+/// (`range`, Source units) and how the attacker moves through it (`AttackMove`: 1 in place, more for lunges, jumps
+/// and kicks; 0 when not given).
+/// </summary>
+public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0)
+{
+    /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
+    public const float DefaultRange = 120;
+}
 
 /// <summary>
 /// An attack from a model's <c>combatmovedatas</c>, keyed by sequence name.
@@ -14,10 +22,15 @@ public sealed record AttackData(string Name, IReadOnlyList<AttackEvent> Events);
 
 /// <summary>
 /// A character's combat table from its model's .qct: strength, the damage
-/// multiplier per hit group (`hitboxes_modifier`), and its attacks.
+/// multiplier per hit group (`hitboxes_modifier`), its attacks, and how far
+/// it reaches without a weapon (`baseattacklength`).
 /// </summary>
-public sealed record CharacterData(string Model, float Strength, IReadOnlyDictionary<int, float> HitGroups, IReadOnlyDictionary<string, AttackData> Attacks)
+public sealed record CharacterData(string Model, float Strength, IReadOnlyDictionary<int, float> HitGroups, IReadOnlyDictionary<string, AttackData> Attacks,
+    float BaseAttackLength = CharacterData.DefaultBaseAttackLength)
 {
+    /// <summary>An unarmed attack's sweep length when entity_data gives none: the loader's default, 50 (server.dll+0x3B16D7).</summary>
+    public const float DefaultBaseAttackLength = 50;
+
     public float HitGroup(int group) => HitGroups.GetValueOrDefault(group, 1f);
     public AttackData? Attack(string sequence) => Attacks.GetValueOrDefault(sequence);
 }
@@ -77,6 +90,14 @@ public sealed class CombatData
     }
 
     readonly Func<string, IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>>>? _eventsOf;
+
+    /// <summary>The cycles at which a sequence's attack parts fire (2102, 2139), in order; empty when it has none.</summary>
+    public IReadOnlyList<float> PartCycles(string model, string sequence)
+    {
+        if (model.Length == 0 || sequence.Length == 0) return [];
+        if (!_events.TryGetValue(model, out var events)) _events[model] = events = _eventsOf?.Invoke(model) ?? StudioModel.Events(model, _read);
+        return events.TryGetValue(sequence, out var list) ? list.Where(e => PartEvents.Contains(e.Event)).Select(e => e.Cycle).ToList() : [];
+    }
 
     /// <param name="read">Reads a donor file (a model's .qct, scripts/mm_game_settings.txt, a .mdl) by donor path, or null.</param>
     /// <param name="eventsOf">
@@ -144,13 +165,15 @@ public sealed class CombatData
                 var events = (parts.Count > 0 ? parts : [attack]).Select(Event).ToList();
                 attacks.TryAdd(attack.Name, new AttackData(attack.Name, events));
             }
-            data = new CharacterData(model, strength, groups, attacks);
+            data = new CharacterData(model, strength, groups, attacks, entity?.Number("baseattacklength") ?? CharacterData.DefaultBaseAttackLength);
         }
         return _characters[model] = data;
     }
 
+    // An event block inherits nothing from its attack: the game reads each into a fresh move (default range 120).
     static AttackEvent Event(KeyValues b) =>
-        new(b.Number("HitPow") ?? 1, (b.Number("breakparade") ?? 0) > 0 || (b.Number("forcebreakparade") ?? 0) > 0);
+        new(b.Number("HitPow") ?? 1, (b.Number("breakparade") ?? 0) > 0 || (b.Number("forcebreakparade") ?? 0) > 0,
+            b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0));
 
     public WeaponData? Weapon(string model)
     {

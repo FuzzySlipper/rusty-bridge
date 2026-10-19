@@ -1,4 +1,4 @@
-# Wire v11
+# Wire v12
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -25,11 +25,12 @@ and an NPC victim's alert level. Since v10 every entity also carries what it
 hangs from (its move parent and the parent's attachment) and its owner.
 Since v9 the client view also carries the camera the client
 drew with and the client viewmodel's own sequence, cycle and overlay layers.
-A control file beside the Wire holds the donor
+Since v12 each tick carries the player's input: the button words the server
+ran its command with. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v11 replaced v1 on 2026-10-17 and 2026-10-18. Readers check `version`; the tap writes
+v2–v12 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -52,7 +53,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 181,320 | Ring of slots |
+| 590,080 | 128 × 181,336 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -72,6 +73,7 @@ at 72), then:
 - at 175,456, up to 256 overlay layer records of 20 bytes
 - at 180,576, up to 16 slow-time records of 32 bytes
 - at 181,088, the 232-byte client view (80 bytes in v8)
+- at 181,320, the 16-byte player input (v12)
 
 Entities:
 
@@ -577,6 +579,59 @@ live vtables of `VEngineClient012` (engine.dll), `VClientEntityList003` and
   The client's cycles differ from the server viewmodel's (0.644 against 0.800 charged, 0.398 against 0.418 mid-release),
   which is why they're read from the client.
 - **Standing:** the client's player sits on the server's; on the horse ride it is about 3 units off.
+
+## The player's input
+
+v12 streams what the player pressed, so a recorded fight can drive the combat
+lab with the same input (docs/lab.md, "Replay"). One 16-byte record per slot:
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16 | the edict the buttons were read from (1); 0xFFFF when not read |
+| 2 | `valid` u8, reserved u8 | 1 when read |
+| 4 | `buttons` u32 | `m_nButtons` (+0x1FB8): `IN_*` bits held in the tick's command |
+| 8 | `pressed` u32 | `m_afButtonPressed` (+0x1FC8): bits that went down in it |
+| 12 | `released` u32 | `m_afButtonReleased` (+0x1FCC): bits that went up in it |
+
+The tap reads them from the player's server entity after each frame, so they
+are what the last command left. The view angles are the client view's
+(above). Movement shows only as the `IN_FORWARD`, `IN_BACK`,
+`IN_MOVELEFT` and `IN_MOVERIGHT` bits. The analogue forward and side moves
+aren't read: the keyboard sets them in step with those bits.
+
+**How the offsets were found (2026-10-19, server.dll, image base 0x22000000).**
+These fields aren't networked, so no send table names them. `CBasePlayer`'s
+datadesc names them, but its table is filled in at start-up rather than
+stored whole. For each field, a static initializer writes the name
+pointer, then the offset, into one table slot:
+- **The name:** `mov dword [slot], name` (`c7 05`), for example at
+  server.dll+0x41AFF0 for `m_nButtons`.
+- **The offset:** `mov dword [slot+4], offset`. The slots are 0x227A0554 for
+  `m_nButtons`, 0x227A0658 for `m_afButtonPressed` and 0x227A068C for
+  `m_afButtonReleased`.
+
+The same scan gave `m_afButtonLast` +0x1FD0 and `m_nImpulse` +0x2678, which
+the tap doesn't read. Nothing is patched. The tap reads only when edict 1's
+class is `player`, inside a fault guard.
+
+**What the bits showed (`l01_a-v12-arena-bot.rbrec`, 120 s, the parry bot
+swinging, kicking and blocking):**
+- **Held and pressed bits:** only `IN_ATTACK`, `IN_ATTACK2`, `IN_FORWARD`,
+  `IN_LEFT` and `IN_RIGHT` ever appear. `IN_LEFT` and `IN_RIGHT` are the bot's turning binds.
+- **No kick bit:** none of the recording's kicks (eight started the kick
+  clip) set a bit, in `buttons` or in `pressed`. Dark Messiah's kick reaches the server some other way: its own
+  command, or an impulse consumed before the frame ends.
+- **Reading a kick press:** the start of the kick's first-person clip
+  (`layer_sword_noshield_kick_medium`), which the client view's layers carry.
+  The lab's replay does that, so a replayed kick starts with the donor's
+  clip rather than at the key press, which can be a tick or two earlier.
+
+**The view model after a save load.** A loaded save recreates the view
+model, often at a high edict index; l01_a's `rb_start` put it at 1279. The
+tap used to look for it among the first 64 edicts and cache it for good, so
+recordings that began with a loaded save had no view-model layers. The tap
+now finds it again when the cached index stops naming a `viewmodel`, and
+searches every edict.
 
 ## Holding the donor
 

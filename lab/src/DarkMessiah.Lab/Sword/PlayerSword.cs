@@ -46,7 +46,8 @@ internal sealed record SwordClips(MoveClip Idle, MoveClip ChargeIn, MoveClip Cha
 /// <item>pressing attack winds up (<c>layer_bigslash_*_in</c>, then its held idle);</item>
 /// <item>releasing it within <see cref="CombatTuning.PowerHoldSeconds"/> is a fast attack (<c>layer_fastattack_*_A</c>), later a power attack (<c>layer_bigslash_*_out</c>);</item>
 /// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release);</item>
-/// <item>kick plays <c>layer_sword_noshield_kick_medium</c>;</item>
+/// <item>kick plays <c>layer_sword_noshield_kick_medium</c>, from ready, a parry, or a swing whose hit window has
+/// passed (recorded kicks cut power attacks off at about cycle 0.45);</item>
 /// <item>a blow the orc parries bounces the sword (<c>layer_bounce_*</c>), and a broken parry staggers it (<c>layer_state_sword_parry_breaked</c>).</item>
 /// </list>
 /// While a move's hit window is open (<see cref="Traced"/>) the lab traces the blade every step. No Engine calls:
@@ -98,6 +99,9 @@ internal sealed class PlayerSword(SwordClips clips, CombatTuning tuning)
                 if (!blockHeld) Play(SwordMove.ParryOut, clips.ParryOut);
                 else if (kickPressed) Play(SwordMove.Kick, clips.Kick, swing: true);
                 else if (done && Clip == clips.ParryIn) Play(SwordMove.Parry, clips.ParryHold);
+                break;
+            case SwordMove.Fast or SwordMove.Power when kickPressed && Clip.Traced && Cycle > Clip.Close:
+                Play(SwordMove.Kick, clips.Kick, swing: true);
                 break;
             default:
                 if (done) Play(SwordMove.Ready, clips.Idle);

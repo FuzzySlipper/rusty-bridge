@@ -30,7 +30,9 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(232, Marshal.SizeOf<WireClientView>());
         Assert.Equal(12, Marshal.SizeOf<WireClientLayer>());
         Assert.Equal(80, (int)Marshal.OffsetOf<WireClientView>(nameof(WireClientView.CameraX)));
-        Assert.Equal(23_799_040, WireLayout.FileBytes);
+        Assert.Equal(16, Marshal.SizeOf<WirePlayerInput>());
+        Assert.Equal(WireLayout.ClientViewOffset + 232, WireLayout.InputOffset);
+        Assert.Equal(23_801_088, WireLayout.FileBytes);
     }
 
     [Fact]

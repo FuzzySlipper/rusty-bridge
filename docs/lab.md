@@ -35,7 +35,7 @@ rusty dev
 | Left button, tap | Fast attack (`layer_fastattack_sword_noshield_A`) |
 | Left button, hold | Power attack: winds up (`layer_bigslash_*_in`, held), strikes on release (`_out`) |
 | Right button, hold | Parry (`layer_parry_sword_noshield_*`) |
-| F | Kick (`layer_sword_noshield_kick_medium`) |
+| F | Kick (`layer_sword_noshield_kick_medium`), also cutting off a swing whose hit window has passed |
 | E / left button | Pick up a crate / throw it (fptester's cubes) |
 | G | God: the orc's blows still count but take no health |
 | P / O | Hold the world / step it one frame |
@@ -73,11 +73,17 @@ The orc's reach stands in for the donor's reach test until #10099 measures it.
 
 | Move | Recorded player blows inside the lab's window (±0.06) | Clip rate, lab against donor |
 | --- | --- | --- |
-| Fast attack, window 0.33–0.78 | 39 of 39 (cycles 0.28–0.70) | 3.67 against 3.47 cycles/s |
-| Power attack, window 0.13–0.22 | 16 of 21 | 1.03 against 1.01 cycles/s |
-| Kick, window 0.36–0.42 | 17 of 17 (cycles 0.38–0.41) | 1.20 against 1.17 cycles/s |
+| Fast attack, window 0.33–0.78 | 47 of 47 (cycles 0.28–0.73) | 3.67 against 3.47 cycles/s |
+| Power attack, window 0.13–0.22 | 22 of 22 (cycles 0.13–0.18) | 1.03 against 1.01 cycles/s |
+| Kick, window 0.36–0.42 | 29 of 29 (cycles 0.38–0.41) | 1.20 against 1.17 cycles/s |
 
-The power attack's five other blows land late in its clip, at cycles 0.76–1.00. They are a second contact the lab doesn't trace yet.
+**A blow belongs to the newest move.** A kick can start while a power
+attack's layer is still fading out under it. Credited to the first layer
+listed, seven kicks counted as power blows late in the power clip
+(cycles 0.76–1.00), which looked like a second contact. Calibration now takes
+the layer with the highest order. Those kicks start when the power attack is
+at about cycle 0.45, after its hit window has closed. That is why the lab's
+kick may cut off a swing then.
 
 The smoke also checks, on the real product headless:
 - **The data:** the sword's range and both weapons' attack speeds; the windows come from the events.
@@ -88,6 +94,59 @@ The smoke also checks, on the real product headless:
   - a parrying orc turns the blade;
   - a kick asks `kick_damage` and pushes the orc.
 - **The player's guard:** it meets the orc's blows, which it parries, or breaks against.
+
+## Replay
+
+Recordings of Wire v12 and later carry the player's buttons (docs/wire.md,
+"The player's input"). `lab.replay NAME` replays one against the lab and
+reports where the outcomes agree. NAME is a path, or a file in
+`local/recordings`. The smoke replays every such recording it finds.
+
+**Each recorded tick is one lab step of that tick's game time:**
+- **The sword:** the held attack and attack2 bits drive it (`PlayerSword`),
+  from the recorded eye and view angles. Kicks aren't a button bit, so a kick
+  starts when the donor's kick clip starts on the view model.
+- **The orc:** the lab's orc follows the donor orc the player aims at,
+  within 4 m (else the nearest) (`Orc.Follow`):
+  - it stands, faces, plays and has the health the recording gives it, and plays on between
+    streamed states at the recorded rate;
+  - a parry layer is its parry state, and an attack sequence or `layer_attack_*` overlay its attack;
+  - each attack part's event it crosses is a blow, as in the lab's own fight.
+- **What the lab decides:** its trace, verdict and damage for the player's blows, and its reach
+  and the player's parry for the orc's. The donor's decisions come from the same recording
+  (`Blows`, and the kick damage records).
+
+**The report pairs blows within 0.3 s:**
+- **agree:** the same verdict, and the same damage and hit group when the blow lands;
+- **differ:** they were paired, but those differ;
+- **donor only, lab only:** no partner within the window;
+- **not compared:** blows by or on NPCs the lab wasn't following.
+
+The moves each side began are paired by clip the same way.
+
+**`l01_a-v12-arena-bot.rbrec` (the parry bot, 120 s):**
+
+| What | Donor | Lab | Agree |
+| --- | --- | --- | --- |
+| Fast attacks, power attacks, kicks begun | 7, 9, 8 | 8, 9, 8 | 24 of 24 begin together, the lab 4 ms ahead on average |
+| The player's blows on the followed orc | 16 | 14 | 4 agree, 6 differ |
+| The orc's blows on the player | 40 | 51 | 36 agree |
+
+**Where they differ:**
+- **Which part a swing strikes:**
+  - Donor blows on hit group 1 (4.2 and 9 damage) were the lab's on group 4 (1.4 and 3).
+  - One donor hit was a lab parry, and one donor NoEffect a lab hit.
+  - Why they can differ: the lab traces from the eye toward its own blade, against an orc posed from
+    states streamed every few ticks. Neither the donor's sweep nor the orc's exact pose is reproduced.
+- **Parry or shield:** where the donor's verdict is Parry, the lab's trace met
+  the orc's shield and decided Shield.
+- **Kicks:** three donor kicks landed where the lab's missed. The lab's kick
+  reach is its own number (`KickRange`).
+- **The orc's reach:** the lab-only orc blows land by the lab's fixed reach
+  (`OrcTuning.Reach`) at moments when the donor recorded no blow. The donor's
+  reach test is #10099's.
+- **Two parts at once:** the lab sometimes lands both of an attack's parts in
+  one step (`attack_KickSwing`, `attack_Fast`), where the donor lands one.
 
 ## The arena
 
@@ -109,6 +168,7 @@ lab/
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
     Calibration/           SwordCalibration against recordings
+    Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)
     Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below)
   src/ui/                  HUD, pause menu, developer shell
   tests/DarkMessiah.Lab.Smoke/
@@ -125,6 +185,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
   - `lab.god` toggles god mode;
+  - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;
   - `lab.dev.view x y z yaw pitch` stands at a viewpoint;
   - `lab.time`, `.rate`, `.hold`, `.run` and `.step` control world time.
 - **Tunables:** Body and View (`player.json`), Sword and Orc (`combat.json`), and World time.
@@ -158,7 +219,6 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 ## Not done yet
 
 - **Orc AI:** a minimal loop stands in for it. It walks in, attacks in turn, sometimes parries, reacts to hits and kicks. Its behaviour is next to measure against Shadow decisions.
-- **Input replay** (#10122): recording the player's inputs on the Wire and replaying them here.
 - **Reach and pose** (#10099, #10098): the orc's reach test and NPC pose timing.
 - **Physics:**
   - knockdowns into ragdolls;
@@ -166,6 +226,5 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - the power attack's late second contact;
   - combos (`layer_combo_*`);
   - the shield-holding moves.

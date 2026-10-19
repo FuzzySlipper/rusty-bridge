@@ -43,9 +43,10 @@ internal static class SwordCalibration
                 if (f.Version < 9 || !f.ClientView.Flags.HasFlag(ClientViewFlags.ViewmodelLayers)) continue;
                 var vm = f.Entities.FirstOrDefault(kv => f.Classes.GetValueOrDefault(kv.Value.ClassId) == "viewmodel");
                 if (f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is not { } names) continue;
+                // The newest move on top: a kick can start while a power attack's layer still fades out under it.
                 var playing = f.ClientView.ViewmodelLayers.ToArray()
                     .Where(l => l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && blows.ContainsKey(names[l.Sequence]))
-                    .Select(l => (Clip: names[l.Sequence], l.Cycle)).FirstOrDefault();
+                    .OrderByDescending(l => l.Order).Select(l => (Clip: names[l.Sequence], l.Cycle)).FirstOrDefault();
                 if (playing.Clip is null) { last = null; lastClip = ""; continue; }
                 // The rate: cycle gained over curtime between frames of one play of the clip.
                 if (last is { } l && lastClip == playing.Clip && playing.Cycle > l.Cycle && f.Curtime > l.Time)

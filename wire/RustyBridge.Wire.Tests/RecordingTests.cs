@@ -91,10 +91,11 @@ public sealed class RecordingTests : IDisposable
         Assert.True(reader.TryReadFrame(1, snap));
         recorder.Write(snap, reader.Map, 0.015f, reader);
 
-        // Record header (5) + frame fields (21) + one changed entity (64) + removed count (4)
+        // Record header (5) + frame fields (21) + one changed entity (80) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
-        // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8).
-        Assert.Equal(406, recorder.Bytes - afterKey);
+        // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8)
+        // + v8/v9: the client view (232) + v12: the player's input (16).
+        Assert.Equal(422, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -283,7 +284,7 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version11CarriesWallClockPlayerStateSlowTimeLinksParentsAndTheClientView()
+    public void Version12CarriesWallClockPlayerStateSlowTimeLinksParentsTheClientViewAndInput()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
@@ -298,6 +299,7 @@ public sealed class RecordingTests : IDisposable
         };
         client.SetViewmodelLayers([new WireClientLayer { Sequence = 30, Order = 2, Cycle = 0.4f, Weight = 1 }]);
         writer.Client(client);
+        writer.Input(new WirePlayerInput { Player = 1, Valid = 1, Buttons = InputButtons.Attack | InputButtons.Forward, Pressed = InputButtons.Attack });
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
         writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
         writer.FrameEntities(10,
@@ -319,7 +321,9 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(11u, f.Version);
+        Assert.Equal(12u, f.Version);
+        Assert.Equal(InputButtons.Attack | InputButtons.Forward, f.Input.Buttons);
+        Assert.Equal(InputButtons.Attack, f.Input.Pressed);
         Assert.Equal((ushort)7, f.Entities[9].Parent);
         Assert.Equal((byte)3, f.Entities[9].ParentAttachment);
         Assert.Equal(0x123u, f.Entities[9].OwnerSerial);
@@ -339,6 +343,7 @@ public sealed class RecordingTests : IDisposable
         Assert.Equal(0f, old.ClientView.CameraYaw);
         Assert.Equal((short)-1, old.ClientView.ViewmodelSequence);
         Assert.Equal(WireLayout.NoEntity, old.Entities[9].Parent);
+        Assert.Equal(WireLayout.NoEntity, old.Input.Player);
         Assert.Equal((ushort)9, old.Entities[7].Link);
         Assert.Equal((ushort)7, f.ClientView.Viewmodel);
         Assert.Equal(101f, f.ClientView.ViewmodelX);
@@ -414,13 +419,14 @@ public sealed class RecordingTests : IDisposable
 
     /// <summary>
     /// A current recording rewritten as v8 wrote it: the version, each entity
-    /// cut to its first 64 bytes (no parent or owner), and each frame's client
-    /// view cut to its first 80 bytes.
+    /// cut to its first 64 bytes (no parent or owner), each frame's client
+    /// view cut to its first 80 bytes, and no input.
     /// </summary>
     static byte[] AsVersion8(byte[] current)
     {
         int entityNow = System.Runtime.InteropServices.Marshal.SizeOf<WireEntity>(), entityThen = 64;
-        int viewTail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes;
+        int viewTail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes
+            + System.Runtime.InteropServices.Marshal.SizeOf<WirePlayerInput>();
         var output = new MemoryStream();
         output.Write(current, 0, 16);
         BitConverter.GetBytes(8u).CopyTo(output.GetBuffer(), 8);

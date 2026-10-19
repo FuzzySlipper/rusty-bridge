@@ -128,6 +128,8 @@ int Dump()
     Console.WriteLine($"frame {snap.Frame} tick {snap.Tick} curtime {snap.Curtime:F3} wall {snap.WallSeconds:F3} entities {snap.Count} layers {snap.LayerCount}");
     if (snap.Player.Index != WireLayout.NoEntity)
         Console.WriteLine($"  player #{snap.Player.Index}: {PlayerState(snap.Player)}");
+    if (snap.Input.Valid != 0)
+        Console.WriteLine($"  input: held {snap.Input.Buttons}, pressed {snap.Input.Pressed}, released {snap.Input.Released} (0x{(uint)snap.Input.Buttons:X})");
     if (snap.ClientView.Flags != ClientViewFlags.None)
     {
         Console.WriteLine($"  client: {ClientView(snap.ClientView)}");
@@ -234,8 +236,16 @@ int Info(string path)
     var links = new HashSet<(string, string)>();
     double? firstWall = null, lastWall = null;
     float firstCurtime = 0, lastCurtime = 0;
+    long inputFrames = 0;
+    var presses = new Dictionary<InputButtons, int>();
     foreach (var f in RecordingReader.Frames(stream))
     {
+        if (f.Input.Valid != 0)
+        {
+            inputFrames++;
+            foreach (var bit in Enum.GetValues<InputButtons>())
+                if (bit != InputButtons.None && f.Input.Pressed.HasFlag(bit)) presses[bit] = presses.GetValueOrDefault(bit) + 1;
+        }
         slowDropped += f.SlowTimeDropped;
         foreach (var b in f.SlowTime)
         {
@@ -303,6 +313,9 @@ int Info(string path)
         foreach (var ((source, caller), c) in slowCallers.OrderByDescending(kv => kv.Value.calls))
             Console.WriteLine($"  {source,-7} {WireSlowTime.CallerName(caller)}  {c.calls,4} calls  last x{c.factor:F2} for {c.duration:F2} s");
     }
+    if (inputFrames > 0)
+        Console.WriteLine($"input: {inputFrames} frames; presses " +
+            (presses.Count == 0 ? "none" : string.Join(", ", presses.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"))));
     if (links.Count > 0)
     {
         Console.WriteLine($"knockdown links: {links.Count}");

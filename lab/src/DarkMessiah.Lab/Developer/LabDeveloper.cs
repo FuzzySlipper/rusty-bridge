@@ -3,6 +3,7 @@ using System.Text.Json;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Interaction;
 using DarkMessiah.Lab.Player;
+using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Scene;
 using DarkMessiah.Lab.Time;
 using Rusty.Engine;
@@ -19,7 +20,7 @@ namespace DarkMessiah.Lab.Developer;
 /// clearance adapters).
 /// </summary>
 internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, PlayerController player, CubeInteraction cubes,
-    LabCombat combat, WorldTime time, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
+    LabCombat combat, WorldTime time, string donorSource, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
 {
     private const float ProbeLimit = 8, ClearanceLimit = 8;
     // The most cells one grid readout answers.
@@ -74,6 +75,19 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
 
     [DebugCommand("lab.fight", Description = "Read the fight: the sword's move, the orc, the last blow and the counts.")]
     public DebugCommandResult Fight() => observe();
+
+    [DebugCommand("lab.replay", Description = "Replay a recording's input (Wire v12 or later; a path, or a name in local/recordings) against the donor orc the player faced, and report where the lab's moves and blows agree with the donor's. The fight starts over afterwards.")]
+    public DebugCommandResult Replay(string recording)
+    {
+        string? path = File.Exists(recording) ? recording
+            : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(donorSource.TrimEnd('/', '\\')))!, "recordings", recording) is var local && File.Exists(local) ? local : null;
+        if (path is null) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, $"No recording {recording} (a path, or a name in local/recordings).");
+        var report = CombatReplay.Run(combat, path);
+        changed();
+        return report.Ticks == 0
+            ? DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, $"{report.Name} has no input to replay: it needs Wire v12 or later.")
+            : DebugCommandResult.Success(report.ToString());
+    }
 
     /// <summary>
     /// The lab's named inspection points (Engine <see cref="InspectionTargetsDebugModule"/>): the eye, the sword's reach

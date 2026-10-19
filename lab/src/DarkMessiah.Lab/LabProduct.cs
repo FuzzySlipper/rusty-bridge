@@ -54,7 +54,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
         time = new WorldTime(engine);
-        developer = new LabDeveloper(engine, scene, player, cubes, combat, time, Observe, Publish);
+        developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, Observe, Publish);
         hud = engine.Ui.OpenStream(new UiStreamRequest("darkmessiah-lab", "rusty-bridge.lab.hud"));
         notice = $"Donor content: {donor.Source}";
         PlaceAtSpawn();

@@ -4,6 +4,7 @@ using DarkMessiah.Lab;
 using DarkMessiah.Lab.Calibration;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Sword;
 using Rusty.Engine;
 using Rusty.Engine.Testing;
@@ -165,5 +166,25 @@ host.Call(engine =>
     foreach (var move in calibration.Where(m => float.IsFinite(m.DonorCyclesPerSecond)))
         Check(MathF.Abs(move.LabCyclesPerSecond / move.DonorCyclesPerSecond - 1) < .15f,
             FormattableString.Invariant($"{move.Clip}: the lab plays it at the donor's rate ({move.LabCyclesPerSecond:0.00} against {move.DonorCyclesPerSecond:0.00} cycles/s)"));
+
+    // Replay: recordings of Wire v12 and later carry the player's input; it drives the lab's sword against the
+    // donor orc the player faced, and the report compares both sides' moves and blows.
+    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000 } });
+    foreach (var path in found.Where(p => RecordingVersion(p) >= 12))
+    {
+        var report = CombatReplay.Run(combat, path);
+        foreach (var line in report.Lines()) Console.WriteLine($"  {line}");
+        Check(report.Ticks > 0 && report.Moves.Values.Sum(m => m.Lab) > 0, $"{report.Name}: its input drives the lab's sword");
+        int donorMoves = report.Moves.Values.Sum(m => m.Donor), together = report.Moves.Values.Sum(m => m.Together);
+        Check(together >= donorMoves * 8 / 10, $"{report.Name}: the lab begins the donor's moves with them ({together} of {donorMoves})");
+        Check(!combat.Orc.Following && combat.Log is null, $"{report.Name}: the lab's own fight comes back after the replay");
+    }
 });
 return failures == 0 ? 0 : 1;
+
+// A recording's format version, from its first frame.
+static uint RecordingVersion(string path)
+{
+    using var stream = File.OpenRead(path);
+    return RustyBridge.Wire.RecordingReader.Frames(stream).FirstOrDefault()?.Version ?? 0;
+}

@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v11
+## Recording v12
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 11, reserved u32), then records until the end of the file. Each older
+= 12, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 11 | 80 bytes | 152 bytes | 56 bytes | |
+| 12 | 80 bytes | 152 bytes | 56 bytes | |
+| 11 | 80 | 152 | 56 | the player input |
 | 10 | 80 | 152 (no critical byte, alert level) | 48 (no defense state) | |
 | 9 | 64 (no parent or owner) | 152 | 48 | |
 | 8 | 64 | 152 | 48 | the client view's camera and viewmodel animation (an 80-byte client view) |
@@ -26,7 +27,7 @@ version is the newer one with less in it:
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
 Each older record is a prefix of the current one, and readers accept all
-eleven. Each record is
+twelve. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -35,7 +36,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9 |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the 16-byte player input |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -108,6 +109,31 @@ l01_a opens with a two-minute horse ride, and `setpos` is ignored while the play
 **Console commands from the tap:**
 - **What works:** `rbwire exec` runs console commands through the client's command buffer, but `+attack` and `+kick` sent that way don't move the player. Real input goes through the playtest agent's desktop lease, as the parry bot's does.
 - **Quotes:** from Windows PowerShell 5.1, a quoted parameter needs `\"` to reach the game (`& rbwire exec 'ent_fire x Input \"1 2 3\"'`).
+
+## Recording input for the lab
+
+From v12 a recording carries the player's buttons (docs/wire.md, "The player's
+input"), and the lab replays them (docs/lab.md, "Replay"). An arena fight:
+1. Launch into `rb_start` (`opts-arena.ps1`).
+2. Once the tap logs `dump (level+5s)`, run `exec rbarena`.
+3. Play, or run the parry bot, while `rbwire record` runs.
+
+`l01_a-v12-arena-bot.rbrec` is 120 s of the parry bot against `rbarena`'s two
+orcs:
+
+```
+rbwire record C:\Users\agent\rusty-bridge\l01_a-v12-arena-bot.rbrec --seconds 120
+rbwire parrybot --seconds 120 --agent http://192.168.1.12:48300
+```
+
+- **The game in front:** the bot's keys go to whatever window has the focus.
+  If Steam's window comes up in front, the game pauses and Steam gets the
+  input. `C:\Users\agent\rusty-bridge\front.ps1` minimizes Steam and brings
+  the game forward. Run it through `run-on-desktop.ps1` before the bot.
+- **`rbwire dump`:** prints the input line (`input: held Attack, Forward,
+  pressed Attack, released None`). `rbwire info` counts the frames with input
+  and the buttons they held.
+- **The stepper:** shows it as a row under the frame.
 
 ## Recording slow motion
 

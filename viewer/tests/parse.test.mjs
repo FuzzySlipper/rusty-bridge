@@ -37,7 +37,7 @@ function recording(frames, version = 6) {
   u32(0x45524252); u32(0x31303043); u32(version); u32(0);
   record(1, () => { u32(1); f32(0.015); str('l01_a'); });
   ['npc_orc_sword', 'prop_ragdoll', 'player'].forEach((name, id) => record(2, () => { u16(id); str(name); }));
-  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null }, i) => record(4, () => {
+  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null }, i) => record(4, () => {
     u32(i); u32(0); u32(tick); f32(tick * 0.015); u8(1);           // frame, tick, curtime, key flag
     u32(entities.length);
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
@@ -75,6 +75,7 @@ function recording(frames, version = 6) {
         for (let i = 0; i < 8; i++) { u16(i === 0 && client?.layer ? client.layer.seq : 0); u16(0); f32(i === 0 && client?.layer ? client.layer.cycle : 0); f32(i === 0 && client?.layer ? 1 : 0); }
       }
     }
+    if (version >= 12) { u16(input ? 1 : 0xffff); u8(input ? 1 : 0); u8(0); u32(input?.buttons ?? 0); u32(input?.pressed ?? 0); u32(0); }  // the player's input
   }));
   return new Uint8Array(bytes).buffer;
 }
@@ -161,6 +162,17 @@ test('v10: an entity names what it hangs from, at which attachment, and its owne
   assert.equal(t.parent[0], '7:291');
   assert.equal(t.attachment[0], 2);
   assert.equal(t.owner[0], '7:291');
+});
+
+test('v12: the player\'s input, held and pressed, by button name', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 1 | 8, pressed: 1 } },
+    { tick: 11, entities: [player, orc], wall: 1.015 },
+  ], 12));
+  assert.deepEqual({ ...rec.frames[0].input }, { buttons: 9, pressed: 1, released: 0 });
+  assert.equal(rec.frames[1].input, undefined);
+  assert.equal(vm.runInContext('inputText({ buttons: 9 | (1 << 11), pressed: 1 << 11, released: 0 })', context), 'attack forward attack2 (pressed attack2)');
+  assert.equal(vm.runInContext('inputText({ buttons: 1 << 27, pressed: 0, released: 0 })', context), '0x8000000');
 });
 
 // A real slow motion when local/recordings has it (derived from the game, never committed): Arkane's

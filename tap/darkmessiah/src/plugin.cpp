@@ -689,6 +689,9 @@ static const int kUnragdollOffset = 0x16A0;     // prop_ragdoll m_hUnragdoll (EH
 static const int kBulletTimeStartOffset = 0x20A4, kBulletTimeDurationOffset = 0x20A8, kBulletTimeFactorOffset = 0x20AC;
 static const int kInBulletTimeOffset = 0x20B0, kBulletTimeSoundOffset = 0x20B1;
 static const int kMaxAdrenalineOffset = 0x29D4, kAdrenalineOffset = 0x29D8;
+// v12: CBasePlayer's button words, from its datadesc (built at start-up: each field's offset is the immediate
+// written after its name, docs/wire.md "The player's input").
+static const int kButtonsOffset = 0x1FB8, kButtonsPressedOffset = 0x1FC8, kButtonsReleasedOffset = 0x1FCC;
 
 static const char* ClassNameAt(uint16_t index) {
     if (index == wire::kNoEntity || !g_edicts) return nullptr;
@@ -778,6 +781,24 @@ static void WritePlayerState(wire::SlotHeader* s) {
         s->adrenaline = *(const float*)(p + kAdrenalineOffset);
         s->max_adrenaline = *(const float*)(p + kMaxAdrenalineOffset);
         s->player = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+    }
+}
+
+static void WritePlayerInput(wire::PlayerInput* in) {
+    memset(in, 0, sizeof *in);
+    in->player = wire::kNoEntity;
+    const char* cls = ClassNameAt(1);
+    if (!cls || strcmp(cls, "player") != 0) return;
+    __try {
+        const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+        if (!p) return;
+        in->buttons = *(const uint32_t*)(p + kButtonsOffset);
+        in->pressed = *(const uint32_t*)(p + kButtonsPressedOffset);
+        in->released = *(const uint32_t*)(p + kButtonsReleasedOffset);
+        in->player = 1;
+        in->valid = 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ++g_faults;
     }
@@ -980,9 +1001,17 @@ static void WriteClientView(wire::ClientView* v) {
             void* player = local > 0 && local < 64 ? g_getClientEntity(g_entityList, local) : nullptr;
             if (player && ReadAbsTransform(player, v->origin, v->angles)) { v->player = (uint16_t)local; v->flags |= 2; }
         }
+        // The view model's index is cached, and found again when it stops naming one: loading a save
+        // recreates the entity, often at another index.
+        if (g_viewmodelIndex != wire::kNoEntity) {
+            const char* c = ClassNameAt(g_viewmodelIndex);
+            if (!c || strcmp(c, "viewmodel") != 0 || (g_getClientEntity && !g_getClientEntity(g_entityList, g_viewmodelIndex)))
+                g_viewmodelIndex = wire::kNoEntity;
+        }
+        // A level started fresh puts it among the first edicts; a loaded save anywhere.
         if (g_viewmodelIndex == wire::kNoEntity)
-            for (uint16_t i = 1; i < 64; i++)
-                if (const char* c = ClassNameAt(i)) if (!strcmp(c, "viewmodel")) { g_viewmodelIndex = i; break; }
+            for (int i = 1; i < kMaxEdicts; i++)
+                if (const char* c = ClassNameAt((uint16_t)i)) if (!strcmp(c, "viewmodel")) { g_viewmodelIndex = (uint16_t)i; break; }
         if (g_viewmodelIndex != wire::kNoEntity && g_getClientEntity) {
             void* vm = g_getClientEntity(g_entityList, g_viewmodelIndex);
             if (vm && ReadAbsTransform(vm, v->viewmodel_origin, v->viewmodel_angles)) { v->viewmodel = g_viewmodelIndex; v->flags |= 4; }
@@ -1137,6 +1166,7 @@ static void WireWrite() {
     g_slowTimeDropped = 0;
     WritePlayerState(s);
     WriteClientView((wire::ClientView*)(slotBase + wire::kClientViewOffset));
+    WritePlayerInput((wire::PlayerInput*)(slotBase + wire::kInputOffset));
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     s->wall_seconds = (double)(now.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;

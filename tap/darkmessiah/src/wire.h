@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 11;
+const uint32_t kVersion = 12;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -259,8 +259,22 @@ struct ClientView {
     ClientLayer layers[kClientLayers];
 };
 
+// v12: the player's input as the server ran it this tick: CBasePlayer's button
+// words (IN_* bits), read after the frame. Dark Messiah's kick isn't among them
+// (docs/wire.md, "The player's input").
+// The view angles are the client view's.
+struct PlayerInput {
+    uint16_t player;            // edict index the buttons are read from; kNoEntity if none
+    uint8_t valid;              // 1 when read
+    uint8_t reserved;
+    uint32_t buttons;           // m_nButtons (+0x1FB8): held
+    uint32_t pressed;           // m_afButtonPressed (+0x1FC8): went down in this tick's command
+    uint32_t released;          // m_afButtonReleased (+0x1FCC): went up in it
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(PlayerInput) == 16, "PlayerInput layout");
 static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
 static_assert(sizeof(ClientView) == 232, "ClientView layout");
 static_assert(sizeof(Header) == 144, "Header layout");
@@ -279,7 +293,8 @@ const uint32_t kDefenseOffset = kDamageOffset + kMaxDamage * sizeof(Damage);
 const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
 const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
 const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
-const uint32_t kSlotBytes = kClientViewOffset + sizeof(ClientView);
+const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
+const uint32_t kSlotBytes = kInputOffset + sizeof(PlayerInput);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 // The control file, rustybridge.control beside the Wire: a reader holds the

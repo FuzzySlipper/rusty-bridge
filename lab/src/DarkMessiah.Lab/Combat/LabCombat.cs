@@ -17,6 +17,13 @@ internal sealed record SwingTrace(int Swing, string Move, float Cycle, Vector3 S
     int? Group = null, float Damage = 0);
 
 /// <summary>
+/// A decided blow, as a replay compares it with the donor's: the player's on the orc, or the orc's that reached the
+/// player. <see cref="Verdict"/> is the orc's (Hit, Parry, Shield) or the player's parry (PlayerParried,
+/// PlayerParryBroken); a kick that lands is a Hit.
+/// </summary>
+internal sealed record CombatEvent(ulong Tick, bool ByPlayer, string Move, DefenseResult Verdict, float Damage, int? Group);
+
+/// <summary>
 /// Dark Messiah's melee in the lab: the player's sword (<see cref="PlayerSword"/>, drawn and posed by
 /// <see cref="FirstPerson"/>) against one <see cref="Orc"/>, decided by the game's own rules (<see cref="CombatModel"/>,
 /// whose numbers come from the imported .qct files and settings):
@@ -71,6 +78,8 @@ internal sealed class LabCombat : IDisposable
     internal bool God { get; set; }
     internal string Message { get; private set; } = "";
     internal SwingTrace? LastBlow { get; private set; }
+    /// <summary>When set, every decided blow is added to it (a replay's comparison).</summary>
+    internal List<CombatEvent>? Log { get; set; }
     internal (int Swings, int Hits, int Parried, int Blocked, int Missed, float Dealt) Player { get; private set; }
     internal (int Blows, int Reached, int Parried, int Broken, float Dealt, int Deaths) OrcStats { get; private set; }
     /// <summary>How much of the movement input moves the body now.</summary>
@@ -84,13 +93,15 @@ internal sealed class LabCombat : IDisposable
     }
 
     /// <summary>One admitted step of the fight.</summary>
-    internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickPressed, Vector3 eye, Vector3 forward, Vector3 feet)
+    /// <param name="orcPose">In a replay, the recorded orc the lab's follows this step instead of fighting on its own.</param>
+    internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickPressed, Vector3 eye, Vector3 forward, Vector3 feet,
+        OrcPose? orcPose = null)
     {
         int swingsBefore = Sword.Swing;
         Sword.Step(seconds, attackHeld, blockHeld, kickPressed);
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
-        var blows = Orc.Step(seconds, feet, Sword.SwingStarted);
+        var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
         if (Sword.Traced && settledSwing != Sword.Swing)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
@@ -126,6 +137,7 @@ internal sealed class LabCombat : IDisposable
             Sword.Bounce();
             Player = verdict == DefenseResult.Parry ? Player with { Parried = Player.Parried + 1 } : Player with { Blocked = Player.Blocked + 1 };
             Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, $"{verdict} ({what})"), blow: true);
+            Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, 0, null));
             Message = verdict == DefenseResult.Parry ? "The orc parries" : "The orc blocks";
             return;
         }
@@ -135,6 +147,7 @@ internal sealed class LabCombat : IDisposable
         Orc.Damage(asked);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
+        Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
         Message = Orc.Alive ? FormattableString.Invariant($"Hit for {asked:0.##}") : "The orc falls";
     }
 
@@ -156,6 +169,7 @@ internal sealed class LabCombat : IDisposable
         Orc.Push(flat, Tuning.KickPush);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"kick {asked:0.##}"), Damage: asked), blow: true);
+        Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
         Message = "Kick";
     }
 
@@ -166,17 +180,26 @@ internal sealed class LabCombat : IDisposable
         if (toPlayer.Length() > Tuning.Orc.Reach || toPlayer.LengthSquared() > 1e-6f && Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) < Tuning.Orc.FrontCosine) return;
         OrcStats = OrcStats with { Reached = OrcStats.Reached + 1 };
         var orc = Orc.Party() with { Cycle = blow.Cycle };
+        bool broken = false;
         if (Sword.Parrying)
         {
             var outcome = model.PlayerParry(new ParryCase((int)tick, orc, DefenseResult.PlayerParried, blow.Part));
-            if (outcome == DefenseResult.PlayerParried) { OrcStats = OrcStats with { Parried = OrcStats.Parried + 1 }; Message = "Parried"; return; }
+            if (outcome == DefenseResult.PlayerParried)
+            {
+                OrcStats = OrcStats with { Parried = OrcStats.Parried + 1 };
+                Message = "Parried";
+                Log?.Add(new CombatEvent(tick, false, blow.Attack, DefenseResult.PlayerParried, 0, null));
+                return;
+            }
             Sword.Break();
+            broken = true;
             OrcStats = OrcStats with { Broken = OrcStats.Broken + 1 };
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
         float asked = model.Damage(new DamageCase((int)tick, player, orc, "weapon_arxorccleaver", null, 0x4, 0, 0, PlayerHealth, PlayerHealth, false,
             blow.Part, Npc.Orc.Cleaver)) ?? 0;
         OrcStats = OrcStats with { Dealt = OrcStats.Dealt + asked };
+        Log?.Add(new CombatEvent(tick, false, blow.Attack, broken ? DefenseResult.PlayerParryBroken : DefenseResult.Hit, asked, null));
         if (!God)
         {
             PlayerHealth -= asked;

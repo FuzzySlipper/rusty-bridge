@@ -14,6 +14,14 @@ internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down }
 internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
 
 /// <summary>
+/// A recorded donor orc as a replay hands it to the lab's (<see cref="Orc.Follow"/>), in lab space: where it
+/// stands and faces, its health, and what it plays. <see cref="Fresh"/> is set when the recording streamed its
+/// animation this tick (an NPC's state reaches the Wire every few ticks; between them the lab plays it on).
+/// </summary>
+internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float Health, string Sequence, float Cycle, float Rate,
+    string? Layer, float LayerCycle, bool Fresh);
+
+/// <summary>
 /// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, and a minimal fight loop, not the donor's AI
 /// (which is a later task). It walks in (<c>CombatWalk</c>), then attacks in turn with <c>attack_Fast</c>,
 /// <c>attack_right</c> and <c>attack_Bash</c> at the cleaver's <c>speed_attack</c>. Each attack part's event (2102,
@@ -66,6 +74,74 @@ internal sealed class Orc : IDisposable
     internal int AttacksMade { get; private set; }
 
     internal void Retune(OrcTuning next) => tuning = next;
+
+    /// <summary>Following a recorded orc (<see cref="Follow"/>): its own loop, reactions and pushes are off.</summary>
+    internal bool Following { get; private set; }
+    string? followed;
+    float followRate = 1;
+    readonly HashSet<(string Clip, int Part, float At)> landed = [];
+
+    /// <summary>
+    /// One replayed step: the orc stands, faces, plays and has the health the recording gives it, and plays on
+    /// between streamed states at the recorded rate. Its state is read from what it plays: a parry layer is a parry
+    /// (the verdict's parry bit), an attack sequence an attack, no health down. Returns the attack parts whose events
+    /// it crossed, once per play of a clip.
+    /// </summary>
+    internal List<OrcBlow> Follow(OrcPose pose, float seconds)
+    {
+        Following = true;
+        if (pose.Id != followed) { followed = pose.Id; landed.Clear(); }
+        Feet = pose.Feet;
+        Facing = pose.Facing;
+        Health = pose.Health;
+        var (clipBefore, before, layerBefore, layerCycleBefore) = (Clip, Cycle, Layer, LayerCycle);
+        if (pose.Fresh && body.Model.Info.Clips.ContainsKey(pose.Sequence))
+        {
+            Clip = pose.Sequence;
+            Cycle = pose.Cycle;
+            followRate = pose.Rate > 0 ? pose.Rate : 1;
+            Layer = pose.Layer is { } l && body.Model.Info.Clips.ContainsKey(l) ? l : null;
+            LayerCycle = pose.LayerCycle;
+        }
+        else
+        {
+            var clip = body.Model.Clip(Clip);
+            Cycle += clip.Seconds > 0 ? seconds * followRate / clip.Seconds : 1;
+            Cycle = Looping(Clip) || clip.Looping ? Cycle - MathF.Floor(Cycle) : MathF.Min(Cycle, 1);
+            if (Layer is not null) LayerCycle = MathF.Min(1, LayerCycle + (body.Model.Clip(Layer).Seconds is > 0 and var s ? seconds / s : 1));
+        }
+        State = Health <= 0 ? OrcState.Down
+            : Layer?.Contains("parry", StringComparison.OrdinalIgnoreCase) == true || Clip.Contains("parry", StringComparison.OrdinalIgnoreCase) ? OrcState.Parry
+            : Clip.StartsWith("attack", StringComparison.OrdinalIgnoreCase) || Layer?.StartsWith("layer_attack", StringComparison.OrdinalIgnoreCase) == true ? OrcState.Attack
+            : OrcState.Ready;
+        var blows = new List<OrcBlow>();
+        if (State == OrcState.Down) return blows;
+        // An attack plays as the main sequence, or, on the move, as a layer_attack_* overlay.
+        if (Clip != clipBefore) landed.RemoveWhere(x => x.Clip == Clip);
+        if (Layer != layerBefore) landed.RemoveWhere(x => x.Clip == Layer);
+        Cross(Clip, Clip == clipBefore ? before : 0, Cycle, blows);
+        if (Layer is not null) Cross(Layer, Layer == layerBefore ? layerCycleBefore : 0, LayerCycle, blows);
+        return blows;
+    }
+
+    /// <summary>Adds the attack parts <paramref name="clip"/> crossed from <paramref name="from"/> to <paramref name="to"/>, once per play.</summary>
+    void Cross(string clip, float from, float to, List<OrcBlow> blows)
+    {
+        if (to < from - .05f) { landed.RemoveWhere(x => x.Clip == clip); from = 0; }
+        var played = body.Model.Clip(clip);
+        for (int part = 0; part < PartEvents.Length; part++)
+            foreach (float at in played.At(PartEvents[part]))
+                if (from < at && to >= at && landed.Add((clip, part, at))) blows.Add(new OrcBlow(part, clip, at));
+    }
+
+    /// <summary>Back to the lab's own loop after a replay.</summary>
+    internal void StopFollowing()
+    {
+        Following = false;
+        followed = null;
+        landed.Clear();
+        Spawn();
+    }
 
     /// <summary>
     /// One step: turns to the player, walks in, attacks, parries, reacts or lies down. Returns the blows whose part
@@ -128,7 +204,7 @@ internal sealed class Orc : IDisposable
     /// <summary>The verdict and blow are the combat's; this takes their outcome.</summary>
     internal void Damage(float amount)
     {
-        if (!Alive) return;
+        if (!Alive || Following) return;
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
         else if (State != OrcState.Attack) Play(OrcState.Hurt, "Hit_Body_Front_small");
@@ -137,7 +213,7 @@ internal sealed class Orc : IDisposable
     /// <summary>A kick: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack interrupted.</summary>
     internal void Push(Vector3 direction, float metres)
     {
-        if (!Alive) return;
+        if (!Alive || Following) return;
         direction.Y = 0;
         pushDirection = direction.LengthSquared() > 1e-6f ? Vector3.Normalize(direction) : -Facing;
         pushLeft = metres;

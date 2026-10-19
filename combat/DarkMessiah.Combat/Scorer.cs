@@ -247,6 +247,9 @@ public static class Scorer
         // nothing streamed (flags, type, hit group, force) tells the contacts apart.
         ("npc_ghoul", "Turn_strike_90_right", uint.MaxValue, "not taken further: asked 0 and 12 at the same cycle in one fight; nothing on the Wire tells them apart"),
         // Its mirror, the same pattern: 0 on another ghoul where its table asks 12 (l01_a-v12-arena-ghoul, 2026-10-19).
+        // A NoEffect verdict (its byte set) whose blow still asked 12 and took it: once, an orc's lunge on a ghoul
+        // (l01_a-v13-arena-pose, tick 10615). Every other NoEffect zeroes the blow.
+        ("npc_orc_sword", "attack_Forward", uint.MaxValue, "not taken further: once, a NoEffect verdict whose blow still asked and took its damage"),
         ("npc_ghoul", "Turn_strike_90_left", uint.MaxValue, "not taken further: asked 0 where its table gives 12, as its mirror Turn_strike_90_right does; nothing on the Wire tells them apart"),
     ];
 

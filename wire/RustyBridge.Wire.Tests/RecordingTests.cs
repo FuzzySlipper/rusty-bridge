@@ -284,7 +284,7 @@ public sealed class RecordingTests : IDisposable
     }
 
     [Fact]
-    public void Version12CarriesWallClockPlayerStateSlowTimeLinksParentsTheClientViewAndInput()
+    public void Version13CarriesWallClockPlayerStateSlowTimeLinksParentsTheClientViewAndInput()
     {
         // An orc knocked down: its ragdoll links back to it and it to the ragdoll. The player is in slow motion.
         using var writer = new TestWriter(_wire, "l01_a");
@@ -321,7 +321,7 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(12u, f.Version);
+        Assert.Equal(13u, f.Version);
         Assert.Equal(InputButtons.Attack | InputButtons.Forward, f.Input.Buttons);
         Assert.Equal(InputButtons.Attack, f.Input.Pressed);
         Assert.Equal((ushort)7, f.Entities[9].Parent);
@@ -422,6 +422,36 @@ public sealed class RecordingTests : IDisposable
     /// cut to its first 64 bytes (no parent or owner), each frame's client
     /// view cut to its first 80 bytes, and no input.
     /// </summary>
+    /// <summary>From v13 a damage record carries the victim's animation as the blow arrived, before TakeDamage ran.</summary>
+    [Fact]
+    public void Version13DamageCarriesTheVictimsAnimationAsTheBlowArrived()
+    {
+        using var writer = new TestWriter(_wire, "l01_a");
+        writer.Class(0, "npc_orc_sword");
+        writer.Class(1, "player");
+        // The player's blow on the orc, mid attack, aiming, with one overlay.
+        var blow = new WireDamage { Tick = 10, Victim = 7, VictimSerial = 0x123, Attacker = 1, AttackerSerial = 1, Damage = 3, DamageType = 4, TraceValid = 1,
+            Inflictor = WireLayout.NoEntity, TraceEntity = WireLayout.NoEntity, Weapon = WireLayout.NoEntity };
+        var pose = new float[WireDamage.PoseParameters];
+        pose[0] = 0.25f;
+        pose[23] = -1;
+        blow.SetVictimAnimation(12, 0.4f, 0.8f, 151.1f, pose, [(31, 1, 0.6f, 0.9f)]);
+        writer.Damage(blow);
+        writer.FrameEntities(10,
+            new WireEntity { Index = 1, ClassId = 1, Serial = 1, Link = WireLayout.NoEntity },
+            new WireEntity { Index = 7, ClassId = 0, Serial = 0x123, Link = WireLayout.NoEntity });
+        using var reader = new WireReader(_wire);
+        var snap = new WireSnapshot();
+        Assert.True(reader.TryReadFrame(0, snap));
+        var buffer = new MemoryStream();
+        using (var recorder = new Recorder(buffer)) { recorder.Write(snap, reader.Map, 0.015f, reader); recorder.Flush(); }
+        var d = Assert.Single(Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray()))).Damage);
+        Assert.Equal((1, (short)12, 0.4f, 0.8f, 151.1f), (d.VictimAnimValid, d.VictimSequence, d.VictimCycle, d.VictimPlaybackRate, d.VictimAnimTime));
+        Assert.Equal(0.25f, d.VictimPose[0]);
+        Assert.Equal(-1f, d.VictimPose[23]);
+        Assert.Equal(((short)31, (short)1, 0.6f, 0.9f), Assert.Single(d.VictimOverlays));
+    }
+
     static byte[] AsVersion8(byte[] current)
     {
         int entityNow = System.Runtime.InteropServices.Marshal.SizeOf<WireEntity>(), entityThen = 64;

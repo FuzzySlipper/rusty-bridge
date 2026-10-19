@@ -232,6 +232,21 @@ Replay("l01_a-v10-held.rbrec", "held-items run", (product, mirror) =>
         Check(contacts.Where(c => c.Victim == "player").All(c => !c.Traced), "a blow on the player is untraced: it ends at a reach point");
     }
 }
+
+// From Wire v13 the victim is posed as its damage record caught it (#10098): every traced contact agrees.
+{
+    string path = Path.Combine(repo ?? ".", "local", "recordings", "l01_a-v13-arena-pose.rbrec");
+    if (!File.Exists(path)) Console.WriteLine($"skip v13 contacts: no {path}");
+    else
+    {
+        using var contactHost = EngineTestHost.Create(new EngineTestHostOptions { Content = content });
+        using var recording = File.OpenRead(path);
+        var contacts = contactHost.Call(engine => DarkMessiah.Mirror.Shadow.SwingContacts.Recompute(engine, Path.GetFileName(index), recording));
+        var traced = contacts.Where(c => c.Traced).ToList();
+        int agree = traced.Count(c => c.Before is { } b && b.Entity == c.Donor.Entity && b.Body == c.Donor.Body && b.Group == c.Donor.Group);
+        Check(traced.Count > 40 && agree == traced.Count, $"posed as the blows found them, the swept traces meet what the donor's did: {agree} of {traced.Count}");
+    }
+}
 return failures == 0 ? 0 : 1;
 
 sealed class Capture : IDebugCommandModuleRegistrar

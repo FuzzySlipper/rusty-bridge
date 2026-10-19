@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 12;
+    public const uint Version = 13;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -289,8 +289,13 @@ public struct WireEntity
 /// <see cref="WireLayout.NoEntity"/>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
-public struct WireDamage
+public unsafe struct WireDamage
 {
+    /// <summary>MAXSTUDIOPOSEPARAM: a character's pose parameters.</summary>
+    public const int PoseParameters = 24;
+    /// <summary>How many of the victim's overlays a v13 record carries.</summary>
+    public const int VictimLayers = 8;
+
     public int Tick;
     public ushort Victim, Attacker, Inflictor, TraceEntity;
     /// <summary>m_flDamage as requested; HealthBefore - HealthAfter is what was applied.</summary>
@@ -321,6 +326,56 @@ public struct WireDamage
     public byte VictimNpcState;
     /// <summary>v11: 1 when <see cref="VictimAlert"/> and <see cref="VictimNpcState"/> were read (npc_* victims).</summary>
     public byte VictimAlertValid;
+
+    // v13: the victim's animation as the call arrived, before TakeDamage ran: the state the trace that struck it
+    // posed. A character's sequence and cycle change only in its own think, so the frame's end can show the next.
+    /// <summary>v13: m_nSequence; -1 when not read.</summary>
+    public short VictimSequence;
+    /// <summary>v13: 1 when the victim's animation fields were read.</summary>
+    public byte VictimAnimValid;
+    /// <summary>v13: how many of the victim's active overlays follow, at most <see cref="VictimLayers"/>.</summary>
+    public byte VictimLayerCount;
+    public float VictimCycle, VictimPlaybackRate;
+    /// <summary>v13: m_flAnimTime, when the victim's animation last advanced (its last think).</summary>
+    public float VictimAnimTime;
+    fixed float _victimPose[PoseParameters];
+    fixed short _victimLayerSequence[VictimLayers];
+    fixed short _victimLayerOrder[VictimLayers];
+    fixed float _victimLayerCycle[VictimLayers];
+    fixed float _victimLayerWeight[VictimLayers];
+
+    /// <summary>v13: the victim's m_flPoseParameter.</summary>
+    public readonly float[] VictimPose
+    {
+        get { var a = new float[PoseParameters]; for (int i = 0; i < PoseParameters; i++) a[i] = _victimPose[i]; return a; }
+    }
+
+    /// <summary>v13: the victim's active overlays as the call arrived, in m_AnimOverlay order.</summary>
+    public readonly (short Sequence, short Order, float Cycle, float Weight)[] VictimOverlays
+    {
+        get
+        {
+            int n = Math.Min((int)VictimLayerCount, VictimLayers);
+            var a = new (short, short, float, float)[n];
+            for (int i = 0; i < n; i++) a[i] = (_victimLayerSequence[i], _victimLayerOrder[i], _victimLayerCycle[i], _victimLayerWeight[i]);
+            return a;
+        }
+    }
+
+    /// <summary>Sets the v13 victim fields (tests and writers).</summary>
+    public void SetVictimAnimation(short sequence, float cycle, float rate, float animTime, ReadOnlySpan<float> pose,
+        ReadOnlySpan<(short Sequence, short Order, float Cycle, float Weight)> overlays)
+    {
+        VictimSequence = sequence;
+        VictimAnimValid = 1;
+        VictimCycle = cycle;
+        VictimPlaybackRate = rate;
+        VictimAnimTime = animTime;
+        for (int i = 0; i < PoseParameters; i++) _victimPose[i] = i < pose.Length ? pose[i] : 0;
+        VictimLayerCount = (byte)Math.Min(overlays.Length, VictimLayers);
+        for (int i = 0; i < VictimLayerCount; i++)
+            (_victimLayerSequence[i], _victimLayerOrder[i], _victimLayerCycle[i], _victimLayerWeight[i]) = overlays[i];
+    }
 }
 
 /// <summary>An Arkane NPC's verdict on a melee blow (CNPC_BaseArx's defense virtual).</summary>

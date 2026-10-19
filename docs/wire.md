@@ -1,4 +1,4 @@
-# Wire v12
+# Wire v13
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -26,11 +26,12 @@ hangs from (its move parent and the parent's attachment) and its owner.
 Since v9 the client view also carries the camera the client
 drew with and the client viewmodel's own sequence, cycle and overlay layers.
 Since v12 each tick carries the player's input: the button words the server
-ran its command with. A control file beside the Wire holds the donor
+ran its command with. Since v13 each damage record carries the victim's
+animation as the blow arrived, pose parameters included. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v12 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
+v2–v13 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -53,7 +54,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 181,336 | Ring of slots |
+| 590,080 | 128 × 194,648 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -68,12 +69,12 @@ Slot: a 96-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 at 72), then:
 
 - up to 2048 entities of 80 bytes (64 before v10)
-- at slot offset 163,936, up to 64 damage records of 152 bytes
-- at 173,664, up to 32 defense records of 56 bytes (48 before v11)
-- at 175,456, up to 256 overlay layer records of 20 bytes
-- at 180,576, up to 16 slow-time records of 32 bytes
-- at 181,088, the 232-byte client view (80 bytes in v8)
-- at 181,320, the 16-byte player input (v12)
+- at slot offset 163,936, up to 64 damage records of 360 bytes (152 before v13)
+- at 186,976, up to 32 defense records of 56 bytes (48 before v11)
+- at 188,768, up to 256 overlay layer records of 20 bytes
+- at 193,888, up to 16 slow-time records of 32 bytes
+- at 194,400, the 232-byte client view (80 bytes in v8)
+- at 194,632, the 16-byte player input (v12)
 
 Entities:
 
@@ -157,6 +158,11 @@ fields are edict indices, 0xFFFF for none.
 | 116 | `mm_direction` 3×f32 | `m_vecMMDirection` |
 | 128 | `victim_serial`, `attacker_serial`, `inflictor_serial`, `trace_entity_serial`, `weapon_serial` u32 | EHANDLE serials of the entities above, 0 with no entity |
 | 148 | `victim_alert` i16, `victim_npc_state` u8, `victim_alert_valid` u8 | v11: an `npc_*` victim's alert level (magnitude of +0x36EC) and state (+0x1A5C), which the not-alerted multiplier reads; valid 0 otherwise |
+| 152 | `victim_sequence` i16, `victim_anim_valid` u8, `victim_layer_count` u8 | v13: the victim's `m_nSequence` as the call arrived (below); valid 0 when not read |
+| 156 | `victim_cycle`, `victim_playback_rate`, `victim_anim_time` f32 | v13: its `m_flCycle`, `m_flPlaybackRate`, and `m_flAnimTime` (when its animation last advanced) |
+| 168 | `victim_pose` 24×f32 | v13: its `m_flPoseParameter`, normalized as the game stores them |
+| 264 | `victim_layer_sequence` 8×i16, `victim_layer_order` 8×i16 | v13: its active overlays, in `m_AnimOverlay` order |
+| 296 | `victim_layer_cycle` 8×f32, `victim_layer_weight` 8×f32 | v13: their cycles and weights |
 
 Defense records. There are two sources: each verdict from
 `CNPC_BaseArx`'s defense virtual, and each parried or broken change of the
@@ -478,6 +484,36 @@ arguments while the parry bot fought two orcs and a ghoul. It isn't committed.
 - **The ghoul:** called from +0x3B2275 with 50, `baseattacklength`'s default, since its `.qct` gives none.
 - **Type:** both used type 0.
 - **The field at rest:** the ghoul's `+0x11FC` read 120 throughout, the move default, which the unarmed branch doesn't use.
+
+## The victim's pose
+
+The contact sweep (docs/combat.md, "Contacts") poses a struck character where
+the donor's trace met it.
+- **What the hit-box test reads:** the server builds the victim's bones from its
+  current `m_nSequence`, `m_flCycle`, pose parameters and overlays when the trace
+  runs.
+- **When those change:** a character changes them only in its own think, every
+  8 ticks for an NPC.
+- **What the Wire showed before v13:** each entity as the frame ended.
+- **v13:** the damage hook copies the victim's animation as the call arrives,
+  before calling the original `TakeDamage`, which can already start a hit
+  reaction. A damage call follows its trace in the same attack, so this is the
+  state the trace met.
+
+**Finding the fields.** They come from the send tables, like the rest (below):
+- **`m_flAnimTime`:** a plain prop.
+- **`m_flPoseParameter`:** a `SendPropArray3`, a data table of elements `000`..`023` whose own offset is the array's.
+  In l01_a every character class has the pose parameters at +0xEC8, just after `m_nSequence` (+0xEC4), and
+  `m_flAnimTime` at +0x26C.
+- **Overlays:** read as for the frame's layers, active and weighted, up to 8.
+
+**What a recording showed** (`l01_a-v13-arena-pose.rbrec`, the parry bot against two orcs and a ghoul, with
+the level's guards):
+- **The frame's end:** of 51 traced blows on NPCs, 50 found the victim as the frame ended.
+- **The exception:** an orc that thought after the blow in the same tick, whose frame-end cycle was one think
+  ahead (0.736 against 0.720).
+- **The previous frame:** it held the state for 46.
+- **Pose parameters:** near 0.5 throughout, the middle of their ranges.
 
 ## Kicks, knockdowns and adrenaline
 

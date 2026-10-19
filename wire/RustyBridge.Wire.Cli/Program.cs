@@ -226,7 +226,7 @@ int Info(string path)
     float interval = 0;
     var travelled = new Dictionary<(ushort index, uint serial), (double distance, WireEntity last, string cls, string model)>();
     RecordedFrame? last = null;
-    long damageRecords = 0, damageDropped = 0;
+    long damageRecords = 0, damageDropped = 0, posedVictims = 0;
     var defenseResults = new Dictionary<DefenseResult, int>();
     var pairs = new Dictionary<string, (int hits, double applied)>();
     var names = new EventNames();
@@ -273,6 +273,7 @@ int Info(string path)
         foreach (var d in f.Damage)
         {
             damageRecords++;
+            if (d.VictimAnimValid != 0) posedVictims++;
             string key = $"{names.Name(f, d.Attacker, d.AttackerSerial)} -> {names.Name(f, d.Victim, d.VictimSerial)}";
             var p = pairs.GetValueOrDefault(key);
             pairs[key] = (p.hits + 1, p.applied + Math.Max(0, d.HealthBefore - d.HealthAfter));
@@ -300,7 +301,7 @@ int Info(string path)
     Console.WriteLine($"{path}: {new FileInfo(path).Length / 1024} KiB, map {map}, {frames} frames, {last?.Sequences.Count ?? 0} models with sequence names, " +
         $"ticks {firstTick}..{lastTick} ({(lastTick - firstTick) * interval:F2} s), {gaps} gaps, " +
         $"{last?.Entities.Count ?? 0} entities at the end");
-    Console.WriteLine($"damage: {damageRecords} records, {damageDropped} dropped; by attacker -> victim (hits, health removed):");
+    Console.WriteLine($"damage: {damageRecords} records, {damageDropped} dropped, {posedVictims} with the victim's animation (v13); by attacker -> victim (hits, health removed):");
     foreach (var (key, p) in pairs.OrderByDescending(kv => kv.Value.applied).Take(15))
         Console.WriteLine($"  {key,-52} {p.hits,5} {p.applied,8:F1}");
     Console.WriteLine("defense checks: " + (defenseResults.Count == 0 ? "none" : string.Join(", ", defenseResults.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}"))));

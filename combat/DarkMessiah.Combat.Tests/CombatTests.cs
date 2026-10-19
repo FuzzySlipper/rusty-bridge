@@ -431,6 +431,7 @@ public sealed class RecordedFightTests(Xunit.Abstractions.ITestOutputHelper outp
     [InlineData("l01_a-layers.rbrec")]
     [InlineData("l01_a-v12-arena-ghoul.rbrec")]
     [InlineData("l01_a-orcs-vs-guards-damage.rbrec")]
+    [InlineData("l01_a-v13-arena-pose.rbrec")]
     public void EveryMismatchHasAReason(string name)
     {
         if (Recording(name) is not string path || Vpks() is null) { output.WriteLine($"no local/recordings/{name} or local/donor/vpks; skipped"); return; }

@@ -24,7 +24,8 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(20, Marshal.SizeOf<WireLayer>());
         Assert.Equal(56, Marshal.SizeOf<WireDefense>());
         Assert.Equal(48, (int)Marshal.OffsetOf<WireDefense>(nameof(WireDefense.VictimState)));
-        Assert.Equal(152, Marshal.SizeOf<WireDamage>());
+        Assert.Equal(360, Marshal.SizeOf<WireDamage>());
+        Assert.Equal(152, (int)Marshal.OffsetOf<WireDamage>(nameof(WireDamage.VictimSequence)));
         Assert.Equal(80, Marshal.SizeOf<WireEntity>());
         Assert.Equal(64, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Parent)));
         Assert.Equal(232, Marshal.SizeOf<WireClientView>());
@@ -32,7 +33,7 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(80, (int)Marshal.OffsetOf<WireClientView>(nameof(WireClientView.CameraX)));
         Assert.Equal(16, Marshal.SizeOf<WirePlayerInput>());
         Assert.Equal(WireLayout.ClientViewOffset + 232, WireLayout.InputOffset);
-        Assert.Equal(23_801_088, WireLayout.FileBytes);
+        Assert.Equal(25_505_024, WireLayout.FileBytes);
     }
 
     [Fact]

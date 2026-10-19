@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 12;
+const uint32_t kVersion = 13;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -107,6 +107,9 @@ struct Entity {
 
 const uint16_t kNoEntity = 0xFFFF;
 
+const uint32_t kPoseParameters = 24; // MAXSTUDIOPOSEPARAM
+const uint32_t kDamageLayers = 8;    // a damage record's victim overlays (v13)
+
 // One CBaseEntity::TakeDamage call, captured by the tap's hook. Field names
 // follow Arkane's CTakeDamageInfo datadesc (offsets in plugin.cpp).
 struct Damage {
@@ -150,6 +153,21 @@ struct Damage {
     int16_t victim_alert;       // the NPC's alert level (+0x36EC, as its magnitude)
     uint8_t victim_npc_state;   // its state (+0x1A5C); 3 never takes the multiplier
     uint8_t victim_alert_valid; // 1 when the two fields above were read (npc_* victims)
+    // v13: the victim's animation as the call arrived, before TakeDamage ran:
+    // the state the trace that struck it posed. A character's sequence and
+    // cycle change only in its own think, so the frame's end can already show
+    // the next one.
+    int16_t victim_sequence;    // m_nSequence; -1 when not read
+    uint8_t victim_anim_valid;  // 1 when the fields below were read
+    uint8_t victim_layer_count; // its active overlays below, at most kDamageLayers
+    float victim_cycle;         // m_flCycle
+    float victim_playback_rate; // m_flPlaybackRate
+    float victim_anim_time;     // m_flAnimTime: when its animation last advanced
+    float victim_pose[kPoseParameters]; // m_flPoseParameter (aim and move yaw among them)
+    int16_t victim_layer_sequence[kDamageLayers]; // its active overlays, in m_AnimOverlay order
+    int16_t victim_layer_order[kDamageLayers];
+    float victim_layer_cycle[kDamageLayers];
+    float victim_layer_weight[kDamageLayers];
 };
 
 // One melee defense outcome: an Arkane NPC's verdict on a blow that reached
@@ -282,7 +300,7 @@ static_assert(sizeof(SlotHeader) == 96, "SlotHeader layout");
 static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
 static_assert(sizeof(Layer) == 20, "Layer layout");
 static_assert(sizeof(Defense) == 56, "Defense layout");
-static_assert(sizeof(Damage) == 152, "Damage layout");
+static_assert(sizeof(Damage) == 360, "Damage layout");
 static_assert(sizeof(Entity) == 80, "Entity layout");
 
 const uint32_t kClassesOffset = 256;

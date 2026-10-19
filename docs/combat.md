@@ -140,7 +140,12 @@ The donor sends a trace with each melee damage record:
   - **Characters:** each character near the trace is posed by the mirror's views. Its pose is the latest streamed state, unblended (`EntityViews.Exact`): sequence, cycle and overlay layers.
   - **Hit boxes:** a character's hit boxes become parts of its entity: boxes on joints, from its model's default hitbox set (docs/import.md).
   - **Items:** a weapon or shield stands where the Wire streamed it. The convex pieces of its collision model (its `.phy`) are static meshes of the session.
-  - **When:** the frame before the blow, as for the defender's stance. The blow's own frame is swept too, to tell pose timing apart.
+  - **When, before Wire v13:** the frame before the blow, as for the defender's stance. The blow's own frame is swept too, to tell pose timing apart.
+  - **When, from v13:** the blow's own frame, with the victim held as its damage record caught it (docs/wire.md, "The victim's pose"):
+    - its sequence, cycle and overlays as the blow arrived;
+    - where the previous frame had it, when its frame-end state is one think ahead of the record (it thought after the blow, in the same tick).
+
+    Pose parameters are recorded, not applied: the import plays each sequence's first blend animation.
 - **The sweep:** a capsule of radius 0.05 units, run 4 units past `trace_end`.
 - **Left out:** the attacker, what it holds, and the level.
 
@@ -149,7 +154,7 @@ The scorer compares the first contact with the donor's `trace_entity`:
 - **What it is:** the same kind of thing (body, weapon, shield).
 - **On the body:** the same hit group.
 
-A victim the blow killed leaves the Wire in the blow's frame. It is taken as last seen, and swept on the pose before.
+A victim the blow killed leaves the Wire in the blow's frame. It is taken as last seen, and swept on the frame before, held as its record caught it from v13.
 
 **The donor traces rays.**
 - **On the surface:** a traced blow's `trace_end` lies on the surface it struck. On agreeing blows the sweep meets it within a fraction of a unit.
@@ -175,6 +180,7 @@ A victim the blow killed leaves the Wire in the blow's frame. It is taken as las
 | l01_a-v11-damage (v11) | 135 / 138 | 131 / 132 | 45 / 102 |
 | l01_a-v11-crit (v11) | 140 / 150 | 138 / 138 | 1 / 8 |
 | l01_a-v11-unaware (v11) | 60 / 62 | 58 / 58 | 0 / 4 |
+| l01_a-v13-arena-pose (v13) | 53 / 53 | 52 / 52 | 21 / 68 |
 
 Every mismatch is put down to one of:
 - **Pose timing.** Either:
@@ -184,6 +190,12 @@ Every mismatch is put down to one of:
 - **Shape fit:** the donor's hit point is on its part (within 1.5 units), and the sweep misses that part: it grazes past the box's edge, or meets the box beside it.
 
 In `l01_a-layers` the traced mismatches are 8 pose timing and 4 swing path. In `l01_a-parrybot` they are 2 shape fits.
+
+**From v13 the victim is posed as the blow found it.** In `l01_a-v13-arena-pose` every traced contact agrees.
+- **What fixed it:** posed the old way, from the frame before, one contact was a pose-timing mismatch. A ghoul
+  dodging right had thought in the blow's tick, before the blow, and its record shows the newer state.
+- **Pose parameters:** near the middle of their ranges on every blow (0.5, with 0.37 to 0.56 on a few). No contact
+  needed them.
 
 The tool also reports a struck entity that couldn't be posed. That happens when the import has no model for it, such as the goblin in `l01_a-orcs-vs-guards-damage`: the level was imported from `l01_a-parrybot`.
 

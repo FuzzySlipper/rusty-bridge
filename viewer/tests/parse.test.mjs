@@ -49,12 +49,16 @@ function recording(frames, version = 6) {
     }
     u32(0);                                                          // removed
     u32(0); u32(damage.length);
-    for (const d of damage) {                                        // 152-byte WireDamage
-      const rec = new Uint8Array(152), v = new DataView(rec.buffer);
+    for (const d of damage) {                                        // 152-byte WireDamage (360 from v13)
+      const rec = new Uint8Array(version >= 13 ? 360 : 152), v = new DataView(rec.buffer);
       v.setInt32(0, tick, true);
       v.setUint16(4, d.victim[0], true); v.setUint16(6, d.attacker[0], true); v.setUint16(8, 0xffff, true); v.setUint16(10, 0xffff, true);
       v.setFloat32(12, 30, true); v.setFloat32(16, 30, true); v.setFloat32(20, 0, true); v.setUint16(30, 0xffff, true);
       v.setUint32(128, d.victim[1], true); v.setUint32(132, d.attacker[1], true);
+      if (version >= 13 && d.anim) {                                 // the victim's animation as the blow arrived
+        v.setInt16(152, d.anim.sequence, true); v.setUint8(154, 1); v.setUint8(155, 1); v.setFloat32(156, d.anim.cycle, true);
+        v.setFloat32(168, d.anim.pose0, true); v.setInt16(264, d.anim.layer, true); v.setFloat32(328, 0.5, true);
+      }
       bytes.push(...rec);
     }
     u32(0); u32(0);                                                  // defense
@@ -173,6 +177,17 @@ test('v12: the player\'s input, held and pressed, by button name', () => {
   assert.equal(rec.frames[1].input, undefined);
   assert.equal(vm.runInContext('inputText({ buttons: 9 | (1 << 11), pressed: 1 << 11, released: 0 })', context), 'attack forward attack2 (pressed attack2)');
   assert.equal(vm.runInContext('inputText({ buttons: 1 << 27, pressed: 0, released: 0 })', context), '0x8000000');
+});
+
+test('v13: a blow carries the victim\'s animation as it arrived', () => {
+  const blow = { ...killingBlow, anim: { sequence: 12, cycle: 0.4, pose0: 0.25, layer: 31 } };
+  const rec = context.parseRecording(recording([{ tick: 10, entities: [player, orc], wall: 1.0, damage: [blow] }], 13));
+  const a = rec.damage[0].victimAnim;
+  assert.equal(a.sequence, 12);
+  assert.ok(Math.abs(a.cycle - 0.4) < 1e-6 && Math.abs(a.pose[0] - 0.25) < 1e-6);
+  assert.deepEqual(a.layers.map((l) => [l.sequence, l.weight]), [[31, 0.5]]);
+  const old = context.parseRecording(recording([{ tick: 10, entities: [player, orc], wall: 1.0, damage: [killingBlow] }], 12));
+  assert.equal(old.damage[0].victimAnim, null);
 });
 
 // A real slow motion when local/recordings has it (derived from the game, never committed): Arkane's

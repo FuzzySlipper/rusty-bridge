@@ -121,7 +121,11 @@ public static class SwingContacts
             int donorHitbox = body ? d.HitBox : 0;
             var donor = new SwingTouch(struck.Key.ToString(), struck.ClassName, body, donorHitbox, body ? d.HitGroup : 0, Vector3.Distance(Start(d), End(d)));
             int before = Math.Max(0, frame - 1);
-            var (first, donorAlong, miss) = sweeper.Sweep(before, d, attacker, weapon, victim, struck, donorHitbox);
+            // From Wire v13, everyone as the blow's frame has them and the victim as the blow arrived (a victim the blow
+            // killed is gone from that frame, so the frame before); before v13, everyone as last streamed before the blow.
+            bool arrived = d.VictimAnimValid != 0;
+            int at = arrived && victim.LiveAt(frame) ? frame : before;
+            var (first, donorAlong, miss) = sweeper.Sweep(at, d, attacker, weapon, victim, struck, donorHitbox, asArrived: arrived);
             var (after, _, _) = sweeper.Sweep(frame, d, attacker, weapon, victim, struck, donorHitbox);
             var victimAt = victim.At(fight.Frames[before].Time);
             bool traced = !body || victim.ClassName != "player" && !(d.HitBox == 0 && d.HitGroup == 0
@@ -155,11 +159,25 @@ public static class SwingContacts
         readonly HitSweep sweep = new(engine, session);
 
         /// <summary>Poses everyone near the trace as frame <paramref name="frame"/> had them and sweeps it: the first contact, where it meets the donor's part, and how far the donor's point lies outside that part.</summary>
+        /// <param name="asArrived">Pose the victim as the damage record caught it (Wire v13), not as streamed.</param>
         public (SwingTouch? First, float? DonorAlong, float Miss) Sweep(int frame, in WireDamage d, EntityTrack attacker, EntityTrack? weapon,
-            EntityTrack victim, EntityTrack struck, int donorHitbox)
+            EntityTrack victim, EntityTrack struck, int donorHitbox, bool asArrived = false)
         {
             double time = fight.Frames[frame].Time;
             views.Present(frame, time);
+            // From Wire v13 the record caught the victim as the blow arrived: the pose the donor's trace met. An NPC
+            // moves and animates only in its think; when it thinks after the blow in the same frame, the frame's end
+            // shows the next state, and it stood where the frame before had it.
+            if (asArrived && d.VictimAnimValid != 0)
+            {
+                var streamed = victim.At(time);
+                var earlier = victim.At(fight.Frames[Math.Max(0, frame - 1)].Time);
+                bool thoughtAfter = (streamed.Sequence != d.VictimSequence || MathF.Abs(streamed.Cycle - d.VictimCycle) > 1e-4f)
+                    && earlier.Sequence == d.VictimSequence && MathF.Abs(earlier.Cycle - d.VictimCycle) <= 1e-4f;
+                views.Hold(victim.Key, d.VictimSequence, d.VictimCycle,
+                    d.VictimOverlays.Select((l, i) => new LayerState((byte)i, l.Sequence, l.Order, l.Cycle, l.Weight)).ToList(),
+                    thoughtAfter ? new Transform(SourceSpace.Position(earlier.Origin), SourceSpace.Rotation(earlier.Rotation), Vector3.One) : null);
+            }
             var start = SourceSpace.Position(Start(d));
             var end = SourceSpace.Position(End(d));
             var along = end - start;

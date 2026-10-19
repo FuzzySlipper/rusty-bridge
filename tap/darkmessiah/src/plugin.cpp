@@ -356,7 +356,7 @@ const int kPropStride = 76, kPropType = 8, kPropName = 44, kPropFlags = 52, kPro
 const int kDptDataTable = 6;
 const int kSpropExclude = 1 << 6;
 
-struct NetProps { int sequence = -1, cycle = -1, rate = -1; bool overlay = false; };
+struct NetProps { int sequence = -1, cycle = -1, rate = -1, poses = -1, animTime = -1; bool overlay = false; };
 static int g_sendLayout;              // 0 unchecked, 1 ok, -1 wrong
 // Arkane made CBaseEntity's health a float pair, m_fHealth/m_fMaxHealth, next
 // to m_lifeState. Only some classes network them (shields do), but as
@@ -392,6 +392,8 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         int off = base + *(int*)(sp + kPropOffset);
         if (*(int*)(sp + kPropType) == kDptDataTable) {
             SendTable* dt = *(SendTable**)(sp + kPropTable);
+            // v13: SendPropArray3 sends m_flPoseParameter as a data table of elements "000".., at the array's offset.
+            if (!strcmp(*(const char**)(sp + kPropName), "m_flPoseParameter") && p.poses < 0) p.poses = off;
             if (dt && IsText(dt->name) && !strcmp(dt->name, "DT_OverlayVars")) p.overlay = true;
             if (dt && IsText(dt->name) && !strcmp(dt->name, "DT_Animationlayer")) NoteLayerVector(sp);
             WalkSendTable(dt, off, p, depth + 1);
@@ -401,6 +403,7 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         if (!strcmp(name, "m_nSequence") && p.sequence < 0) p.sequence = off;
         else if (!strcmp(name, "m_flCycle") && p.cycle < 0) p.cycle = off;
         else if (!strcmp(name, "m_flPlaybackRate") && p.rate < 0) p.rate = off;
+        else if (!strcmp(name, "m_flAnimTime") && p.animTime < 0) p.animTime = off;
         else if (!strcmp(name, "m_fHealth") && g_healthOff < 0) { g_healthOff = off; Log("netprops: m_fHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_fMaxHealth") && g_maxHealthOff < 0) { g_maxHealthOff = off; Log("netprops: m_fMaxHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_hOwner") && g_weaponOwnerOff < 0) { g_weaponOwnerOff = off; Log("netprops: m_hOwner @+0x%X (CBaseCombatWeapon)", off); }
@@ -429,8 +432,8 @@ static NetProps DiscoverNetProps(IServerNetworkable* n, const char* className) {
         }
         WalkSendTable(sc->table, 0, p, 0);
         if (p.sequence >= 0 || p.cycle >= 0)
-            Log("netprops: %s (%s/%s) sequence@+0x%X cycle@+0x%X rate@+0x%X", SafeStr(className), SafeStr(sc->networkName),
-                SafeStr(sc->table->name), p.sequence, p.cycle, p.rate);
+            Log("netprops: %s (%s/%s) sequence@+0x%X cycle@+0x%X rate@+0x%X poses@+0x%X animtime@+0x%X", SafeStr(className), SafeStr(sc->networkName),
+                SafeStr(sc->table->name), p.sequence, p.cycle, p.rate, p.poses, p.animTime);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("netprops: exception walking %s's send table", SafeStr(className));
         p = NetProps();
@@ -1270,7 +1273,53 @@ static const int kCriticalOffset = 0x21F7;
 
 static void ClearPendingDamage() { g_pendingCount = 0; g_pendingDropped = 0; g_defenseCount = 0; g_defenseDropped = 0; g_slowTimeCount = 0; g_slowTimeDropped = 0; }
 
-static void OnDamage(void* victim, const void* info, float before, float after) {
+// v13: the victim's animation as a damage call arrives, before TakeDamage can start
+// a reaction: the state the trace that struck it posed (docs/wire.md, "The victim's pose").
+struct VictimAnim {
+    int16_t sequence = -1;
+    uint8_t valid = 0, layers = 0;
+    float cycle = 0, rate = 0, animTime = 0;
+    float pose[wire::kPoseParameters] = {};
+    int16_t layerSequence[wire::kDamageLayers] = {}, layerOrder[wire::kDamageLayers] = {};
+    float layerCycle[wire::kDamageLayers] = {}, layerWeight[wire::kDamageLayers] = {};
+};
+
+static VictimAnim CaptureAnim(void* victim) {
+    VictimAnim a;
+    __try {
+        IServerNetworkable* n = ((IServerEntity*)victim)->GetNetworkable();
+        if (!n) return a;
+        const ClassSlot& cls = ClassFor(n);
+        const unsigned char* e = (const unsigned char*)victim;
+        if (cls.props.sequence < 0 || cls.props.cycle < 0) return a;
+        a.sequence = (int16_t)*(const int*)(e + cls.props.sequence);
+        a.cycle = *(const float*)(e + cls.props.cycle);
+        a.rate = cls.props.rate >= 0 ? *(const float*)(e + cls.props.rate) : 0;
+        a.animTime = cls.props.animTime >= 0 ? *(const float*)(e + cls.props.animTime) : 0;
+        if (cls.props.poses >= 0) memcpy(a.pose, e + cls.props.poses, sizeof a.pose);
+        if (cls.props.overlay && g_layerStride) {
+            unsigned char* mem = *(unsigned char* const*)(e + g_layerVector);
+            int size = *(const int*)(e + g_layerVector + 12);
+            for (int k = 0; mem && k < size && k < kMaxOverlays && a.layers < wire::kDamageLayers; ++k) {
+                unsigned char* l = mem + k * g_layerStride;
+                float weight = *(float*)(l + 0x18);
+                if (!(*(int*)l & 1) || !(weight > 0.0f)) continue;
+                a.layerSequence[a.layers] = (int16_t)*(int*)(l + 0x8);
+                a.layerOrder[a.layers] = (int16_t)*(int*)(l + 0x34);
+                a.layerCycle[a.layers] = *(float*)(l + 0xC);
+                a.layerWeight[a.layers] = weight;
+                ++a.layers;
+            }
+        }
+        a.valid = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        a = VictimAnim();
+        ++g_faults;
+    }
+    return a;
+}
+
+static void OnDamage(void* victim, const void* info, float before, float after, const VictimAnim& anim) {
     ++g_damageTotal;
     if (!g_streamOk) return;
     if (g_pendingCount == wire::kMaxDamage) { ++g_pendingDropped; return; }
@@ -1335,6 +1384,17 @@ static void OnDamage(void* victim, const void* info, float before, float after) 
         d.slow_time_duration = F(dmg::SlowDuration);
         d.slow_time_factor = F(dmg::SlowFactor);
         memcpy(d.mm_direction, in + dmg::MMDirection, 12);
+        d.victim_sequence = anim.sequence;
+        d.victim_anim_valid = anim.valid;
+        d.victim_layer_count = anim.layers;
+        d.victim_cycle = anim.cycle;
+        d.victim_playback_rate = anim.rate;
+        d.victim_anim_time = anim.animTime;
+        memcpy(d.victim_pose, anim.pose, sizeof d.victim_pose);
+        memcpy(d.victim_layer_sequence, anim.layerSequence, sizeof d.victim_layer_sequence);
+        memcpy(d.victim_layer_order, anim.layerOrder, sizeof d.victim_layer_order);
+        memcpy(d.victim_layer_cycle, anim.layerCycle, sizeof d.victim_layer_cycle);
+        memcpy(d.victim_layer_weight, anim.layerWeight, sizeof d.victim_layer_weight);
         ++g_pendingCount;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         ++g_faults;
@@ -1343,8 +1403,9 @@ static void OnDamage(void* victim, const void* info, float before, float after) 
 
 static void __fastcall TakeDamageHook(void* self, void* /*edx*/, const void* info) {
     float before = HealthOf(self);
+    VictimAnim anim = CaptureAnim(self);
     g_takeDamage(self, info);
-    OnDamage(self, info, before, HealthOf(self));
+    OnDamage(self, info, before, HealthOf(self), anim);
 }
 
 static void InstallDamageHook() {

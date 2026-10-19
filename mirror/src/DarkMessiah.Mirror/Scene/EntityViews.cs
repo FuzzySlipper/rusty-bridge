@@ -236,6 +236,33 @@ internal sealed class EntityViews : IDisposable
         Overlay(view, names, view.Track.LayersAt(sample.Shown));
     }
 
+    /// <summary>
+    /// Holds a drawn entity at a given sequence, cycle and overlays instead of its streamed ones, and with
+    /// <paramref name="standing"/> where it stood then, until the next <see cref="Present"/>: the state a damage
+    /// record caught it in (Wire v13). Only <see cref="Pose"/> sees it; the scene keeps the streamed placement.
+    /// False when it isn't drawn, or its model lacks the clip.
+    /// </summary>
+    internal bool Hold(EntityKey key, int sequence, float cycle, IReadOnlyList<LayerState> layers, Transform? standing = null)
+    {
+        if (!views.TryGetValue(key, out var view) || !view.Published || !fight.Sequences.TryGetValue(view.Model.DonorPath, out var names)
+            || sequence < 0 || sequence >= names.Length || missingClips.Contains($"{view.Model.DonorPath}:{names[sequence]}")) return false;
+        if (standing is Transform at && view.Holder is null) view.Placed = at;
+        view.Instance ??= engine.Animation.CreateInstance(new(view.Appearance, view.Id));
+        try
+        {
+            engine.Animation.SetPlayback(new(view.Instance, AnimationPlaybackKind.Sample, names[sequence], AnimationLoopMode.Once, 1, 1, false, 0, false, cycle));
+        }
+        catch (EngineCallException)
+        {
+            missingClips.Add($"{view.Model.DonorPath}:{names[sequence]}");
+            return false;
+        }
+        view.Clip = names[sequence];
+        view.Cycle = cycle;
+        Overlay(view, names, layers);
+        return true;
+    }
+
     /// <summary>Lays the entity's overlay layers over its main sequence; nothing is sent when they haven't changed.</summary>
     void Overlay(View view, string[] names, IReadOnlyList<LayerState> layers)
     {

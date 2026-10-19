@@ -7,6 +7,11 @@ Dark Messiah of Might and Magic.
 
 > Bootstrap from the donor. Hand over by channel. Tune against the stream.
 
+**Revised 2026-10-19** (Den `rusty-bridge/native-combat-lab-direction`).
+- **What changed:** what's worth bridging is Dark Messiah's melee feel. It is now rebuilt natively, in the combat lab ([lab.md](lab.md)), calibrated against recorded fights. The donor no longer runs as the live simulation with its channels handed over.
+- **The bridge's role:** tap, Wire, recordings and Shadow scoring are the lab's measuring instrument. The mirror stays as a debugging view.
+- **Dropped:** "Handover order" below keeps Phases 0–2, which are done or feed the lab. Phases 3–5 (write-back, then the rest) are dropped; the lab re-implements those systems and measures them instead.
+
 This document covers the structure, the authority model, the handover order,
 and what Rusty Engine has to add upstream. It's a design: it says what
 should be built and why. What already exists is described in
@@ -270,6 +275,8 @@ What the decisions turned out to be, so far:
 - An NPC parries when the blow strikes its weapon.
 - An NPC shield-blocks when the blow strikes its off-hand item, or when its
   shield is up and the attack comes from the front.
+
+**Phases 3–5 below are dropped (2026-10-19).** The combat lab rebuilds physics reactions, the remaining rules and the AI natively, and measures them against recordings, instead of forcing donor state. They are kept for the reasoning.
 
 **Phase 3: Physics write-back.** Physics props, server-side ragdolls (deaths
 and knockdowns),

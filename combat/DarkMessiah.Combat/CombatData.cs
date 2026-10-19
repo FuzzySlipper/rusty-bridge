@@ -26,12 +26,12 @@ public sealed record CharacterData(string Model, float Strength, IReadOnlyDictio
 /// The melee routine's settings from `scripts/mm_game_settings.txt`: a player
 /// blow on an NPC at or below <see cref="NotAlertedLevel"/> is multiplied by
 /// <see cref="NotAlertedMultiplier"/>, and every player blow by
-/// <see cref="PlayerDamageMultiplier"/>.
+/// <see cref="PlayerDamageMultiplier"/>. A player's kick asks <see cref="KickDamage"/>.
 /// </summary>
-public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier)
+public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier, float KickDamage = 1)
 {
     /// <summary>What the shipped file says, for when it can't be read.</summary>
-    public static readonly GameSettings Shipped = new(3, 0, 1);
+    public static readonly GameSettings Shipped = new(3, 0, 1, 1);
 }
 
 /// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done".</summary>
@@ -68,7 +68,7 @@ public sealed class CombatData
     public int Part(string model, string sequence, float cycle)
     {
         if (model.Length == 0 || sequence.Length == 0) return 0;
-        if (!_events.TryGetValue(model, out var events)) _events[model] = events = StudioModel.Events(model, _read);
+        if (!_events.TryGetValue(model, out var events)) _events[model] = events = _eventsOf?.Invoke(model) ?? StudioModel.Events(model, _read);
         if (!events.TryGetValue(sequence, out var list)) return 0;
         int part = -1;
         foreach (var (at, id) in list)
@@ -76,7 +76,18 @@ public sealed class CombatData
         return Math.Max(0, part);
     }
 
-    public CombatData(Func<string, byte[]?> read) => _read = read;
+    readonly Func<string, IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>>>? _eventsOf;
+
+    /// <param name="read">Reads a donor file (a model's .qct, scripts/mm_game_settings.txt, a .mdl) by donor path, or null.</param>
+    /// <param name="eventsOf">
+    /// A model's animation events by sequence, when they come from somewhere other than its .mdl: the combat lab reads
+    /// them from dm-import's clip extras. Null reads the .mdl through <paramref name="read"/>.
+    /// </param>
+    public CombatData(Func<string, byte[]?> read, Func<string, IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>>>? eventsOf = null)
+    {
+        _read = read;
+        _eventsOf = eventsOf;
+    }
 
     GameSettings? _settings;
 
@@ -96,7 +107,8 @@ public sealed class CombatData
         return new GameSettings(
             Deep(game, "mul_damages_Npc_Not_alerted") ?? shipped.NotAlertedMultiplier,
             (int)(Deep(game, "mul_damages_Npc_Not_alerted_level") ?? shipped.NotAlertedLevel),
-            Deep(game, "player_damage_multiplier") ?? shipped.PlayerDamageMultiplier);
+            Deep(game, "player_damage_multiplier") ?? shipped.PlayerDamageMultiplier,
+            Deep(game, "kick_damage") ?? shipped.KickDamage);
     }
 
     /// <summary>The tables from a game's VPK folder (local/donor/vpks, or the install's vpks).</summary>

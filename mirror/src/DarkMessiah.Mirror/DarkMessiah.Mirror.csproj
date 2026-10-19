@@ -35,6 +35,7 @@
     <RustyEngineProductInputMapping Include="mirror.camera.key-c" Intent="mirror.camera" Trigger="key:key-c:pressed" />
     <PackageReference Include="Rusty.Engine" Version="[$(RustyEnginePackageVersion)]" />
     <ProjectReference Include="../../../wire/RustyBridge.Wire/RustyBridge.Wire.csproj" />
+    <ProjectReference Include="../../../shared/DarkMessiah.Shared/DarkMessiah.Shared.csproj" />
   </ItemGroup>
 
   <!-- Staging an absent import would publish a product that fails at start, so stop here with the command. -->

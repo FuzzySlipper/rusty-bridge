@@ -1,0 +1,5 @@
+<Project>
+  <!-- The Engine pair pin is the repository's, in ../Directory.Build.props; the restore source and the
+       installed-pair check come with the mirror's props. -->
+  <Import Project="$(MSBuildThisFileDirectory)../mirror/Directory.Build.props" />
+</Project>

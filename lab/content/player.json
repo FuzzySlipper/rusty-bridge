@@ -1,0 +1,19 @@
+{
+  "height": 1.8,
+  "crouchedHeight": 1.1,
+  "radius": 0.3,
+  "eyeBelowTop": 0.15,
+  "speed": 4.5,
+  "sprintSpeed": 7,
+  "jumpSpeed": 6.5,
+  "gravity": 20,
+  "maximumStepHeight": 0.3,
+  "maximumSlopeDegrees": 45,
+  "jumpBufferSeconds": 0.12,
+  "coyoteSeconds": 0.1,
+  "pointerRadiansPerUnit": 0.002,
+  "fieldOfViewDegrees": 75,
+  "farPlane": 120,
+  "headBobMetres": 0.03,
+  "headBobStrideMetres": 1.7
+}

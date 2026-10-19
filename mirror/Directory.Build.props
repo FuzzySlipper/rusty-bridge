@@ -1,8 +1,7 @@
 <Project>
+  <!-- The Engine pair pin is the repository's, in ../Directory.Build.props. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
   <PropertyGroup>
-    <!-- The one Engine SDK/runtime pair pin. `rusty install` installs it;
-         only `rusty update` changes it. -->
-    <RustyEnginePackageVersion>0.1.0-dev.cd66acc30485</RustyEnginePackageVersion>
     <!-- The product `rusty dev` and `rusty build` run when no project is named. -->
     <RustyEngineProject>src/DarkMessiah.Mirror/DarkMessiah.Mirror.csproj</RustyEngineProject>
     <!-- Every restore, plain dotnet included, takes exactly the pinned SDK from
@@ -14,6 +13,6 @@
     <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed</RestoreAdditionalProjectSources>
   </PropertyGroup>
   <Target Name="RequireRustyEnginePair" BeforeTargets="Restore;_GenerateRestoreGraph" Condition="!Exists('$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed')">
-    <Error Text="Rusty Engine pair $(RustyEnginePackageVersion) is not installed: run `rusty install` in mirror/." />
+    <Error Text="Rusty Engine pair $(RustyEnginePackageVersion) is not installed: run `rusty install` in mirror/ or lab/." />
   </Target>
 </Project>

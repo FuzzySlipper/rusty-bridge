@@ -143,6 +143,9 @@ public sealed class CombatModel(CombatData data)
     public float? Damage(DamageCase c)
     {
         if (c.Defended) return 0;
+        // A player's kick (damage type 0x40000) asks the settings' kick_damage ("Player's Kick Damage"), 1 as
+        // shipped and as recorded kicks ask; no attack table holds it.
+        if (c.Attacker.IsPlayer && (c.DamageType & KickDamage) != 0) return data.Settings.KickDamage * data.Settings.PlayerDamageMultiplier;
         var attack = Attack(c.Attacker);
         if (attack is null) return null;
         if (Event(c.Attacker, attack) is not AttackEvent hit) return 0;
@@ -164,6 +167,9 @@ public sealed class CombatModel(CombatData data)
         }
         return damage;
     }
+
+    /// <summary>Damage type bit 0x40000: the player's kick (docs/wire.md, "Kicks, knockdowns and adrenaline").</summary>
+    public const uint KickDamage = 0x40000;
 
     /// <summary>Damage type bit 0x10000: a critical hit (the power attack in l01_a-v7-seek asked 6.00 for its 3.00).</summary>
     public const uint CriticalDamage = 0x10000;

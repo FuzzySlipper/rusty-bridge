@@ -1,6 +1,7 @@
 using System.Numerics;
 using DarkMessiah.Mirror.Replay;
 using DarkMessiah.Mirror.Scene;
+using DarkMessiah.Shared;
 using Rusty.Engine;
 using RustyBridge.Wire;
 using RustyBridge.Wire.Donor;
@@ -145,16 +146,13 @@ public static class SwingContacts
     }
 
     /// <summary>
-    /// Sweeps traces through one recording's posed entities. Characters answer
-    /// by hit boxes, parts of their entity; items by their collision models,
-    /// static meshes of the session moved to where each sweep finds them.
+    /// Sweeps traces through one recording's posed entities with the shared <see cref="HitSweep"/>: characters answer
+    /// by hit boxes, items by their collision models.
     /// </summary>
     sealed class Sweeper(IEngineContext engine, SpatialSession session, EntityViews views, RecordedFight fight)
     {
         const float M = SourceSpace.MetresPerUnit;
-        readonly Dictionary<(LevelModel, int), ulong> hullAssets = [];
-        readonly HashSet<ulong> placed = [];
-        ulong nextAsset = 1;
+        readonly HitSweep sweep = new(engine, session);
 
         /// <summary>Poses everyone near the trace as frame <paramref name="frame"/> had them and sweeps it: the first contact, where it meets the donor's part, and how far the donor's point lies outside that part.</summary>
         public (SwingTouch? First, float? DonorAlong, float Miss) Sweep(int frame, in WireDamage d, EntityTrack attacker, EntityTrack? weapon,
@@ -170,106 +168,30 @@ public static class SwingContacts
             // Items stand where the Wire streamed them: the donor's own placement of what it traced.
             var posed = views.Pose(p => DistanceToSegment(p, start, end) < Reach * M, streamedItemsAt: time)
                 .Where(e => e.Track != attacker && e.Holder != attacker && e.Track != weapon).ToList();
+            var targets = posed.Select(e => new PosedTarget(e.Model.Info, e.Joints, e.Pose,
+                e.Holder is EntityTrack h ? posed.FindIndex(p => p.Track == h) : -1)).ToList();
 
-            var parts = new List<SpatialEntityPart>();
-            var instances = new List<StaticMeshInstance>();
-            var owners = new Dictionary<ulong, int>();
-            var identity = new SpatialPose(Vector3.Zero, Quaternion.Identity);
             float miss = float.NaN;
-            for (int i = 0; i < posed.Count; i++)
+            if (posed.FindIndex(e => e.Track == struck) is int s and >= 0)
             {
-                var e = posed[i];
+                var e = posed[s];
                 if (e.Model.Collision.Count > 0 && e.Joints.TryGetValue(e.Model.Collision[0].Joint, out int root))
-                {
-                    var on = e.Pose[root].World;
-                    for (int k = 0; k < e.Model.Collision.Count; k++)
-                    {
-                        ulong id = ((ulong)i + 1) << 8 | (uint)k;
-                        instances.Add(new StaticMeshInstance(id, Asset(e.Model, k), on));
-                        owners[id] = i;
-                    }
-                    if (e.Track == struck) miss = e.Model.Collision.Min(h => OutsideHull(end, on, h)) / M;
-                    continue;
-                }
-                ulong holder = e.Holder is EntityTrack h2 && posed.FindIndex(p => p.Track == h2) is int at and >= 0 ? (ulong)at + 1 : 0;
-                for (int k = 0; k < e.Model.Hitboxes.Count; k++)
-                {
-                    var box = e.Model.Hitboxes[k];
-                    if (!e.Joints.TryGetValue(box.Joint, out int joint)) continue;
-                    parts.Add(SpatialEntityPart.OnJoint((ulong)i + 1, (uint)k, e.Pose[joint], SpatialShape.Box(box.HalfExtents, box.Center), identity, holder));
-                    if (e.Track == struck && k == donorHitbox) miss = Outside(end, e.Pose[joint].World, box) / M;
-                }
+                    miss = e.Model.Collision.Min(hull => HitSweep.OutsideHull(end, e.Pose[root].World, hull)) / M;
+                else if (donorHitbox >= 0 && donorHitbox < e.Model.Hitboxes.Count && e.Joints.TryGetValue(e.Model.Hitboxes[donorHitbox].Joint, out int joint))
+                    miss = HitSweep.Outside(end, e.Pose[joint].World, e.Model.Hitboxes[donorHitbox]) / M;
             }
-            Place(instances);
-            var result = engine.Spatial.SweepContacts(SpatialContactQueryRequest.Sweep(session, SpatialShape.Sphere(Radius * M, Vector3.Zero),
-                new SpatialPose(start, Quaternion.Identity), new SpatialPose(through, Quaternion.Identity),
-                ReadOnlyMemory<SpatialEntityCollider>.Empty, parts.ToArray(), ReadOnlyMemory<ulong>.Empty, default, Vector3.Zero, false, 64));
-            float span = Vector3.Distance(start, through) / M;
             SwingTouch? first = null;
             float? donorAlong = null;
-            foreach (var c in result.Contacts.Span)
+            foreach (var c in sweep.Sweep(start, through, Radius * M, targets))
             {
-                SwingTouch touch;
-                EntityViews.PosedEntity e;
-                if (c.Kind == SpatialHitKind.StaticMesh && owners.TryGetValue(c.Instance, out int item))
-                {
-                    e = posed[item];
-                    touch = new SwingTouch(e.Track.Key.ToString(), e.Track.ClassName, e.Track == victim, 0, 0, (float)c.Fraction * span);
-                }
-                else if (c.Kind == SpatialHitKind.Entity && c.Entity >= 1 && c.Entity <= (ulong)posed.Count)
-                {
-                    e = posed[(int)c.Entity - 1];
-                    touch = new SwingTouch(e.Track.Key.ToString(), e.Track.ClassName, e.Track == victim, (int)c.Part, e.Model.Hitboxes[(int)c.Part].Group, (float)c.Fraction * span);
-                }
-                else continue;
+                var e = posed[c.Target];
+                var touch = new SwingTouch(e.Track.Key.ToString(), e.Track.ClassName, e.Track == victim, c.Hitbox,
+                    c.Hull ? 0 : e.Model.Hitboxes[c.Hitbox].Group, c.Along / M);
                 first ??= touch;
                 if (donorAlong is null && e.Track == struck && touch.Hitbox == donorHitbox) donorAlong = touch.Along;
             }
             return (first, donorAlong, miss);
         }
-
-        /// <summary>A model's convex piece as a static mesh asset of the session, uploaded on first use.</summary>
-        ulong Asset(LevelModel model, int piece)
-        {
-            if (hullAssets.TryGetValue((model, piece), out ulong id)) return id;
-            var hull = model.Collision[piece];
-            id = nextAsset++;
-            engine.Spatial.ApplyCollisionResidency(new CollisionResidencyRequest(session,
-                new[] { new StaticMeshAsset(id, 0, (uint)hull.Points.Length, 0, (uint)hull.Triangles.Length) },
-                hull.Points, hull.Triangles, ReadOnlyMemory<StaticMeshInstance>.Empty, ReadOnlyMemory<ulong>.Empty, ReadOnlyMemory<ulong>.Empty));
-            return hullAssets[(model, piece)] = id;
-        }
-
-        /// <summary>Makes <paramref name="instances"/> the session's item hulls: moved, added, and the rest removed.</summary>
-        void Place(List<StaticMeshInstance> instances)
-        {
-            var now = instances.Select(i => i.Id).ToHashSet();
-            var gone = placed.Where(id => !now.Contains(id)).ToArray();
-            if (instances.Count == 0 && gone.Length == 0) return;
-            engine.Spatial.ApplyCollisionResidency(new CollisionResidencyRequest(session, ReadOnlyMemory<StaticMeshAsset>.Empty,
-                ReadOnlyMemory<Vector3>.Empty, ReadOnlyMemory<Triangle>.Empty, instances.ToArray(), ReadOnlyMemory<ulong>.Empty, gone));
-            placed.Clear();
-            placed.UnionWith(now);
-        }
-    }
-
-    /// <summary>How far a point lies outside a convex hull on a joint placed at <paramref name="world"/>: its furthest distance in front of a face; 0 inside.</summary>
-    static float OutsideHull(Vector3 point, Transform world, ConvexHull hull)
-    {
-        var local = Vector3.Transform(point - world.Translation, Quaternion.Inverse(world.Rotation));
-        var used = hull.Triangles.SelectMany(t => new[] { t.A, t.B, t.C }).Distinct().Select(i => hull.Points[i]).ToList();
-        var centre = used.Aggregate(Vector3.Zero, (a, b) => a + b) / used.Count;
-        float outside = 0;
-        foreach (var t in hull.Triangles)
-        {
-            Vector3 a = hull.Points[t.A], b = hull.Points[t.B], c = hull.Points[t.C];
-            var n = Vector3.Cross(b - a, c - a);
-            if (n.LengthSquared() < 1e-12f) continue;
-            n = Vector3.Normalize(n);
-            if (Vector3.Dot(n, centre - a) > 0) n = -n;
-            outside = MathF.Max(outside, Vector3.Dot(n, local - a));
-        }
-        return outside;
     }
 
     static float DistanceToSegment(Vector3 p, Vector3 a, Vector3 b)
@@ -277,13 +199,5 @@ public static class SwingContacts
         var ab = b - a;
         float t = ab.LengthSquared() > 0 ? Math.Clamp(Vector3.Dot(p - a, ab) / ab.LengthSquared(), 0, 1) : 0;
         return Vector3.Distance(p, a + ab * t);
-    }
-
-    /// <summary>How far a point lies outside a hit box on a joint placed at <paramref name="joint"/>; 0 inside.</summary>
-    static float Outside(Vector3 point, Transform joint, ModelHitbox box)
-    {
-        var local = Vector3.Transform(point - joint.Translation, Quaternion.Inverse(joint.Rotation)) - box.Center;
-        var over = Vector3.Max(Vector3.Abs(local) - box.HalfExtents, Vector3.Zero);
-        return over.Length();
     }
 }

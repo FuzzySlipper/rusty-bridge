@@ -56,6 +56,13 @@ public sealed class ModelImport
         for (int i = 0; i < sequences.Count; i++)
             if (Clip(mdl, sequences[i].File, sequences[i].Sequence, i) is PendingClip clip) clips.Add(clip);
         clips = WithinBudget(clips, c => (c.Keyframes, c.Values), c => _log.Warn($"{donorPath}: clip {c.Name} is over the Engine's per-GLB animation budget; skipped"));
+        // Arkane's animation events, as [cycle, id] pairs: the hit windows (2186 opens, 2190 closes), the struck
+        // parts (2102, 2139), sounds and combo windows. The combat lab times its moves by them.
+        var events = StudioModel.Events(donorPath, _files.Read);
+        foreach (var clip in clips)
+            // A few events carry a non-finite cycle, which JSON can't hold; they are left out.
+            if (events.TryGetValue(clip.Name, out var list) && list.Where(e => float.IsFinite(e.Cycle)).ToList() is { Count: > 0 } finite)
+                clip.Extras["events"] = new JsonArray(finite.Select(e => (JsonNode)GltfBuilder.FloatArray(e.Cycle, e.Event)).ToArray());
 
         var gltf = new GltfBuilder();
         var joints = Skeleton(gltf, mdl);

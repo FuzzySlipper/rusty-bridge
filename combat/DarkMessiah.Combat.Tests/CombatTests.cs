@@ -162,6 +162,8 @@ public sealed class ModelTests
         Assert.Equal(4.2f, Model.Damage(plain with { VictimAlert = 4 })!.Value, 4);
         Assert.Equal(4.2f, Model.Damage(plain with { VictimAlert = 0, VictimNpcState = 3 })!.Value, 4);
         Assert.Equal(new GameSettings(3, 0, 1), Model.Data.Settings);
+        // A kick (damage type 0x40000) asks the settings' kick_damage, whatever struck.
+        Assert.Equal(1f, Model.Damage(Hit(Player, "-", "", Orc(), null) with { DamageType = 0x40000, WeaponFlags = 0x20 }));
     }
 
     [Fact]

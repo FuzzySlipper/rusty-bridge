@@ -1,0 +1,93 @@
+using DarkMessiah.Lab.Sword;
+using DarkMessiah.Lab.Combat;
+using DarkMessiah.Lab.Player;
+using DarkMessiah.Lab.Time;
+using Rusty.Engine;
+using Rusty.Engine.Debugging;
+
+namespace DarkMessiah.Lab.Developer;
+
+/// <summary>
+/// The lab's tunables page for the Engine tunables panel (<see cref="TunablesDebugModule"/>): the body and camera from
+/// <c>player.json</c>, the sword and the orc from <c>combat.json</c>, and the world rate (live only). Each control
+/// applies through its owner (<see cref="PlayerController.Retune"/>, <see cref="LabCombat.Retune"/>,
+/// <see cref="WorldTime.SetRate"/>) at once; Save writes the bound file through the Engine content source (which marks
+/// it already staged, so no reload follows: the live value is already applied), and a hand edit of the same file
+/// arrives as a live content change. Declarations are explicit lists.
+/// Provenance: rusty-hotel <c>Interface/Workbench/HotelWorkbench</c> (the page-and-chooser shape); the controls are the lab's.
+/// </summary>
+internal sealed class LabTunables(IContentSourceService source, PlayerController player, LabCombat combat, WorldTime time)
+{
+    private delegate PlayerTuning With(PlayerTuning tuning, float value);
+
+    private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<PlayerTuning, float> Get, With Set)[] Body =
+    [
+        ("speed", "Walk speed", 1, 12, .1f, "/speed", t => t.Speed, (t, v) => t with { Speed = v, SprintSpeed = Math.Max(v, t.SprintSpeed) }),
+        ("sprint", "Sprint speed", 1, 16, .1f, "/sprintSpeed", t => t.SprintSpeed, (t, v) => t with { SprintSpeed = Math.Max(v, t.Speed) }),
+        ("jump", "Jump speed", 1, 14, .1f, "/jumpSpeed", t => t.JumpSpeed, (t, v) => t with { JumpSpeed = v }),
+        ("gravity", "Body gravity", 4, 40, .5f, "/gravity", t => t.Gravity, (t, v) => t with { Gravity = v }),
+        ("step", "Step height", 0, .8f, .05f, "/maximumStepHeight", t => t.MaximumStepHeight, (t, v) => t with { MaximumStepHeight = v }),
+        ("slope", "Max slope °", 10, 80, 1, "/maximumSlopeDegrees", t => t.MaximumSlopeDegrees, (t, v) => t with { MaximumSlopeDegrees = v }),
+        ("buffer", "Jump buffer s", 0, .4f, .01f, "/jumpBufferSeconds", t => t.JumpBufferSeconds, (t, v) => t with { JumpBufferSeconds = v }),
+        ("coyote", "Coyote time s", 0, .4f, .01f, "/coyoteSeconds", t => t.CoyoteSeconds, (t, v) => t with { CoyoteSeconds = v }),
+    ];
+
+    private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<PlayerTuning, float> Get, With Set)[] View =
+    [
+        ("fov", "Field of view °", 50, 110, 1, "/fieldOfViewDegrees", t => t.FieldOfViewDegrees, (t, v) => t with { FieldOfViewDegrees = v }),
+        ("sensitivity", "Mouse rad/unit", .0005f, .006f, .0001f, "/pointerRadiansPerUnit", t => t.PointerRadiansPerUnit, (t, v) => t with { PointerRadiansPerUnit = v }),
+        ("bob", "Head bob m", 0, .1f, .005f, "/headBobMetres", t => t.HeadBobMetres, (t, v) => t with { HeadBobMetres = v }),
+        ("bob-stride", "Bob stride m", .5f, 3, .05f, "/headBobStrideMetres", t => t.HeadBobStrideMetres, (t, v) => t with { HeadBobStrideMetres = v }),
+    ];
+
+    private delegate CombatTuning WithCombat(CombatTuning tuning, float value);
+
+    private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] SwordControls =
+    [
+        ("power-hold", "Power hold s", 0, 1, .01f, "/powerHoldSeconds", t => t.PowerHoldSeconds, (t, v) => t with { PowerHoldSeconds = v }),
+        ("move", "Move while busy", 0, 1, .05f, "/attackMovementScale", t => t.AttackMovementScale, (t, v) => t with { AttackMovementScale = v }),
+        ("kick-range", "Kick range m", .3f, 3, .05f, "/kickRange", t => t.KickRange, (t, v) => t with { KickRange = v }),
+        ("kick-push", "Kick push m", 0, 4, .1f, "/kickPush", t => t.KickPush, (t, v) => t with { KickPush = v }),
+        ("health", "Player health", 1, 400, 1, "/playerHealth", t => t.PlayerHealth, (t, v) => t with { PlayerHealth = v }),
+    ];
+
+    private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] OrcControls =
+    [
+        ("engage", "Engage distance m", .5f, 4, .05f, "/orc/engageDistance", t => t.Orc.EngageDistance, (t, v) => t with { Orc = t.Orc with { EngageDistance = v } }),
+        ("walk", "Walk speed m/s", .2f, 6, .1f, "/orc/walkSpeed", t => t.Orc.WalkSpeed, (t, v) => t with { Orc = t.Orc with { WalkSpeed = v } }),
+        ("reach", "Blow reach m", .5f, 4, .05f, "/orc/reach", t => t.Orc.Reach, (t, v) => t with { Orc = t.Orc with { Reach = v } }),
+        ("front", "Front cosine", -1, 1, .05f, "/orc/frontCosine", t => t.Orc.FrontCosine, (t, v) => t with { Orc = t.Orc with { FrontCosine = v } }),
+        ("cooldown", "Attack cooldown s", 0, 5, .05f, "/orc/attackCooldown", t => t.Orc.AttackCooldown, (t, v) => t with { Orc = t.Orc with { AttackCooldown = v } }),
+        ("parry", "Parry chance", 0, 1, .05f, "/orc/parryChance", t => t.Orc.ParryChance, (t, v) => t with { Orc = t.Orc with { ParryChance = v } }),
+        ("health", "Health", 1, 400, 1, "/orc/health", t => t.Orc.Health, (t, v) => t with { Orc = t.Orc with { Health = v } }),
+    ];
+
+    // The page has no choosers.
+    internal TunablesDebugModule Module() => new(source, Page, (chooser, _) => $"Unknown chooser '{chooser}'.");
+
+    private TunablesPage Page()
+    {
+        PlayerTuning t = player.Tuning;
+        Tunable BodyControl((string Id, string Label, float Min, float Max, float Step, string Pointer, Func<PlayerTuning, float> Get, With Set) c) =>
+            new(new TunableControl(c.Id, c.Label, TunableKind.Slider, c.Min, c.Max, c.Step, c.Get(t)) { Source = new(PlayerTuning.Path, c.Pointer) },
+                v => player.Retune(PlayerTuning.Validate(c.Set(player.Tuning, v))));
+        Tunable CombatControl(string group, (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set) c) =>
+            new(new TunableControl($"{group}.{c.Id}", c.Label, TunableKind.Slider, c.Min, c.Max, c.Step, c.Get(combat.Tuning)) { Source = new(CombatTuning.Path, c.Pointer) },
+                v => combat.Retune(CombatTuning.Validate(c.Set(combat.Tuning, v))));
+        return new TunablesPage("Dark Messiah combat lab",
+        [
+            new TunableGroup("body", "Body", Body.Select(BodyControl).ToArray()) { File = PlayerTuning.Path },
+            new TunableGroup("view", "View", View.Select(BodyControl).ToArray()) { File = PlayerTuning.Path },
+            new TunableGroup("sword", "Sword (the lab's; clips, damage and range are Arkane's)", SwordControls.Select(c => CombatControl("sword", c)).ToArray()) { File = CombatTuning.Path },
+            new TunableGroup("orc", "Orc", OrcControls.Select(c => CombatControl("orc", c)).ToArray()) { File = CombatTuning.Path },
+            new TunableGroup("world", "World time (not saved)",
+            [
+                new Tunable(new TunableControl("world.rate", "World rate ×", TunableKind.Slider, .05f, 1, .05f, (float)time.Rate), v => time.SetRate(v)),
+                new Tunable(new TunableControl("world.held", "Hold world", TunableKind.Toggle, 0, 1, 1, time.Held ? 1 : 0), v => { if (v > .5f) time.Hold(); else time.Run(); }),
+            ]),
+        ])
+        {
+            Notice = "Changes apply at once. Save writes body and view to player.json and the sword and orc to combat.json; hand edits to those files reload live. World time is not saved.",
+        };
+    }
+}

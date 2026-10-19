@@ -1,0 +1,25 @@
+{
+  "voxelSize": 0.5,
+  "gravity": 20,
+  "spawnFeet": [12, 0, 16],
+  "spawnYawDegrees": 0,
+  "interaction": {"reach": 3.5, "holdDistance": 2, "holdSlack": 0.15, "holdReelSpeed": 12, "throwSpeed": 11},
+  "volumes": [
+    {"label":"courtyard floor", "min":[0,-0.5,0], "max":[24,0,24], "material":1},
+    {"label":"west wall", "min":[0,0,0], "max":[0.5,4,24], "material":2},
+    {"label":"east wall", "min":[23.5,0,0], "max":[24,4,24], "material":2},
+    {"label":"south wall", "min":[0,0,0], "max":[24,4,0.5], "material":2},
+    {"label":"north wall", "min":[0,0,23.5], "max":[24,4,24], "material":2},
+    {"label":"west pillar", "min":[5,0,11], "max":[6,4,12], "material":3},
+    {"label":"east pillar", "min":[18,0,11], "max":[19,4,12], "material":3}
+  ],
+  "ramps": [],
+  "blocks": [
+    {"label":"low wall", "center":[12,0.4,2.5], "size":[6,0.8,0.6]}
+  ],
+  "cubes": [
+    {"label":"crate / 6kg", "center":[3,0.55,20], "size":1, "mass":6, "color":[0.62,0.44,0.27]},
+    {"label":"crate / 6kg", "center":[4.2,0.55,20], "size":1, "mass":6, "color":[0.62,0.44,0.27]},
+    {"label":"barrel / 2kg", "center":[20,0.3,20], "size":0.6, "mass":2, "color":[0.5,0.36,0.22]}
+  ]
+}

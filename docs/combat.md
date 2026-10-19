@@ -117,6 +117,9 @@ published) hold no combat data.
   - **×3 on an NPC that isn't alerted** (`mul_damages_Npc_Not_alerted`): its alert level
     (+0x36EC) is at most `mul_damages_Npc_Not_alerted_level` (0), and its state (+0x1A5C) isn't 3.
   - **× `player_damage_multiplier`** (1.0).
+  - **A kick** (damage type 0x40000) asks the settings' `kick_damage` (1, "Player's Kick Damage"),
+    times that multiplier. No attack table holds it. Recorded kicks ask 1. Kicks aren't scored here: the
+    scorer takes slash and club damage only.
   - **Inputs:** the multipliers come from `scripts/mm_game_settings.txt`. The critical byte and the
     alert level are streamed from Wire v11.
   - **Before v9:** the player's attack comes from the server view model's layers. From v9, when those

@@ -1,0 +1,8 @@
+<Project>
+  <!-- The repository's one Engine SDK/runtime pair pin, shared by the mirror, the lab and dm-combat.
+       `rusty install` installs it; only `rusty update` (from mirror/ or lab/) changes it. Projects that
+       don't use the Engine (wire, import, combat) ignore it. -->
+  <PropertyGroup>
+    <RustyEnginePackageVersion>0.1.0-dev.40fee53cccce</RustyEnginePackageVersion>
+  </PropertyGroup>
+</Project>

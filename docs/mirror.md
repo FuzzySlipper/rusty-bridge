@@ -31,8 +31,14 @@ rusty dev
 ```
 
 (`rusty dev start --headless --live-debug` runs it in the background for
-harnesses.) The pair is pinned in `mirror/Directory.Build.props`, separately
-from the Wire and import tools, which don't need the Engine.
+harnesses.) The pair is pinned in the repository's root `Directory.Build.props`.
+The mirror, the combat lab, `shared/` and `dm-combat` build on it. The Wire
+and import tools don't need the Engine.
+
+**Shared with the lab:** what the mirror reads from dm-import's models
+(attachments, hit boxes, item hulls) and the contact sweep live in
+`shared/DarkMessiah.Shared` (`ModelInfo`, `HitSweep`). The combat lab
+measures its blows the same way as the mirror's Shadow contacts.
 
 **Controls:**
 

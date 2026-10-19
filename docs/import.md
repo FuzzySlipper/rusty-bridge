@@ -66,7 +66,13 @@ A studio model is one skinned GLB:
   each include depth first, skipping names already present). The primary
   GLB's `asset.extras.sequences` repeats that list.
 - **Clip extras:** each clip's `extras` holds the activity, fps, frame
-  count, looping, delta, blend grid and fades.
+  count, looping, delta, blend grid and fades. When the sequence has
+  animation events, `events` lists them as `[cycle, id]` pairs. Those are
+  Arkane's ids: 2186 opens a hit window and 2190 closes it, and 2102 and
+  2139 are the struck parts. A few events with a non-finite cycle are left out.
+- **Game data:** the level import writes each model's `.qct` beside its GLB,
+  under the same lowercased name, and copies `scripts/mm_game_settings.txt`.
+  The combat lab reads Arkane's numbers from them at run time ([lab.md](lab.md)).
 - **Attachments:** weapon grips and other attachments are in
   `asset.extras.attachments`, each a joint name and a local matrix.
 - **Hit boxes:** the first hitbox set (`default`, the one traces test) is

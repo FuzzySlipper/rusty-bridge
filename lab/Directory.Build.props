@@ -1,0 +1,18 @@
+<Project>
+  <!-- The Engine pair pin is the repository's, in ../Directory.Build.props. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- The product `rusty dev` and `rusty build` run when no project is named. -->
+    <RustyEngineProject>src/DarkMessiah.Lab/DarkMessiah.Lab.csproj</RustyEngineProject>
+    <!-- Every restore, plain dotnet included, takes exactly the pinned SDK from
+         the pair installed in the shared rusty cache. -->
+    <RustyEngineCache Condition="'$(RustyEngineCache)' == ''">$(RUSTY_ENGINE_CACHE)</RustyEngineCache>
+    <RustyEngineCache Condition="'$(RustyEngineCache)' == '' and '$(XDG_CACHE_HOME)' != ''">$(XDG_CACHE_HOME)/rusty-engine</RustyEngineCache>
+    <RustyEngineCache Condition="'$(RustyEngineCache)' == '' and '$(HOME)' != ''">$(HOME)/.cache/rusty-engine</RustyEngineCache>
+    <RustyEngineCache Condition="'$(RustyEngineCache)' == ''">$(USERPROFILE)/.cache/rusty-engine</RustyEngineCache>
+    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+  <Target Name="RequireRustyEnginePair" BeforeTargets="Restore;_GenerateRestoreGraph" Condition="!Exists('$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed')">
+    <Error Text="Rusty Engine pair $(RustyEnginePackageVersion) is not installed: run `rusty install` in mirror/ or lab/." />
+  </Target>
+</Project>

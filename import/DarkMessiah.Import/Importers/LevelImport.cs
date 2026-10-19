@@ -41,8 +41,21 @@ public sealed class LevelImport
 
     public static string BrushFile(string map, int model) => model == 0 ? $"maps/{map}/world.glb" : $"maps/{map}/brush_{model}.glb";
 
-    public ModelImportResult Model(string donorPath) =>
-        new ModelImport(_files, _materials, _log).Import(donorPath, Path.Combine(_output, ModelFile(donorPath)));
+    /// <summary>
+    /// One studio model as a GLB, and its <c>.qct</c> (Arkane's commented $keyvalues: combat tables,
+    /// hitbox modifiers, weapon damage) beside it under the same lowercased name, for products that read
+    /// the game's numbers at run time.
+    /// </summary>
+    public ModelImportResult Model(string donorPath)
+    {
+        var result = new ModelImport(_files, _materials, _log).Import(donorPath, Path.Combine(_output, ModelFile(donorPath)));
+        if (_files.Read(Path.ChangeExtension(donorPath, ".qct")) is byte[] qct)
+            File.WriteAllBytes(Path.Combine(_output, Path.ChangeExtension(ModelFile(donorPath), ".qct")), qct);
+        return result;
+    }
+
+    /// <summary>Game scripts the combat model reads, copied under their own paths.</summary>
+    static readonly string[] Scripts = ["scripts/mm_game_settings.txt"];
 
     public MapImportResult Map(string donorPath)
     {
@@ -104,6 +117,12 @@ public sealed class LevelImport
         var unresolved = new List<string>();
         var invisible = new List<string>();
         var mapResult = Map($"maps/{map}.bsp");
+        foreach (var script in Scripts)
+            if (_files.Read(script) is byte[] text)
+            {
+                Directory.CreateDirectory(Path.Combine(_output, Path.GetDirectoryName(script)!));
+                File.WriteAllBytes(Path.Combine(_output, script), text);
+            }
         string Relative(string file) => Path.GetRelativePath(_output, file).Replace('\\', '/');
         assets.Add(Asset($"maps/{map}.bsp", Relative(mapResult.Models["*0"])));
 

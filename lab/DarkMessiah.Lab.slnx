@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/DarkMessiah.Lab/DarkMessiah.Lab.csproj" />
+  <Project Path="tests/DarkMessiah.Lab.Smoke/DarkMessiah.Lab.Smoke.csproj" />
+</Solution>

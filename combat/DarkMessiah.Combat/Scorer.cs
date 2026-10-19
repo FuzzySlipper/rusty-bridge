@@ -179,7 +179,9 @@ public static class Scorer
                 FormattableString.Invariant($"{(r.Lands ? "reaches" : "falls short")} (box at {r.Entry:F0} of range {r.Range:F0})"), ReachReason(c, r)));
         }
         scores.Add(new("reach", cases.Count, agree, 0));
-        tested.Add($"reach: {cases.Count(c => c.Landed && !c.FromDamage)} landed and {cases.Count(c => !c.Landed)} missed attack parts on the player, {cases.Count(c => c.FromDamage)} untraced blows on NPCs");
+        tested.Add($"reach: {cases.Count(c => c.Landed && !c.FromDamage)} landed and {cases.Count(c => !c.Landed)} missed attack parts on the player " +
+            $"({cases.Count(c => c.Sweeps is { Count: > 0 })} turn-strike windows), {cases.Count(c => c.FromDamage && c.Victim == "player")} blows on the player " +
+            $"scored at their own frame, {cases.Count(c => c.FromDamage && c.Victim != "player")} untraced blows on NPCs");
     }
 
     /// <summary>A sweep that ends within this many Source units of the victim's box is near the reach's end.</summary>

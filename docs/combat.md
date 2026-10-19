@@ -215,7 +215,13 @@ The decision behind an untraced blow is whether the attack reaches. The melee ro
 `CombatModel.Reach` is that test. `Reaches.Read` takes its cases from a recording:
 - **On the player:** every NPC attack part (2102, 2139) that fires while the player is in its aim, within twice the
   reach. It fires in the attacker's think, the first streamed state past the event's cycle.
-- **Landed:** the attacker's blow on the player, or the player's parry of it, within 12 ticks.
+- **Turn strikes:** `Turn_strike_*` have no part events. They strike through a window, 2175 to 2176, so each play is
+  one case, swept at every think inside the window. It reaches when one of those sweeps does, unless the attacker
+  ends the window turned away from the player (outside the aim cone): a turn strike turns to its target, and that
+  one was someone else.
+- **Landed:** the attacker's blow on the player, or the player's parry of it, within 12 ticks of the part or window.
+- **Blows nothing covers:** a recorded blow on the player with no part or window case is a case of its own, swept at
+  the blow's frame. It is an attack on an overlay before Wire v6, which streams no overlays (one in `l01_a-parrybot`).
 - **On NPCs:** every untraced blow on an NPC (hit box 0 in group 0) is a case that landed.
 
 **What the recorded blows show:**
@@ -229,21 +235,21 @@ The decision behind an untraced blow is whether the attack reaches. The melee ro
 
 | Recording | Reach | Landed parts on the player | Missed parts | Untraced blows on NPCs |
 | --- | --- | --- | --- | --- |
-| l01_a-parrybot (v4) | 83 / 87 | 70 | 11 | 6 |
-| l01_a-layers (v6) | 84 / 86 | 71 | 8 | 7 |
-| l01_a-v7-bot (v7) | 155 / 162 | 140 | 14 | 8 |
-| l01_a-v11-damage (v11) | 118 / 123 | 90 | 21 | 12 |
-| l01_a-v12-arena-bot (v12) | 80 / 84 | 75 | 9 | 0 |
-| l01_a-v12-arena-ghoul (v12) | 103 / 107 | 78 | 26 | 3 |
-| All 17 recordings with cases | 853 / 893 (95.5 %) | | | |
+| l01_a-parrybot (v4) | 91 / 95 | 74 (7 turn strikes, 1 blow on its own frame) | 15 | 6 |
+| l01_a-layers (v6) | 88 / 90 | 75 (4 turn strikes) | 8 | 7 |
+| l01_a-v7-bot (v7) | 160 / 167 | 144 (5 turn strikes) | 15 | 8 |
+| l01_a-v11-damage (v11) | 123 / 128 | 95 (5 turn strikes) | 21 | 12 |
+| l01_a-v12-arena-bot (v12) | 83 / 87 | 78 (3 turn strikes) | 9 | 0 |
+| l01_a-v12-arena-ghoul (v12) | 112 / 117 | 81 (10 turn strikes) | 33 | 3 |
+| All 20 recordings with cases | 1012 / 1058 (95.7 %) | | | |
 
 Every mismatch is put down to one of:
 - **Struck first:** the sweep stops at the first entity it meets, and the attacker's blow struck another NPC, its
-  weapon or an entity gone by the frame instead (24 of the 40). Two orcs side by side in the arena strike each other.
-- **Another enemy** (8): the routine aims at the attacker's enemy, which the Wire doesn't carry.
+  weapon or an entity gone by the frame instead (24 of the 46). Two orcs side by side in the arena strike each other.
+- **Another enemy** (12): the routine aims at the attacker's enemy, which the Wire doesn't carry.
   - Either another NPC was in its aim cone;
   - or a sweep along its facing, its aim when the enemy is out of the cone, passes the player.
-- **Near the reach's end** (7): the sweep ends within 12 units of the player's box. The Wire has the attacker and player
+- **Near the reach's end** (9): the sweep ends within 12 units of the player's box. The Wire has the attacker and player
   as the frame ended, not at the sweep inside the attacker's think.
 - **A lunge** (1): the attack moves the attacker (`AttackMove` above 1: 12 is the orc's jump). The Wire has it only at its thinks.
 

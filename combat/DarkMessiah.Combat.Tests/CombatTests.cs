@@ -259,6 +259,11 @@ public sealed class ModelTests
         // The box is world-aligned: on a diagonal the sweep meets its corner, 17.5 × √2 short of the centre.
         var diagonal = Model.Reach(Reach(GhoulModel, "attack_bash", 0, Vector2.Normalize(new(1, 1)) * 70, armed: false, Vector2.Normalize(new(1, 1))));
         Assert.Equal(70 - 17.5f * MathF.Sqrt(2), diagonal.Entry, 2);
+        // A turn strike sweeps at each think of its window; one that ends turned away struck at someone else.
+        var toward = Reach(OrcModel, "attack_Right", 0, new(90, 0), armed: true) with { Sweeps = [(1, new(90, 0), Vector2.UnitX), (9, new(80, 0), Vector2.UnitX)] };
+        Assert.True(Model.Reach(toward).Lands);                                                               // the second think enters at 62.5
+        var away = toward with { Sweeps = [(1, new(80, 0), Vector2.UnitX), (9, new(80, 0), -Vector2.UnitX)] };
+        Assert.False(Model.Reach(away).Lands);
         // Outside the aim cone (cos 0.3) the sweep follows the facing and passes the victim.
         var behind = Model.Reach(Reach(OrcModel, "attack_Right", 0, new(0, 40), armed: true));
         Assert.False(behind.Lands);
@@ -445,6 +450,35 @@ public sealed class RecordedFightTests(Xunit.Abstractions.ITestOutputHelper outp
         Assert.DoesNotContain(report.Mismatches, m => m.Reason.StartsWith("unexplained", StringComparison.Ordinal));
         Assert.NotEmpty(report.Scores);
         Assert.All(report.Scores.Where(s => s.Decision == "reach" && s.Cases >= 20), s => Assert.True(s.Agree >= s.Cases * 9 / 10, $"reach {s.Agree} of {s.Cases}"));
+    }
+
+    /// <summary>
+    /// Every untraced blow on the player is a reach case: an attack part, a turn strike's window (events 2175 to 2176),
+    /// or the blow itself when the attack isn't on the Wire. The ticks are the turn strikes and the v4 overlay attack
+    /// review R10099-1 found missing.
+    /// </summary>
+    [Theory]
+    [InlineData("l01_a-parrybot.rbrec", new[] { 11056, 16034, 17074, 11414 })]
+    [InlineData("l01_a-layers.rbrec", new[] { 12853, 13029, 16351, 17553 })]
+    public void EveryUntracedBlowOnThePlayerIsAReachCase(string name, int[] named)
+    {
+        if (Recording(name) is not string path || Vpks() is null) { output.WriteLine($"no local/recordings/{name} or local/donor/vpks; skipped"); return; }
+        var model = CombatModel();
+        List<ReachCase> cases;
+        using (var stream = File.OpenRead(path)) cases = Reaches.Read(RecordingReader.Frames(stream), model.Data);
+        var blows = new List<(int Tick, string Attacker)>();
+        using (var stream = File.OpenRead(path))
+            foreach (var f in RecordingReader.Frames(stream))
+                foreach (var d in f.Damage)
+                    if ((d.DamageType & 0x84) != 0 && f.Entities.TryGetValue(d.Victim, out var v) && f.Classes.GetValueOrDefault(v.ClassId) == "player"
+                        && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId, "").StartsWith("npc_", StringComparison.Ordinal))
+                        blows.Add((d.Tick, f.Classes[a.ClassId]));
+        bool Covered(int tick, string attacker) => cases.Any(c => c.Victim == "player" && c.Attacker == attacker && c.Landed
+            && tick >= c.Span.First - 12 && tick <= c.Span.Last + 12);
+        Assert.NotEmpty(blows);
+        Assert.All(blows, b => Assert.True(Covered(b.Tick, b.Attacker), $"blow at tick {b.Tick} by {b.Attacker} has no reach case"));
+        Assert.All(named, t => Assert.Contains(blows, b => b.Tick == t));
+        Assert.Contains(cases, c => c.Sweeps is { Count: > 1 });
     }
 
     /// <summary>

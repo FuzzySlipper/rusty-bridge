@@ -201,7 +201,8 @@ public sealed class CombatModel(CombatData data)
     /// <item>an unarmed one's for its <c>baseattacklength</c> (server.dll+0x3B2270).</item>
     /// </list>
     /// It lands when the sweep meets the victim's collision box (world-aligned), so the reach ends where the line from
-    /// the attacker enters the box grown by the sweep's half-size.
+    /// the attacker enters the box grown by the sweep's half-size. A turn strike sweeps at every think of its window,
+    /// and reaches when one of them does, unless it ends turned away from the victim: then its target was another.
     /// </summary>
     public ReachResult Reach(ReachCase c)
     {
@@ -209,10 +210,19 @@ public sealed class CombatModel(CombatData data)
         var attack = character?.Attack(c.Attack) ?? character?.Attack(c.Attack.Replace("layer_", "", StringComparison.OrdinalIgnoreCase));
         var part = attack?.Events.ElementAtOrDefault(c.Part) ?? attack?.Events.LastOrDefault();
         float range = c.Armed ? part?.Range ?? AttackEvent.DefaultRange : character?.BaseAttackLength ?? CharacterData.DefaultBaseAttackLength;
-        var to = c.ToVictim;
-        var aim = to.LengthSquared() > 0 && Vector2.Dot(Vector2.Normalize(to), c.Facing) >= AimCosine ? Vector2.Normalize(to) : c.Facing;
-        float entry = BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, aim);
-        return new ReachResult(entry <= range, entry, range, part, BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, c.Facing) <= range);
+        // A window sweeps at every think inside it; the nearest sweep decides. A turn strike turns to its target: when
+        // it ends facing away from the victim (outside the aim cone), it struck at someone else.
+        var sweeps = c.Sweeps is { Count: > 0 } s ? s.Select(x => (x.ToVictim, x.Facing)) : [(c.ToVictim, c.Facing)];
+        if (c.Sweeps is [.., var end] && end.ToVictim.LengthSquared() > 0 && Vector2.Dot(Vector2.Normalize(end.ToVictim), end.Facing) < AimCosine)
+            return new ReachResult(false, float.PositiveInfinity, range, part, false);
+        float entry = float.PositiveInfinity, facingEntry = float.PositiveInfinity;
+        foreach (var (to, facing) in sweeps)
+        {
+            var aim = to.LengthSquared() > 0 && Vector2.Dot(Vector2.Normalize(to), facing) >= AimCosine ? Vector2.Normalize(to) : facing;
+            entry = MathF.Min(entry, BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, aim));
+            facingEntry = MathF.Min(facingEntry, BoxEntry(to, c.VictimHalfWidth + SweepHalfSize, facing));
+        }
+        return new ReachResult(entry <= range, entry, range, part, facingEntry <= range);
     }
 
     /// <summary>How far along <paramref name="dir"/> from the origin a ray enters a square of half-size <paramref name="half"/> at <paramref name="centre"/>; infinity when it misses.</summary>

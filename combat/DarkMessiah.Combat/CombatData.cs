@@ -91,6 +91,23 @@ public sealed class CombatData
 
     readonly Func<string, IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>>>? _eventsOf;
 
+    /// <summary>
+    /// A sequence's strike window, when it strikes through one rather than at part events: Arkane's 2175 opens it
+    /// and 2176 closes it (the turn strikes, Turn_strike_*). Null when it has none.
+    /// </summary>
+    public (float Open, float Close)? StrikeWindow(string model, string sequence)
+    {
+        if (model.Length == 0 || sequence.Length == 0) return null;
+        if (!_events.TryGetValue(model, out var events)) _events[model] = events = _eventsOf?.Invoke(model) ?? StudioModel.Events(model, _read);
+        if (!events.TryGetValue(sequence, out var list)) return null;
+        var open = list.Where(e => e.Event == WindowOpen).Select(e => (float?)e.Cycle).FirstOrDefault();
+        var close = list.Where(e => e.Event == WindowClose).Select(e => (float?)e.Cycle).FirstOrDefault();
+        return open is float o && close is float c && c > o ? (o, c) : null;
+    }
+
+    /// <summary>The events that open and close an NPC's strike window.</summary>
+    public const int WindowOpen = 2175, WindowClose = 2176;
+
     /// <summary>The cycles at which a sequence's attack parts fire (2102, 2139), in order; empty when it has none.</summary>
     public IReadOnlyList<float> PartCycles(string model, string sequence)
     {

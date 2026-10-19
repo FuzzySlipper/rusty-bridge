@@ -414,7 +414,7 @@ function parseRecording(buf) {
   // v7: slow motion asked for, through the player's setter or the static request; caller is the return address in server.dll.
   for (const b of slowTime) {
     const t = bySerial.get(`${b.player}:${b.playerSerial}`);
-    if (t) events.push({ fi: b.fi, kind: "slow", track: t, slow: b, text: `slow motion ×${b.factor.toFixed(2)} for ${b.duration.toFixed(2)} s${b.request ? ` after ${b.start.toFixed(2)} s` : ""} (server.dll+0x${b.caller.toString(16)})` });
+    if (t) events.push({ fi: b.fi, kind: "slow", track: t, slow: b, text: `slow motion ×${b.factor.toFixed(2)} for ${b.duration.toFixed(2)} s${b.request ? ` after ${b.start.toFixed(2)} s` : ""} (${b.caller === 0xFFFFFFFF ? "outside server.dll" : `server.dll+0x${b.caller.toString(16)}`})` });
   }
   // v7: an NPC knocked down links to the ragdoll that replaces it, and the ragdoll back to it.
   for (const l of links) {

@@ -392,7 +392,7 @@ The request has seven callers:
 
 | Call site | What it passes |
 | --- | --- |
-| `+0x2CB841` | the damage info's `m_fSlowTime*`, when the victim's flag +0x2798 bit 13 is set |
+| `+0x2CB841` | the damage info's `m_fSlowTime*`, on a player's blow with trace info (+0x44) that the victim's check (virtual +0xCB8) accepts, when the player has skill module 13 (`combat_trample`, bit 13 of +0x2798) |
 | `+0x2EE9F4` | `slowtime_critical_delay/_duration/_factor` from `scripts/mm_game_settings.txt` (+0x5A0 of the settings global), on a critical hit (damage type bit 0x10000), gated by a cvar |
 | `+0x2EED80` | stack values, when +0x1255 bit 1 is set and a cvar is 0 |
 | `+0x440F66`, `+0x444C70`, `+0x44D64A` | an entity's delay at +0x1118 and two arguments |
@@ -409,9 +409,31 @@ The request has seven callers:
   0 s, and `m_bInBulletTime` was up for 2 ticks after each.
 - **The damage fields aren't slow motion:** every damage record's
   `m_fSlowTime*` (×0.10 for 2.00 s) is a default. It reaches slow motion only
-  through `+0x2CB841`, for victims with that flag.
-- **Not seen:** a call with a factor below 1. Map scripts and the other
-  callers (scripted kills, impales) are the remaining sources.
+  through `+0x2CB841`. That call also needs the player's Trample skill:
+  - **The flag:** the word at +0x2798 is the player's skill modules (`m_uiSkillModuleEnable`), numbered as in the module-name table at `server.dll+0x79DF7C`.
+  - **Bit 13:** `combat_trample`, from combat level 3 in `scripts/mm_skills_infos.txt`.
+  - **The attack:** `first_basic.qct` gives the Trample attack (`layer_combo_*_trample`) ×0.5 for 2.5 s.
+  - **Not reproduced:** with every module enabled (`mm_player_skills_grosbill 1`), no bot or hand-played fight downed an orc and trampled it.
+- **Callers outside server.dll:** Arkane's copy-protected code (the `.sll`
+  section, `server.dll+0x945000` on) runs from a copy in allocated memory, so
+  its calls return outside the module. From 2026-10-18 21:50 the tap writes
+  such a caller as `0xFFFFFFFF` (`WireSlowTime.CallerOutside`); earlier taps
+  wrote a meaningless RVA.
+
+**A reproducible slow motion (2026-10-18, `l01_a-v11-slowmo-input`).** Arkane's map scripts call the request through `mm_player_inputs`' `ActiveSlowMotion` input, with "delay duration factor" (`l02_b1` fires `0.8 3 0.2`). l01_a places that entity, named `mm_player_inputs`, so the console fires it:
+
+```
+ent_fire mm_player_inputs ActiveSlowMotion "0.8 3 0.2"
+```
+
+| Call | Request (tick) | Player state written | `m_bInBulletTime` | Game time / wall time |
+| --- | --- | --- | --- | --- |
+| ×0.2 for 3 s after 0.8 s | 9834, curtime 147.525, caller outside server.dll | start 148.310 (curtime + delay), duration 0.6 (3 × 0.2), factor 0.2 | ticks 9889–9928, from curtime 148.335 | 0.600 s in 2.937 s: ×0.20 |
+| ×0.5 for 2 s at once | 10688, curtime 160.335 | start 160.320, duration 1.0, factor 0.5 | ticks 10691–10756 | 0.990 s in 1.970 s: ×0.50 |
+
+- **How long it lasts:** the game time it runs is the asked duration times the factor (the request stores that). The wall time it runs is the asked duration.
+- **The flag:** it rises on the first tick whose curtime passes start, and falls when that game time is over.
+- **Over the 40 s recording:** game time ran 36.67 s, 3.33 s behind the wall clock: (3 − 0.6) + (2 − 1) = 3.4 s.
 
 The stepper shades the frames where `m_bInBulletTime` is set, lists each
 call with its caller, and shows the game-time scale next to the clock when

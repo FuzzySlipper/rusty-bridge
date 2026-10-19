@@ -211,9 +211,21 @@ public struct WireSlowTime
     public float Start;
     public float Duration;
     public float Factor;
+    /// <summary>The server.dll RVA the call returns to, or <see cref="CallerOutside"/>.</summary>
     public uint Caller;
     public uint PlayerSerial;
     public uint Reserved2;
+
+    /// <summary>
+    /// A return address outside server.dll: Arkane's copy-protected code (the
+    /// .sll section, such as mm_player_inputs' ActiveSlowMotion input) runs from
+    /// a copy in allocated memory. Taps before 2026-10-18 21:50 wrote such a
+    /// caller as a meaningless RVA.
+    /// </summary>
+    public const uint CallerOutside = uint.MaxValue;
+
+    /// <summary>The caller as text: <c>server.dll+0x…</c>, or "outside server.dll".</summary>
+    public static string CallerName(uint caller) => caller == CallerOutside ? "outside server.dll" : $"server.dll+0x{caller:X}";
 }
 
 [Flags]

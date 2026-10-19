@@ -90,6 +90,40 @@ while the player is mounted.
 - Arkane's `valve.rc` does not exec `autoexec.cfg`, so binds have to come
   from the console.
 
+## A save past the ride
+
+l01_a opens with a two-minute horse ride, and `setpos` is ignored while the player is mounted. To skip it, there is a save just after the ride:
+- **The save:** `rb_start`, in `mm\save` on den-win11. Made with `save rb_start` before any cheat. It stands in the scripted corridor scene, at 15 of 50 health, with enemies near.
+- **Launching into it:** `opts-arena.ps1` (in `C:\Users\agent\rusty-bridge`) sets the launch options to `-condebug -console -window -w 1280 -h 720 -novid +load rb_start`. `opts-normal.ps1` sets them back to `+map l01_a`. Each restarts Steam.
+- **The fight:** `tap/darkmessiah/rbarena.cfg` (copy it to `mm\cfg\`) gives god mode, every skill module (`mm_player_skills_grosbill 1`) and a short sword, and spawns two orcs at the gate. Run `exec rbarena` as soon as the level is up: without `god` the save's enemies kill the player within about 20 s.
+- **Not during the load:** a command sent while the save is still loading shuts the game down. Wait for the tap log's `dump (level+5s)` line.
+- **Toggles:** `god` and `ai_disable` toggle whatever their argument, so a second `exec rbarena` turns god mode off.
+- **Lines in a cfg:** they split at `;`, comments included.
+- **Spawning:** there is no `ent_create`. `give <class>` spawns an entity, but crashes the game for `mm_player_inputs`.
+
+**Playing it remotely.** Sunshine runs on den-win11, and Moonlight streams the console desktop without taking it over, unlike RDP.
+- **The mouse:** in Moonlight, turn off "Optimize mouse for remote desktop instead of games" and let it capture the mouse (Ctrl+Alt+Shift+Z). Absolute positions pin the view to an edge.
+- **Keyboard look:** `bind uparrow +lookup; bind downarrow +lookdown; bind leftarrow +left; bind rightarrow +right` with `cl_yawspeed 90; cl_pitchspeed 90` gives look on the arrow keys.
+
+**Console commands from the tap:**
+- **What works:** `rbwire exec` runs console commands through the client's command buffer, but `+attack` and `+kick` sent that way don't move the player. Real input goes through the playtest agent's desktop lease, as the parry bot's does.
+- **Quotes:** from Windows PowerShell 5.1, a quoted parameter needs `\"` to reach the game (`& rbwire exec 'ent_fire x Input \"1 2 3\"'`).
+
+## Recording slow motion
+
+Arkane's own input arms slow motion through the request the tap hooks (docs/wire.md, "Slow motion"):
+
+```
+rbwire record C:\Users\agent\rusty-bridge\l01_a-v11-slowmo-input.rbrec --seconds 40
+rbwire exec 'ent_fire mm_player_inputs ActiveSlowMotion \"0.8 3 0.2\"'
+rbwire exec 'ent_fire mm_player_inputs ActiveSlowMotion \"0 2 0.5\"'
+```
+
+The second command is sent 15 s after the first.
+- **`rbwire info`:** reports game time against wall time, and the calls by caller.
+- **The stepper:** shades the frames where the player's `m_bInBulletTime` is set, lists each call with its caller, and shows "game time ×0.20" next to the clock inside them.
+- **Its check:** `viewer/tests/parse.test.mjs` checks both intervals (40 and 66 ticks) and their scales on that recording, when `local/recordings` has it.
+
 ## The stepper
 
 `viewer/timeline.html` is one self-contained page. Open a `.rbrec` with the

@@ -201,8 +201,11 @@ struct Layer {
 
 // One call of the player's bullet-time setter (CMM_Player virtual at
 // server.dll+0x146E80: start, duration, factor, sound), which arms slow
-// motion; caller is the server.dll RVA it returns to, naming the code path.
+// motion; caller is the server.dll RVA it returns to, naming the code path,
+// or kCallerOutside for a return address outside server.dll (Arkane's
+// copy-protected .sll code runs from a copy in allocated memory).
 enum : uint8_t { kSlowTimeSetter = 0, kSlowTimeRequest = 1 };
+constexpr uint32_t kCallerOutside = 0xFFFFFFFFu;
 
 struct SlowTime {
     int32_t tick;
@@ -212,7 +215,7 @@ struct SlowTime {
     float start;                // setter: curtime slow motion starts at; request: delay from now
     float duration;             // seconds of game time (setter) or as asked (request; the game stores duration * factor)
     float factor;               // time scale while it lasts
-    uint32_t caller;            // server.dll RVA of the return address
+    uint32_t caller;            // server.dll RVA of the return address, or kCallerOutside
     uint32_t player_serial;
     uint32_t reserved2;
 };

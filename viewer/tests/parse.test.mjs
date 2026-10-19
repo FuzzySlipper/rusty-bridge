@@ -162,3 +162,34 @@ test('v10: an entity names what it hangs from, at which attachment, and its owne
   assert.equal(t.attachment[0], 2);
   assert.equal(t.owner[0], '7:291');
 });
+
+// A real slow motion when local/recordings has it (derived from the game, never committed): Arkane's
+// mm_player_inputs ActiveSlowMotion input fired twice, ×0.2 for 3 s after 0.8 s and ×0.5 for 2 s
+// (docs/recording.md, "Recording slow motion").
+test('a recorded slow motion: the shaded frames and the game-time scale the stepper shows', (t) => {
+  let bytes;
+  try { bytes = readFileSync(new URL('../../local/recordings/l01_a-v11-slowmo-input.rbrec', import.meta.url)); } catch { t.skip('no local recording'); return; }
+  const rec = context.parseRecording(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  // Runs of frames with m_bInBulletTime set, as the stepper shades them.
+  const runs = [];
+  rec.frames.forEach((f, fi) => {
+    if (!f.player?.inSlow) return;
+    const last = runs.at(-1);
+    if (last && last.end === fi - 1) last.end = fi; else runs.push({ start: fi, end: fi });
+  });
+  assert.equal(runs.length, 2);
+  const scales = runs.map(({ start, end }) => {
+    const a = rec.frames[start], b = rec.frames[end + 1];
+    return { ticks: b.tick - a.tick, game: b.curtime - a.curtime, scale: (b.curtime - a.curtime) / (b.wall - a.wall) };
+  });
+  assert.deepEqual(scales.map((s) => s.ticks), [40, 66]);
+  assert.ok(Math.abs(scales[0].game - 0.6) < 0.02 && Math.abs(scales[1].game - 0.99) < 0.02, JSON.stringify(scales));
+  assert.ok(Math.abs(scales[0].scale - 0.2) < 0.01 && Math.abs(scales[1].scale - 0.5) < 0.01, JSON.stringify(scales));
+  // The clock line's text in the middle of each run, from the page's own function.
+  vm.runInContext('rec = globalThis.__rec;', Object.assign(context, { __rec: rec }));
+  const text = runs.map(({ start, end }) => vm.runInContext(`timeScaleText(${Math.floor((start + end) / 2) + 10})`, context));
+  assert.deepEqual(text, [' · game time ×0.20', ' · game time ×0.50']);
+  // Each request names its caller; ActiveSlowMotion runs from Arkane's copy-protected code, outside server.dll.
+  const calls = Array.from(rec.events.filter((e) => e.kind === 'slow'), (e) => e.text);
+  assert.deepEqual(calls, ['slow motion ×0.20 for 3.00 s after 0.80 s (outside server.dll)', 'slow motion ×0.50 for 2.00 s after 0.00 s (outside server.dll)']);
+});

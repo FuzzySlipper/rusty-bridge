@@ -188,7 +188,7 @@ int Follow(string? recordPath)
                 foreach (var d in snap.DefenseSpan) if (d.Result is not (DefenseResult.Hit or DefenseResult.None)) defended++;
                 dropped += snap.DamageDropped;
                 foreach (var b in snap.SlowTimeSpan)
-                    Console.WriteLine($"  tick {b.Tick}: slow motion {b.Source} x{b.Factor:F2} for {b.Duration:F2} s {(b.Source == SlowTimeSource.Request ? "after" : "from")} {b.Start:F2} (caller server.dll+0x{b.Caller:X})");
+                    Console.WriteLine($"  tick {b.Tick}: slow motion {b.Source} x{b.Factor:F2} for {b.Duration:F2} s {(b.Source == SlowTimeSource.Request ? "after" : "from")} {b.Start:F2} (caller {WireSlowTime.CallerName(b.Caller)})");
                 recorder?.Write(snap, reader.Map, reader.Header.TickInterval, reader);
                 next++;
             }
@@ -301,7 +301,7 @@ int Info(string path)
     {
         Console.WriteLine($"slow motion calls: {slowCallers.Values.Sum(c => c.calls)}, {slowDropped} dropped; by caller:");
         foreach (var ((source, caller), c) in slowCallers.OrderByDescending(kv => kv.Value.calls))
-            Console.WriteLine($"  {source,-7} server.dll+0x{caller:X}  {c.calls,4} calls  last x{c.factor:F2} for {c.duration:F2} s");
+            Console.WriteLine($"  {source,-7} {WireSlowTime.CallerName(caller)}  {c.calls,4} calls  last x{c.factor:F2} for {c.duration:F2} s");
     }
     if (links.Count > 0)
     {

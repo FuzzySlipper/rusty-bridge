@@ -1601,6 +1601,17 @@ static const uint32_t kSetBulletTimeRva = 0x146E80;
 static const unsigned char kSetBulletTimeBytes[] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x89, 0x81, 0xA4, 0x20, 0x00, 0x00 };
 typedef void (__thiscall* SetBulletTimeFn)(void* self, float start, float duration, float factor, int sound);
 static SetBulletTimeFn g_setBulletTime;   // trampoline
+
+// A return address as a server.dll RVA, or wire::kCallerOutside when it lies
+// outside the module: Arkane's copy-protected code (the .sll section, such as
+// mm_player_inputs' ActiveSlowMotion input) runs from a copy in allocated memory.
+static uint32_t CallerRva(const unsigned char* ret) {
+    if (!g_serverBase) return wire::kCallerOutside;
+    const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)g_serverBase;
+    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(g_serverBase + dos->e_lfanew);
+    uintptr_t rva = (uintptr_t)(ret - g_serverBase);
+    return ret >= g_serverBase && rva < nt->OptionalHeader.SizeOfImage ? (uint32_t)rva : wire::kCallerOutside;
+}
 static unsigned char* g_setBulletTimeSite;
 
 static void __fastcall SetBulletTimeHook(void* self, void* /*edx*/, float start, float duration, float factor, int sound) {
@@ -1620,7 +1631,7 @@ static void __fastcall SetBulletTimeHook(void* self, void* /*edx*/, float start,
                 t.start = start;
                 t.duration = duration;
                 t.factor = factor;
-                t.caller = (uint32_t)(ret - g_serverBase);
+                t.caller = CallerRva(ret);
                 t.reserved2 = 0;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1702,7 +1713,7 @@ static void __stdcall RequestSlowTimeHook(float delay, float duration, float fac
                 t.start = delay;
                 t.duration = duration;
                 t.factor = factor;
-                t.caller = (uint32_t)(ret - g_serverBase);
+                t.caller = CallerRva(ret);
                 t.reserved2 = 0;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {

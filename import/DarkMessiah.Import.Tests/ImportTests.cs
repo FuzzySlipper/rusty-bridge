@@ -201,6 +201,16 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
             var glb = File.ReadAllBytes(result.File);
             var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
             Assert.Equal(names, json["animations"]!.AsArray().Select(a => a!["name"]!.GetValue<string>()));
+
+            // Its default hitbox set, in order: hitbox 6 (group 4, the left arm) is on SK_L_Elbow, from
+            // -1 to 13 units along the bone's X, which is glTF's Z.
+            var hitboxes = json["asset"]!["extras"]!["hitboxes"]!.AsArray();
+            Assert.Equal(18, hitboxes.Count);
+            Assert.Equal("SK_L_Elbow", hitboxes[6]!["joint"]!.GetValue<string>());
+            Assert.Equal(4, hitboxes[6]!["group"]!.GetValue<int>());
+            float centerZ = hitboxes[6]!["center"]![2]!.GetValue<float>(), halfZ = hitboxes[6]!["halfExtents"]![2]!.GetValue<float>();
+            Assert.Equal(-1f * 0.0254f, centerZ - halfZ, 3);
+            Assert.Equal(13f * 0.0254f, centerZ + halfZ, 3);
         }
         finally { Directory.Delete(dir, true); }
     }

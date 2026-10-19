@@ -116,6 +116,17 @@ internal sealed class EntityTrack(EntityKey key, string className, int firstFram
         return Blend(a.State, b.State, t) with { Shown = time - span };
     }
 
+    /// <summary>
+    /// The entity as the donor had it at donor time <paramref name="time"/>:
+    /// its latest update at or before then, unblended. A server-side test (a
+    /// trace against hit boxes) sees this state, not the drawn one.
+    /// </summary>
+    public EntitySample At(double time)
+    {
+        var b = updates[Math.Max(0, UpdateAt(time))];
+        return Blend(b.State, b.State, 1) with { Shown = time };
+    }
+
     internal static EntitySample Blend(in WireEntity a, in WireEntity b, float t)
     {
         var origin = Vector3.Lerp(new(a.OriginX, a.OriginY, a.OriginZ), new(b.OriginX, b.OriginY, b.OriginZ), t);

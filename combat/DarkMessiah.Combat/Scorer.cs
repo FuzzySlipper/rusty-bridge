@@ -49,7 +49,8 @@ public static class Scorer
     /// <summary>Damage agrees within this, the Wire's float rounding.</summary>
     const float Tolerance = 0.01f;
 
-    public static ScoreReport Score(FightCases fight, CombatModel model)
+    /// <param name="contacts">Recomputed contacts for the fight's melee blows (#10078), when they were swept; null leaves the decision out.</param>
+    public static ScoreReport Score(FightCases fight, CombatModel model, IReadOnlyList<ContactCase>? contacts = null)
     {
         var scores = new List<DecisionScore>();
         var mismatches = new List<Mismatch>();
@@ -121,7 +122,58 @@ public static class Scorer
         foreach (var group in fight.Damage.Where(c => protectedVictims.ContainsKey(c.Victim.Id)).GroupBy(c => (c.Victim.Class, Why: protectedVictims[c.Victim.Id])))
             excludedNotes.Add($"damage applied: {group.Count()} blows on a {group.Key.Class} that {group.Key.Why} in this fight");
 
+        if (contacts is { Count: > 0 }) ScoreContacts(contacts, scores, mismatches, tested);
+
         return new ScoreReport(fight.Name, fight.Version, scores, mismatches, untested, excludedNotes, tested);
+    }
+
+    /// <summary>
+    /// The contact decision (#10078): the first part the swept trace meets
+    /// against what the donor's trace struck, scored as two decisions:
+    /// <list type="bullet">
+    /// <item>"contact": blows the donor traced, which name the entity and hit box met;</item>
+    /// <item>"contact, untraced": blows that reached without a trace (on the player, or naming no hit box), where the sweep has to meet the victim at all.</item>
+    /// </list>
+    /// A mismatch is put down to one of:
+    /// <list type="bullet">
+    /// <item>pose timing: the blow's own frame, posed, agrees; or the donor's hit point lies off the part it named, as posed from the victim's last streamed state;</item>
+    /// <item>swing path: the donor's part is where its trace ended, and a straight sweep meets another part first; or the blow wasn't traced, and its reach point falls short of the victim's shapes;</item>
+    /// <item>shape fit: the donor's point is on its part, and the sweep still misses it.</item>
+    /// </list>
+    /// A struck entity the import has no model for can't be posed, and says so.
+    /// </summary>
+    static void ScoreContacts(IReadOnlyList<ContactCase> contacts, List<DecisionScore> scores, List<Mismatch> mismatches, List<string> tested)
+    {
+        foreach (bool traced in new[] { true, false })
+        {
+            string decision = traced ? "contact" : "contact, untraced";
+            var cases = contacts.Where(c => c.Traced == traced).ToList();
+            if (cases.Count == 0) continue;
+            int agree = 0;
+            foreach (var c in cases)
+            {
+                if (c.Agrees) agree++;
+                else mismatches.Add(new(decision, c.ToString(), c.Donor.ToString(), c.Before?.ToString() ?? "nothing", ContactReason(c)));
+            }
+            scores.Add(new(decision, cases.Count, agree, 0));
+        }
+        var body = contacts.Where(c => c.Traced && c.Agrees && c.Donor.Struck == Struck.Body).ToList();
+        if (body.Count > 0) tested.Add($"contact: {body.Count(c => c.Before!.Hitbox == c.Donor.Hitbox)} of {body.Count} agreeing body contacts on the donor's own hit box");
+    }
+
+    /// <summary>A point within this many Source units of a hit box counts as on it: the Wire's float rounding and the box edge.</summary>
+    const float OnPart = 1.5f;
+
+    static string ContactReason(ContactCase c)
+    {
+        if (c.After is ContactPart after && (c.Traced ? after.SameAs(c.Donor) : after.Struck == Struck.Body))
+            return "pose timing: posed as the blow's own frame, the sweep meets the donor's part";
+        if (!c.Traced)
+            return "swing path: the donor reached without a trace, and its reach point falls short of the victim's hit boxes";
+        if (float.IsNaN(c.Miss)) return "not posed: the struck entity's model isn't in the import (import the level from a recording that has it)";
+        if (c.Miss > OnPart) return "pose timing: the donor's hit point is off the part it named, as posed from the victim's last streamed state";
+        if (c.Before is not null && c.DonorAlong is not null) return "swing path: the donor's part is where its trace ended, and the straight sweep meets another part first";
+        return "shape fit: the donor's hit point is on its part, and the sweep misses it";
     }
 
     static string F(float v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);

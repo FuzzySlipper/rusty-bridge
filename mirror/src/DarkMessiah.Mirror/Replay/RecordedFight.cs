@@ -28,6 +28,9 @@ internal sealed class RecordedFight
     public IReadOnlyList<(int Frame, EntityKey Weapon, EntityKey Holder)> Wielding => wielding;
     /// <summary>Every damage record: the frame, and the attacker and victim classes.</summary>
     public IReadOnlyList<(int Frame, string Attacker, string Victim)> Hits => hits;
+    /// <summary>Every damage record whole, with its frame: what a swing's trace met (Shadow contacts).</summary>
+    public IReadOnlyList<(int Frame, WireDamage Damage)> Damage => damage;
+    public uint Version { get; private set; }
 
     readonly List<FightFrame> frames = [];
     readonly List<EntityTrack> tracks = [];
@@ -36,6 +39,7 @@ internal sealed class RecordedFight
     readonly Dictionary<string, string[]> sequences = new(StringComparer.Ordinal);
     readonly List<(int, EntityKey, EntityKey)> wielding = [];
     readonly List<(int, string, string)> hits = [];
+    readonly List<(int, WireDamage)> damage = [];
 
     public static RecordedFight Read(Stream stream)
     {
@@ -49,6 +53,7 @@ internal sealed class RecordedFight
             int frame = fight.frames.Count;
             fight.frames.Add(new FightFrame(f.Tick, f.Curtime));
             fight.Map = f.Map;
+            fight.Version = f.Version;
             fight.HasParents |= f.Version >= 10;
             fight.TickInterval = f.TickInterval;
             foreach (var (id, name) in f.Classes) fight.classes[id] = name;
@@ -94,6 +99,7 @@ internal sealed class RecordedFight
             }
             string ClassOf(ushort index) => f.Entities.TryGetValue(index, out var e) ? fight.classes.GetValueOrDefault(e.ClassId, "?") : "-";
             foreach (var d in f.Damage) fight.hits.Add((frame, ClassOf(d.Attacker), ClassOf(d.Victim)));
+            foreach (var d in f.Damage) fight.damage.Add((frame, d));
             foreach (var d in f.Damage)
                 if (d.Weapon != WireLayout.NoEntity && d.Attacker != WireLayout.NoEntity)
                     fight.wielding.Add((frame, new EntityKey(d.Weapon, d.WeaponSerial), new EntityKey(d.Attacker, d.AttackerSerial)));

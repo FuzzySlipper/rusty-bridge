@@ -71,6 +71,15 @@ A studio model is one skinned GLB:
   count, looping, delta, blend grid and fades.
 - **Attachments:** weapon grips and other attachments are in
   `asset.extras.attachments`, each a joint name and a local matrix.
+- **Hit boxes:** the first hitbox set (`default`, the one traces test) is
+  in `asset.extras.hitboxes`, in its order (a trace's hitbox index counts
+  them): each a joint name, its hit group, and a box (`center`,
+  `halfExtents`) in the joint's frame, in metres.
+- **Collision:** a model whose `.phy` has one solid (a weapon, shield,
+  helmet or prop) has it in `asset.extras.collision`: the root joint's name
+  and the solid's convex pieces (`points` in that joint's frame, metres;
+  `triangles` over them). Traces meet items by these. Characters' ragdoll
+  solids, one per bone, aren't written.
 
 Every clip goes into the model's one GLB. The Engine bounds what a GLB's
 clips decode to, 16,000,000 keyframes and 32,000,000 values (rusty-engine
@@ -146,7 +155,18 @@ What the donor's files turned out to be. Offsets are bytes.
 **Models (MDL v44, Episode One layout)**
 
 - **Record sizes:** bones 216 bytes, animdesc 100, seqdesc 212, attachment
-  92, model 148, mesh 116. VVD is version 4 (48-byte vertices) and VTX is
+  92, model 148, mesh 116, hitbox set 12, hitbox 68 (`numhitboxsets` at
+  +172, `hitboxsetindex` +176).
+- **Collision (.phy):** a 16-byte header (size, id, solid count at +8,
+  checksum), then each solid as its byte size and a `VPHY` header (28 bytes
+  from the id) before IVP's compact surface. That surface is 48 bytes, with
+  the ledge tree's offset at +32. The tree's leaves (28-byte nodes: right
+  child offset, ledge offset) name the compact ledges, one convex piece
+  each. A ledge is 16 bytes (point offset, size and flags, triangle count
+  at +12), then 16-byte triangles of three edges whose low 16 bits are
+  start points. Points are 16 bytes in IVP's metres and axes: Source
+  (x, y, z) is IVP (-y, -z, x). A solid is in model space, so an item's is
+  turned from its bone 0. VVD is version 4 (48-byte vertices) and VTX is
   version 7: mesh header 9 bytes, strip group 25, strip 27, all triangle
   lists.
 - **No external animation:** there are no `.ani` files (no animation

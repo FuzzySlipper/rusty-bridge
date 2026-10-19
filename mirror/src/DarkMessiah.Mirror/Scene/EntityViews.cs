@@ -35,6 +35,9 @@ internal sealed class EntityViews : IDisposable
         public bool Published;
         public Transform Placed;
         public ulong Parent;
+        /// <summary>The view it hangs from, and the joint, while <see cref="Parent"/> is set.</summary>
+        public View? Holder;
+        public string? Joint;
         public string? Clip;
         public float Cycle = -1;
         public (uint Clip, float Cycle, float Weight)[] Layers = [];
@@ -68,6 +71,15 @@ internal sealed class EntityViews : IDisposable
     public IReadOnlyCollection<string> MissingClips => missingClips;
     /// <summary>The last scene change the Engine refused, if any.</summary>
     public string? LastError { get; private set; }
+    /// <summary>
+    /// Draws each entity as the donor had it at the time asked (its latest
+    /// update, unblended, with that time's layers) instead of one of its update
+    /// intervals behind. For server-side tests, such as where a swing's trace
+    /// met the hit boxes.
+    /// </summary>
+    public bool Exact { get; set; }
+
+    EntitySample SampleOf(EntityTrack track, double time) => Exact ? track.At(time) : track.Sample(time);
 
     public EntityViews(IEngineContext engine, RecordedFight fight, LevelAssets assets, HeldItems held)
     {
@@ -108,7 +120,7 @@ internal sealed class EntityViews : IDisposable
         // Entities that have gone, or changed model, leave first.
         foreach (var (key, view) in views.ToList())
         {
-            if (view.Track.LiveAt(frame) && fight.ModelPath(view.Track.Sample(time).ModelIndex) == view.Model.DonorPath) continue;
+            if (view.Track.LiveAt(frame) && fight.ModelPath(SampleOf(view.Track, time).ModelIndex) == view.Model.DonorPath) continue;
             if (view.Published) removals.Add(view.Id);
             retired.Add(view);
             views.Remove(key);
@@ -120,7 +132,7 @@ internal sealed class EntityViews : IDisposable
             if (!track.LiveAt(frame) || track.UpdateAt(time) < 0) continue;
             var role = DonorClasses.Role(track.ClassName);
             if (role == EntityRole.Hidden) continue;
-            var sample = track.Sample(time);
+            var sample = SampleOf(track, time);
             string path = fight.ModelPath(sample.ModelIndex);
             if (path.Length == 0 || path == "*0" || path == assets.WorldPath) continue;
             if (!views.TryGetValue(track.Key, out var view))
@@ -138,13 +150,14 @@ internal sealed class EntityViews : IDisposable
         var removed = removals.ToHashSet();
         // Only a holder already in the scene, and staying, can take a child in this batch.
         var standing = views.Values.Where(v => v.Published && !removed.Contains(v.Id)).Select(v => v.Id).ToHashSet();
-        var published = new List<(View View, Transform Placed, ulong Parent)>();
+        var published = new List<(View View, Transform Placed, View? Holder, string? Joint)>();
         foreach (var (key, sample) in samples)
         {
             var view = views[key];
             var placed = new Transform(SourceSpace.Position(sample.Origin), SourceSpace.Rotation(sample.Rotation), Vector3.One);
             ulong parent = 0;
             string? joint = null;
+            View? holder = null;
             // From v10 anything with a streamed move parent hangs from the attachment the donor named (a
             // weapon from its holder's hand, a rider from its horse); before v10 only held items, by inference.
             if ((held.Streamed || DonorClasses.Role(view.Track.ClassName) == EntityRole.Held)
@@ -154,6 +167,7 @@ internal sealed class EntityViews : IDisposable
                     : holderView.Model.Attachments.TryGetValue(DonorClasses.Attachment(view.Track.ClassName), out var named) ? named : null) is ModelAttachment attachment)
             {
                 parent = holderView.Id;
+                holder = holderView;
                 joint = attachment.Joint;
                 placed = attachment.Local;
                 Attached++;
@@ -162,7 +176,7 @@ internal sealed class EntityViews : IDisposable
             upserts.Add(new(view.Id, parent != 0, parent, placed, view.Appearance, true, RenderLayer.Scene));
             // An upsert without its attachment returns a child to its parent's root, so it goes with every one.
             if (joint is not null) attachments.Add(new(view.Id, joint));
-            published.Add((view, placed, parent));
+            published.Add((view, placed, holder, joint));
         }
 
         if (upserts.Count > 0 || removals.Count > 0)
@@ -180,10 +194,12 @@ internal sealed class EntityViews : IDisposable
                 return;
             }
         }
-        foreach (var (view, placed, parent) in published)
+        foreach (var (view, placed, holder, joint) in published)
         {
             view.Placed = placed;
-            view.Parent = parent;
+            view.Parent = holder?.Id ?? 0;
+            view.Holder = holder;
+            view.Joint = joint;
             view.Published = true;
         }
         // Appearances leave the scene before they're disposed.
@@ -253,6 +269,70 @@ internal sealed class EntityViews : IDisposable
         var view = views.Values.FirstOrDefault(v => v.Track.Key.Index == index);
         if (view?.Instance is not AnimationInstance instance) return null;
         return engine.Animation.SampleJointPose(AnimationPoseSampleRequest.OfCurrentPlayback(instance, new(Vector3.Zero, Quaternion.Identity, Vector3.One), applyPoseControls: false)).ToArray();
+    }
+
+    /// <summary>A drawn entity where it stands in the scene (<paramref name="World"/>, glTF space), its joints there in its model's joint order, and what it hangs from.</summary>
+    internal sealed record PosedEntity(EntityTrack Track, LevelModel Model, EntityTrack? Holder, Transform World, IReadOnlyDictionary<string, int> Joints, JointPose[] Pose);
+
+    readonly Dictionary<LevelModel, Dictionary<string, int>> jointIndices = [];
+
+    /// <summary>
+    /// The drawn entities with hit boxes or a collision model that
+    /// <paramref name="near"/> accepts (by where they, or their holders, stand:
+    /// glTF space), posed as they are drawn now: an animated one by its current
+    /// playback, layers included, anything else at its rest pose. A held item
+    /// stands where its holder's joint carries it, or with
+    /// <paramref name="streamedItemsAt"/> where the Wire streamed it at that
+    /// donor time: the donor's own placement of it.
+    /// </summary>
+    internal List<PosedEntity> Pose(Func<Vector3, bool> near, double? streamedItemsAt = null)
+    {
+        var posed = new Dictionary<View, (Transform World, JointPose[] Pose)>();
+        (Transform World, JointPose[] Pose)? PoseOf(View view, int depth)
+        {
+            if (posed.TryGetValue(view, out var known)) return known;
+            if (!view.Published || depth > 4) return null;
+            var world = view.Placed;
+            if (streamedItemsAt is double at && view.Holder is not null)
+            {
+                var sample = view.Track.At(at);
+                world = new Transform(SourceSpace.Position(sample.Origin), SourceSpace.Rotation(sample.Rotation), Vector3.One);
+            }
+            else if (view.Holder is View holder)
+            {
+                if (PoseOf(holder, depth + 1) is not var (_, holderPose) || !Joints(holder.Model).TryGetValue(view.Joint ?? "", out int j)) return null;
+                world = Compose(holderPose[j].World, view.Placed);
+            }
+            view.Instance ??= engine.Animation.CreateInstance(new(view.Appearance, view.Id));
+            var request = view.Clip is not null
+                ? AnimationPoseSampleRequest.OfCurrentPlayback(view.Instance, world, applyPoseControls: false)
+                : AnimationPoseSampleRequest.OfClip(view.Instance, "", 0, world, normalized: true, applyPoseControls: false);
+            var result = (world, engine.Animation.SampleJointPose(request).ToArray());
+            posed[view] = result;
+            return result;
+        }
+        var list = new List<PosedEntity>();
+        foreach (var view in views.Values)
+        {
+            if (!view.Published || view.Model.Hitboxes.Count == 0 && view.Model.Collision.Count == 0) continue;
+            if (!near((view.Holder ?? view).Placed.Translation)) continue;
+            if (PoseOf(view, 0) is var (world, pose)) list.Add(new PosedEntity(view.Track, view.Model, view.Holder?.Track, world, Joints(view.Model), pose));
+        }
+        return list;
+    }
+
+    /// <summary>A transform given in a parent's frame, placed in the scene.</summary>
+    static Transform Compose(Transform parent, Transform local) =>
+        new(parent.Translation + Vector3.Transform(local.Translation * parent.Scale, parent.Rotation), Quaternion.Normalize(parent.Rotation * local.Rotation), parent.Scale * local.Scale);
+
+    /// <summary>A model's joints by name, in the order the Engine samples them.</summary>
+    Dictionary<string, int> Joints(LevelModel model)
+    {
+        if (jointIndices.TryGetValue(model, out var map)) return map;
+        map = new(StringComparer.Ordinal);
+        var joints = engine.Animation.ReadJoints(model.Mesh).Span;
+        for (int i = 0; i < joints.Length; i++) map.TryAdd(joints[i].Id, i);
+        return jointIndices[model] = map;
     }
 
     /// <summary>A model's clips by name, as clip layers index them (its <c>ReadClips</c> order).</summary>

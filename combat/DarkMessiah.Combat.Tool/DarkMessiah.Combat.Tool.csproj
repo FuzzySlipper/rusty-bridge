@@ -6,8 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Contacts are swept headless in the Engine's test host. -->
+    <RustyEngineToolHost>true</RustyEngineToolHost>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DarkMessiah.Combat/DarkMessiah.Combat.csproj" />
+    <ProjectReference Include="../../mirror/src/DarkMessiah.Mirror/DarkMessiah.Mirror.csproj" />
+    <PackageReference Include="Rusty.Engine" Version="[$(RustyEnginePackageVersion)]" />
   </ItemGroup>
 </Project>

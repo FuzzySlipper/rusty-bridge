@@ -151,6 +151,12 @@ donor needs the same shape (design "Scope").
     sequence is taken as starting at the earlier update.
 - **Animation:** each animated entity holds its clip with the Engine's
   `Sample` playback at the interpolated cycle.
+- **As the donor had it:** with `EntityViews.Exact`, an entity is drawn at
+  its latest update at or before the time asked, unblended, with that time's
+  layers. A server-side test sees that state; the contact sweeps
+  (docs/combat.md, "Contacts") pose characters this way, and
+  `EntityViews.Pose` reads their joints in the scene. Blending toward the
+  next update matched the donor's traces worse.
 - **No slow-motion:** a recording has no wall clock. The donor's hit
   slow-motion shows in the stream as fewer ticks per wall second, so it
   replays at full speed here. Task #10062 covers slow motion and time scale.

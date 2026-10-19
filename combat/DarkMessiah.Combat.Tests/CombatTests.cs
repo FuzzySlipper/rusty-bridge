@@ -315,6 +315,44 @@ public sealed class ReportTests
     }
 }
 
+public sealed class ContactTests
+{
+    static readonly ContactPart Spine = new(Struck.Body, 2, 0), Thigh = new(Struck.Body, 6, 12), Shield = new(Struck.OffHand, 0, 0);
+
+    static ContactCase Case(ContactPart donor, ContactPart? before, ContactPart? after = null, float? donorAlong = null, float miss = 0, bool traced = true) =>
+        new(100, "npc_ghoul", "npc_villager_male", "attack_bash", donor, before, after, donorAlong, miss, 5, 30, traced, 18);
+
+    static IReadOnlyList<Mismatch> Mismatches(params ContactCase[] cases) =>
+        Scorer.Score(new FightCases("synthetic", 6, [], [], []), GameData.Model(), cases).Mismatches;
+
+    [Fact]
+    public void AContactAgreesOnTheKindAndOnTheBodyTheHitGroup()
+    {
+        Assert.True(Case(Spine, new ContactPart(Struck.Body, 2, 1)).Agrees);
+        Assert.False(Case(Spine, Thigh).Agrees);
+        Assert.False(Case(Spine, Shield).Agrees);
+        Assert.True(Case(Shield, new ContactPart(Struck.OffHand, 0, 0)).Agrees);
+        // A blow the donor didn't trace only has to meet the victim's body.
+        Assert.True(Case(new ContactPart(Struck.Body, 0, 0), Thigh, traced: false).Agrees);
+        Assert.False(Case(new ContactPart(Struck.Body, 0, 0), null, traced: false).Agrees);
+    }
+
+    [Fact]
+    public void EachMismatchSaysWhetherPoseTimingSwingPathOrShapeFit()
+    {
+        var report = Scorer.Score(new FightCases("synthetic", 6, [], [], []), GameData.Model(),
+            [Case(Spine, Spine), Case(Spine, Thigh), Case(Spine, Thigh, traced: false)]);
+        Assert.Equal(["contact", "contact, untraced"], report.Scores.Select(s => s.Decision));
+        Assert.Equal((2, 1), (report.Scores[0].Cases, report.Scores[0].Agree));
+
+        Assert.StartsWith("pose timing: posed as the blow's own frame", Mismatches(Case(Spine, Thigh, after: Spine))[0].Reason);
+        Assert.StartsWith("pose timing: the donor's hit point is off", Mismatches(Case(Spine, null, miss: 6))[0].Reason);
+        Assert.StartsWith("swing path: the donor's part is where its trace ended", Mismatches(Case(Spine, Shield, donorAlong: 28))[0].Reason);
+        Assert.StartsWith("shape fit", Mismatches(Case(Spine, null, miss: 0.4f))[0].Reason);
+        Assert.StartsWith("swing path: the donor reached without a trace", Mismatches(Case(Spine, null, traced: false))[0].Reason);
+    }
+}
+
 /// <summary>
 /// The recorded fights, when local/recordings has them (derived from the
 /// game, never committed: docs/recording.md says how to record one).

@@ -1,0 +1,5 @@
+<Project>
+  <!-- dm-combat sweeps contacts through the mirror and the Engine's test host, so it restores the
+       mirror's one pinned Engine pair. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../mirror/Directory.Build.props" />
+</Project>

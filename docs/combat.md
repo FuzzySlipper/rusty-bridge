@@ -5,16 +5,18 @@
 recording's captured inputs and reports agreement blow by blow. Every blow
 in a recording is a test case. The model's numbers are the game's own,
 read from the `.qct` files in its VPKs; the recordings only check them. The
-model decides from what the tap captured; recomputing contacts from geometry
-is next (#10078), now that rusty-engine #10056 (swept posed shapes with
-per-part contacts) is in the pinned pair.
+model decides from what the tap captured. What each swing struck is
+recomputed from geometry, with the Engine's swept contact queries over posed
+hit boxes ("Contacts" below).
 
 ```
-dotnet run --project combat/DarkMessiah.Combat.Tool -- score local/recordings/l01_a-parrybot.rbrec [more.rbrec ...] [--vpks DIR]
+dotnet run --project combat/DarkMessiah.Combat.Tool -- score local/recordings/l01_a-parrybot.rbrec [more.rbrec ...] [--vpks DIR] [--import DIR] [--no-contacts]
 ```
 
 `--vpks` defaults to `local/donor/vpks` (docs/import.md says how to copy
-them), then the Steam install.
+them), then the Steam install. Contacts are swept headless in the Engine's
+test host on dm-import's level of the recording's map (`--import`, default
+`local/import`). Without one, the contact decision is left out.
 
 It prints per-decision agreement, then every mismatch blow by blow, grouped
 by its reason (`--brief` keeps the first eight of each group). It exits 1 when any mismatch is "unexplained", so a new gap stands
@@ -69,6 +71,7 @@ published) hold no combat data.
 | Player parry | The attacker's sequence and cycle | defense record result 17 or 18 |
 | Damage requested | Attacker, weapon, attack sequence and cycle, hit group, victim class, the verdict | damage record `damage` |
 | Damage applied | The request, attacker and victim classes | health before and after |
+| Contact | The swing's trace, everyone's pose at the blow | damage record `trace_entity`, `hitgroup`, `hitbox` |
 
 `Blows` builds the cases.
 - **Identity:** an event's entities are taken as last seen with their
@@ -122,6 +125,59 @@ published) hold no combat data.
   NPCs of the same class.
   - A kill counts as a kill whether the donor left the health at 0 or below
     it; it does both.
+
+## Contacts
+
+The donor sends a trace with each melee damage record:
+- **The trace:** from `trace_start` to the point it struck, `trace_end`.
+- **What it met:** `trace_entity`, `hitbox` and `hitgroup`.
+
+`SwingContacts` (the mirror's `Shadow/`) sweeps that trace through the scene as the donor had it at the blow, and reports the first contact.
+- **Poses:**
+  - **Characters:** each character near the trace is posed by the mirror's views. Its pose is the latest streamed state, unblended (`EntityViews.Exact`): sequence, cycle and overlay layers.
+  - **Hit boxes:** a character's hit boxes become parts of its entity: boxes on joints, from its model's default hitbox set (docs/import.md).
+  - **Items:** a weapon or shield stands where the Wire streamed it. The convex pieces of its collision model (its `.phy`) are static meshes of the session.
+  - **When:** the frame before the blow, as for the defender's stance. The blow's own frame is swept too, to tell pose timing apart.
+- **The sweep:** a capsule of radius 0.05 units, run 4 units past `trace_end`.
+- **Left out:** the attacker, what it holds, and the level.
+
+The scorer compares the first contact with the donor's: the same kind of thing (body, weapon, shield) and, on the body, the same hit group.
+
+**The donor traces rays.**
+- **On the surface:** a traced blow's `trace_end` lies on the surface it struck. On agreeing blows the sweep meets it within a fraction of a unit.
+- **Radius:** a 1-unit sphere already meets thighs that a ray toward a villager's spine passes within an inch of. In `l01_a-parrybot` it named the thigh on many of the ghoul's blows that the donor put on the spine; the 0.05-unit sweep agrees on all of them.
+
+**Items are traced by their collision model, not their hit box.**
+- **The evidence:** an item's damage record names hit box 0, and its trace ends up to 1.5 units inside the item's one hit box.
+- **Why it matters:** a shield's box is a 23 × 37 × 7 slab. Rays crossed its corners, which the shield doesn't fill, before reaching the orc's arm.
+- **How the import keeps it:** the import writes a one-solid `.phy` as convex pieces in the root bone's frame.
+- **Result:** in the two target fights, items agree on 5 of their 6 contacts with the hulls, against 4 with the hit box. Body contacts agree 103 of 116, against 100.
+
+**Some blows aren't traced.** These are scored apart, as "contact, untraced":
+- **Which:** a blow on the player, and one naming hit box 0 in hit group 0 on an NPC whose hit box 0 is in another group (villagers and guards hit by a ghoul).
+- **Where the trace ends:** at a reach point, not on a surface. On the player it is at mid height (36 units), a fixed distance from the player's axis for each attack: 16.8 for most of the orc's, 11.2 to 25.3 for the ghoul's.
+- **What's scored:** these only need the sweep to meet the victim's body at all. A miss there means the reach point falls short of the victim's hit boxes ("swing path"). The donor's reach test, not geometry, decided the blow.
+
+### Contact scores
+
+| Recording | Contact (traced) | On the donor's own hit box | Contact, untraced |
+| --- | --- | --- | --- |
+| l01_a-parrybot (v4) | 50 / 52 | 47 / 47 | 34 / 70 |
+| l01_a-layers (v6) | 58 / 70 | 56 / 56 | 10 / 72 |
+| l01_a-v11-damage (v11) | 135 / 138 | 131 / 132 | 45 / 102 |
+| l01_a-v11-crit (v11) | 139 / 149 | 137 / 137 | 1 / 8 |
+| l01_a-v11-unaware (v11) | 60 / 62 | 58 / 58 | 0 / 4 |
+
+Every mismatch is put down to one of:
+- **Pose timing.** Either:
+  - posed as the blow's own frame instead, the sweep meets the donor's part (the victim moved in the tick);
+  - or the donor's hit point lies more than 1.5 units off the part it named, as posed. All of these are in fights with NPC victims whose streamed state was 1 to 7 ticks old (an NPC's state reaches the Wire every 8). Blending toward the next update, and leaving overlay layers out, both did worse.
+- **Swing path:** the donor's hit point is on its part, and the straight sweep meets another part first: the orc's arm, shield or cleaver in front of its body. The donor's trace didn't run that line through them.
+- **Shape fit:** the donor's hit point is on its part (within 1.5 units), and the sweep misses that part: it grazes past the box's edge, or meets the box beside it.
+
+In `l01_a-layers` the traced mismatches are 8 pose timing and 4 swing path. In `l01_a-parrybot` they are 2 shape fits.
+
+The tool also reports a struck entity that couldn't be posed. That happens when the import has no model for it, such as the goblin in `l01_a-orcs-vs-guards-damage`: the level was imported from `l01_a-parrybot`.
 
 ## How the donor computes melee damage
 

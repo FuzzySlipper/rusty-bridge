@@ -24,6 +24,13 @@ public sealed record StudioSequence(string Label, string Activity, int Flags, in
 /// <summary>A named point on a bone (weapon grips, eyes, effects): a Source 3×4 transform local to the bone.</summary>
 public sealed record StudioAttachment(string Name, int Bone, float[] Local);
 
+/// <summary>
+/// A hit box of the model's first hitbox set ("default", which traces test):
+/// a box on a bone, from <paramref name="Min"/> to <paramref name="Max"/> in
+/// the bone's frame (Source units), and the hit group a trace reports for it.
+/// </summary>
+public sealed record StudioHitbox(int Bone, int Group, Vector3 Min, Vector3 Max);
+
 public sealed record StudioMesh(int Material, int VertexOffset, int VertexCount, int MaterialType);
 
 public sealed record StudioSubModel(string Name, int FirstVertex, int VertexCount, StudioMesh[] Meshes);
@@ -37,7 +44,8 @@ public sealed record StudioBodyPart(string Name, StudioSubModel[] Models);
 /// </summary>
 public sealed class StudioModelFile
 {
-    const int BoneBytes = 216, AnimDescBytes = 100, SeqDescBytes = 212, TextureBytes = 64, BodyPartBytes = 16, ModelBytes = 148, MeshBytes = 116, VertexBytes = 48, AttachmentBytes = 92;
+    const int BoneBytes = 216, AnimDescBytes = 100, SeqDescBytes = 212, TextureBytes = 64, BodyPartBytes = 16, ModelBytes = 148, MeshBytes = 116, VertexBytes = 48, AttachmentBytes = 92,
+        HitboxBytes = 68;
 
     readonly byte[] _b;
     public string Path { get; }
@@ -53,6 +61,8 @@ public sealed class StudioModelFile
     public StudioBodyPart[] BodyParts { get; }
     public string[] Includes { get; }
     public StudioAttachment[] Attachments { get; }
+    /// <summary>The first hitbox set's boxes, in their order: a trace's hitbox index counts them.</summary>
+    public StudioHitbox[] Hitboxes { get; }
     public int FlexCount { get; }
 
     public StudioModelFile(string path, byte[] b)
@@ -138,6 +148,20 @@ public sealed class StudioModelFile
             var local = new float[12];
             for (int k = 0; k < 12; k++) local[k] = F(o + 12 + 4 * k);
             Attachments[i] = new StudioAttachment(Str(o + I(o)), I(o + 8), local);
+        }
+
+        // mstudiohitboxset_t (name, count, offset) at numhitboxsets +172, hitboxsetindex +176; each
+        // mstudiobbox_t is bone, group, bbmin, bbmax, name offset and 8 unused ints.
+        Hitboxes = [];
+        if (I(172) > 0)
+        {
+            int set = I(176), at = set + I(set + 8);
+            Hitboxes = new StudioHitbox[I(set + 4)];
+            for (int i = 0; i < Hitboxes.Length; i++)
+            {
+                int o = at + i * HitboxBytes;
+                Hitboxes[i] = new StudioHitbox(I(o), I(o + 4), new Vector3(F(o + 8), F(o + 12), F(o + 16)), new Vector3(F(o + 20), F(o + 24), F(o + 28)));
+            }
         }
 
         FlexCount = I(260);

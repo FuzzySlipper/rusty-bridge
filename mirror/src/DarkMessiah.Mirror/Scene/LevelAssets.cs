@@ -8,8 +8,19 @@ namespace DarkMessiah.Mirror.Scene;
 /// <summary>A named point on a model's skeleton: the joint and the transform local to it (glTF space).</summary>
 internal readonly record struct ModelAttachment(string Joint, Transform Local);
 
+/// <summary>
+/// A hit box: a box on a joint (glTF space, in the joint's frame) and the hit
+/// group a trace reports for it. A model's hit boxes are numbered in order, as
+/// a trace's hitbox index counts them.
+/// </summary>
+internal readonly record struct ModelHitbox(string Joint, int Group, Vector3 Center, Vector3 HalfExtents);
+
+/// <summary>One convex piece of a model's collision: points in a joint's frame (glTF, metres) and triangles over them.</summary>
+internal sealed record ConvexHull(string Joint, Vector3[] Points, Triangle[] Triangles);
+
 /// <summary>One imported model, opened once and shared by every entity that draws it.</summary>
-internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnlyList<(string Name, ModelAttachment Attachment)> attachments)
+internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnlyList<(string Name, ModelAttachment Attachment)> attachments,
+    IReadOnlyList<ModelHitbox>? hitboxes = null, IReadOnlyList<ConvexHull>? collision = null)
 {
     public string DonorPath { get; } = donorPath;
     public RenderResource Mesh { get; } = mesh;
@@ -19,6 +30,10 @@ internal sealed class LevelModel(string donorPath, RenderResource mesh, IReadOnl
     public IReadOnlyList<(string Name, ModelAttachment Attachment)> AttachmentList { get; } = attachments;
     public ModelAttachment? AttachmentAt(int number) =>
         number >= 1 && number <= AttachmentList.Count && AttachmentList[number - 1].Attachment.Joint.Length > 0 ? AttachmentList[number - 1].Attachment : null;
+    /// <summary>The model's default hitbox set, in order; empty for an import made before hit boxes were.</summary>
+    public IReadOnlyList<ModelHitbox> Hitboxes { get; } = hitboxes ?? [];
+    /// <summary>A weapon's, shield's or prop's collision model (its one .phy solid); empty for a character or an older import.</summary>
+    public IReadOnlyList<ConvexHull> Collision { get; } = collision ?? [];
 }
 
 /// <summary>
@@ -73,22 +88,25 @@ internal sealed class LevelAssets : IDisposable
         RenderResource mesh;
         using (var reference = engine.Content.OpenReference(new(file)))
             mesh = engine.Animation.OpenAnimatedMeshFromContent(new(reference));
-        return opened[donorPath] = new LevelModel(donorPath, mesh, Attachments(file));
+        var extras = Extras(file);
+        return opened[donorPath] = new LevelModel(donorPath, mesh, Attachments(extras), Hitboxes(extras), Collision(extras));
     }
 
-    /// <summary>
-    /// The attachments dm-import recorded in the GLB's asset extras. Only the
-    /// JSON chunk is read; the Engine has no reader for glTF extras.
-    /// </summary>
-    List<(string Name, ModelAttachment Attachment)> Attachments(string file)
+    /// <summary>The GLB's asset extras, where dm-import records what glTF has no place for. Only the JSON chunk is read; the Engine has no reader for glTF extras.</summary>
+    JsonNode? Extras(string file)
     {
-        var result = new List<(string, ModelAttachment)>();
         using var reference = engine.Content.OpenReference(new(file));
         var header = engine.Content.ReadBytes(new(reference, 0, 20)).Span;
-        if (header.Length < 20 || !header[..4].SequenceEqual("glTF"u8)) return result;
+        if (header.Length < 20 || !header[..4].SequenceEqual("glTF"u8)) return null;
         uint length = BitConverter.ToUInt32(header[12..16]);
-        var json = JsonNode.Parse(Encoding.UTF8.GetString(engine.Content.ReadBytes(new(reference, 20, length)).Span));
-        foreach (var a in json?["asset"]?["extras"]?["attachments"]?.AsArray() ?? [])
+        return JsonNode.Parse(Encoding.UTF8.GetString(engine.Content.ReadBytes(new(reference, 20, length)).Span))?["asset"]?["extras"];
+    }
+
+    /// <summary>The attachments dm-import recorded, in the model's order.</summary>
+    static List<(string Name, ModelAttachment Attachment)> Attachments(JsonNode? extras)
+    {
+        var result = new List<(string, ModelAttachment)>();
+        foreach (var a in extras?["attachments"]?.AsArray() ?? [])
         {
             string name = a?["name"]?.GetValue<string>() ?? "";
             // Keep the place of an attachment without a joint, so the Wire's numbering still lines up.
@@ -100,6 +118,24 @@ internal sealed class LevelAssets : IDisposable
             result.Add((name, new ModelAttachment(joint, new Transform(translation, rotation, scale))));
         }
         return result;
+    }
+
+    /// <summary>The collision model dm-import recorded, as convex pieces.</summary>
+    static List<ConvexHull> Collision(JsonNode? extras) =>
+        (extras?["collision"]?["pieces"]?.AsArray() ?? []).Select(piece =>
+        {
+            var p = piece!["points"]!.AsArray().Select(v => v!.GetValue<float>()).ToArray();
+            var t = piece["triangles"]!.AsArray().Select(v => v!.GetValue<uint>()).ToArray();
+            return new ConvexHull(extras!["collision"]!["joint"]!.GetValue<string>(), Enumerable.Range(0, p.Length / 3).Select(i => new Vector3(p[3 * i], p[3 * i + 1], p[3 * i + 2])).ToArray(),
+                Enumerable.Range(0, t.Length / 3).Select(i => new Triangle(t[3 * i], t[3 * i + 1], t[3 * i + 2])).ToArray());
+        }).ToList();
+
+    /// <summary>The hit boxes dm-import recorded, in the model's order.</summary>
+    static List<ModelHitbox> Hitboxes(JsonNode? extras)
+    {
+        static Vector3 V(JsonNode? n) => n is JsonArray a ? new(a[0]!.GetValue<float>(), a[1]!.GetValue<float>(), a[2]!.GetValue<float>()) : Vector3.Zero;
+        return (extras?["hitboxes"]?.AsArray() ?? []).Select(h => new ModelHitbox(h?["joint"]?.GetValue<string>() ?? "", h?["group"]?.GetValue<int>() ?? 0,
+            V(h?["center"]), V(h?["halfExtents"]))).ToList();
     }
 
     public void Dispose()

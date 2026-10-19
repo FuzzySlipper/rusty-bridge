@@ -192,6 +192,23 @@ Replay("l01_a-v10-held.rbrec", "held-items run", (product, mirror) =>
     Play(product, 10);
     Check(product.Views.LastError is null, $"ten seconds of held-item play publish cleanly: {product.Views.LastError}");
 });
+
+// Shadow contacts: the parry-bot fight's swings swept through posed hit boxes and item hulls (#10078).
+{
+    string path = Path.Combine(repo ?? ".", "local", "recordings", "l01_a-parrybot.rbrec");
+    if (!File.Exists(path)) Console.WriteLine($"skip contacts: no {path}");
+    else
+    {
+        using var contactHost = EngineTestHost.Create(new EngineTestHostOptions { Content = content });
+        using var recording = File.OpenRead(path);
+        var contacts = contactHost.Call(engine => DarkMessiah.Mirror.Shadow.SwingContacts.Recompute(engine, Path.GetFileName(index), recording));
+        var traced = contacts.Where(c => c.Traced).ToList();
+        int agree = traced.Count(c => c.Before is { } b && b.Class == c.Donor.Class && b.Group == c.Donor.Group);
+        Check(traced.Count > 40 && agree >= traced.Count * 9 / 10, $"the swept traces meet what the donor's did: {agree} of {traced.Count}");
+        Check(traced.Any(c => !c.Donor.Body && c.Before is { Body: false }), "an item struck is met by its collision model");
+        Check(contacts.Where(c => c.Victim == "player").All(c => !c.Traced), "a blow on the player is untraced: it ends at a reach point");
+    }
+}
 return failures == 0 ? 0 : 1;
 
 sealed class Capture : IDebugCommandModuleRegistrar

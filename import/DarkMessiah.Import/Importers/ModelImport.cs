@@ -88,6 +88,40 @@ public sealed class ModelImport
                 ["matrix"] = GltfBuilder.FloatArray(SourceSpace.ColumnMajor(SourceSpace.Transform(a.Local))),
             });
         if (attachments.Count > 0) gltf.Extras["attachments"] = attachments;
+        // Hit boxes, as boxes in their joint's frame (glTF space, metres): Source's are axis-aligned in
+        // the bone's frame, and the axis mapping keeps them so.
+        var hitboxes = new JsonArray();
+        foreach (var h in mdl.Hitboxes)
+        {
+            var center = SourceSpace.Position((h.Min + h.Max) / 2);
+            var half = Vector3.Abs(SourceSpace.Position((h.Max - h.Min) / 2));
+            hitboxes.Add(new JsonObject
+            {
+                ["joint"] = h.Bone >= 0 && h.Bone < mdl.Bones.Length ? mdl.Bones[h.Bone].Name : null,
+                ["group"] = h.Group,
+                ["center"] = GltfBuilder.FloatArray(center.X, center.Y, center.Z),
+                ["halfExtents"] = GltfBuilder.FloatArray(half.X, half.Y, half.Z),
+            });
+        }
+        if (hitboxes.Count > 0) gltf.Extras["hitboxes"] = hitboxes;
+        // A one-solid collision model (a weapon, shield or prop; characters' ragdolls have one per bone)
+        // as its convex pieces: traces meet items by it, not by their hit boxes. The solid is in model
+        // space, and is written in the root bone's frame (glTF, metres) to hang on that joint as hit boxes do.
+        if (_files.Read(Path.ChangeExtension(donorPath, ".phy")) is byte[] phy && PhysicsModel.Read(donorPath, phy) is [var solid])
+        {
+            var root = mdl.Bones[0];
+            var toRoot = Quaternion.Inverse(root.Rotation);
+            gltf.Extras["collision"] = new JsonObject
+            {
+                ["joint"] = root.Name,
+                ["pieces"] = new JsonArray(solid.Select(piece => (JsonNode)new JsonObject
+                {
+                    ["points"] = GltfBuilder.FloatArray(piece.Points
+                        .Select(p => SourceSpace.Position(Vector3.Transform(p - root.Position, toRoot))).SelectMany(g => new[] { g.X, g.Y, g.Z }).ToArray()),
+                    ["triangles"] = new JsonArray(piece.Triangles.Select(i => (JsonNode)i).ToArray()),
+                }).ToArray()),
+            };
+        }
         if (mdl.FlexCount > 0) gltf.Extras["flexesNotImported"] = mdl.FlexCount;
 
         var glb = gltf.ToGlb();

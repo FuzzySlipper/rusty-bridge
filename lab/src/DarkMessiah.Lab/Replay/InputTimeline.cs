@@ -22,8 +22,11 @@ namespace DarkMessiah.Lab.Replay;
 /// <param name="Use">v14: use went down in them.</param>
 /// <param name="KickHeld">The kick button is down: from v14 the command's kick action, before it the same tick as <see cref="Kick"/>.</param>
 /// <param name="Sprint">v14: the command's sprint action (Arkane's byte +0x95) with movement.</param>
+/// <param name="Armed">The donor's player has a weapon in hand: its view model plays a layer other than the quick
+/// draw (v9 and later; true without layers). With none in hand the donor ignores attack, block and kick.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
-    Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false);
+    Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
+    bool Armed = true);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -119,6 +122,10 @@ internal sealed class InputTimeline
                 bool kicked = false;
                 var vm = f.Entities.FirstOrDefault(kv => f.Classes.GetValueOrDefault(kv.Value.ClassId) == "viewmodel");
                 var now = new Dictionary<string, float>();
+                bool armed = true;
+                if (view.Flags.HasFlag(ClientViewFlags.ViewmodelLayers) && f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is { } layerNames)
+                    armed = view.ViewmodelLayers.ToArray().Any(l => l.Weight > 0 && l.Sequence >= 0 && l.Sequence < layerNames.Length
+                        && !layerNames[l.Sequence].Contains("quickdraw", StringComparison.Ordinal));
                 if (view.Flags.HasFlag(ClientViewFlags.ViewmodelLayers) && f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is { } names)
                     foreach (var l in view.ViewmodelLayers)
                         if (l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && Family(names[l.Sequence]) is not null)
@@ -157,7 +164,7 @@ internal sealed class InputTimeline
                     kickHeld = now2.Item2.HasFlag(PlayerActions.Kick);
                     sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
-                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint));
+                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

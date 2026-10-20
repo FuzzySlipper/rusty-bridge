@@ -124,8 +124,10 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
 /// charge goes on from there, its direction picked then. With <c>combat_chained_slash</c> the chain goes on through
 /// C, D and E (<see cref="ChainLength"/>). An A or an E nothing chains onto recovers (<c>_end</c>), and a press in its
 /// second half starts A again at once;</item>
-/// <item>a press late in a kick (from <see cref="KickAttackOpen"/>) released before the kick ends releases the neutral
-/// power attack at once; still held, the arm winds up when the kick ends;</item>
+/// <item>attack pressed in the air holds the neutral power attack's idle at once, with no wind-up, and releases it as
+/// the power attack: the donor's jump attack (its <c>combo_sword_fall</c> clip is #10144's). Late in a kick (from
+/// <see cref="KickAttackOpen"/>) the same press cuts the kick short. Every such case in the hand-played fights was in
+/// the air;</item>
 /// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release);</item>
 /// <item>a kick asked for (pressed, and still held) plays <c>layer_sword_noshield_kick_medium</c> as soon as it may:
 /// from any move but a kick or a broken parry, when the caller allows it (on the ground, with stamina,
@@ -141,8 +143,10 @@ internal sealed class PlayerSword(SwordClips clips)
     SwordClips clips = clips;
     // How long a charge has wound up under A and B (NaN when none): a press while A plays starts one.
     float under = float.NaN;
+    // Seconds until a released charge's fast attack begins (NaN when none is due).
+    float fastIn = float.NaN;
     PowerDirection direction;
-    bool chained, attackWas, kickWas, kickWanted, kickAttack;
+    bool chained, chainDue, attackWas, kickWas, kickWanted, kickAttack;
 
     internal SwordMove Move { get; private set; } = SwordMove.Ready;
     internal MoveClip Clip { get; private set; } = clips.Idle;
@@ -184,17 +188,24 @@ internal sealed class PlayerSword(SwordClips clips)
     internal const float FastEndOpen = .5f;
 
     /// <summary>
-    /// From this cycle of the kick a tap of attack releases the neutral power attack (three presses at 0.84–1.00 did,
-    /// two at about 0.65 did nothing): between them, not measured finer.
+    /// From this cycle of a kick, attack pressed in the air releases the neutral power attack (three presses at
+    /// 0.84–1.00 did, all mid-jump; one in the air at about 0.65 did nothing): between them, not measured finer.
     /// </summary>
     internal const float KickAttackOpen = .75f;
+
+    /// <summary>
+    /// How long after the release (or a press in A's recovery) the fast attack begins: the donor's A starts 2 to 3
+    /// ticks later, 2.6 on average over 12 hand-played releases (0.04 s). Its chain keeps the donor's timing from there.
+    /// </summary>
+    internal float FastDelay { get; set; } = .04f;
 
     internal void Retune(SwordClips nextClips) => clips = nextClips;
 
     /// <summary>Advances one step with the buttons as they are now (held); presses are their going down between steps.</summary>
     /// <param name="move">The movement input (side, forward), which picks a charge's direction.</param>
     /// <param name="mayKick">The body may kick now: on the ground, with the stamina for it.</param>
-    internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickHeld, Vector2 move = default, bool mayKick = true)
+    /// <param name="airborne">The body is in the air: attack goes straight to the power attack's hold (the jump attack).</param>
+    internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickHeld, Vector2 move = default, bool mayKick = true, bool airborne = false)
     {
         SwingStarted = false;
         stepFrom = Cycle;
@@ -215,15 +226,29 @@ internal sealed class PlayerSword(SwordClips clips)
             Play(SwordMove.Kick, clips.Kick, swing: true);
             return;
         }
+        if (!float.IsNaN(fastIn))
+        {
+            // A press while A is due chains B already, and winds up under it, as one in A does.
+            if (attackPressed) { chainDue = true; under = 0; }
+            fastIn -= seconds;
+            if (fastIn <= 0)
+            {
+                fastIn = float.NaN;
+                PlayFast(clips.Fast);
+                chained = chainDue && ChainLength > 1;
+            }
+            return;
+        }
         switch (Move)
         {
             case SwordMove.Ready:
-                if (attackHeld) Charge(move, 0);
+                if (attackHeld && airborne) AirCharge();
+                else if (attackHeld) Charge(move, 0);
                 else if (blockHeld && CanParry) Play(SwordMove.Parry, clips.ParryIn);
                 break;
             case SwordMove.Charge:
                 var charge = clips.Charge(direction);
-                if (!attackHeld) { if (Clip == charge.Hold) Play(SwordMove.Power, charge.Out, swing: true); else PlayFast(clips.Fast); }
+                if (!attackHeld) { if (Clip == charge.Hold) Play(SwordMove.Power, charge.Out, swing: true); else StartFast(); }
                 else if (done && Clip == charge.In) Play(SwordMove.Charge, charge.Hold);
                 break;
             case SwordMove.Parry:
@@ -243,18 +268,25 @@ internal sealed class PlayerSword(SwordClips clips)
                 else Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.Kick:
-                kickAttack |= attackPressed && Cycle >= KickAttackOpen;
+                kickAttack |= attackPressed && airborne && Cycle >= KickAttackOpen;
                 if (kickAttack && !attackHeld) Play(SwordMove.Power, clips.Power, swing: true);
                 else if (done) Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.FastEnd:
-                if (attackPressed && Cycle >= FastEndOpen) PlayFast(clips.Fast);
+                if (attackPressed && Cycle >= FastEndOpen) StartFast();
                 else if (done) Play(SwordMove.Ready, clips.Idle);
                 break;
             default:
                 if (done) Play(SwordMove.Ready, clips.Idle);
                 break;
         }
+    }
+
+    /// <summary>The jump attack's charge: the neutral power attack's hold at once, no wind-up.</summary>
+    void AirCharge()
+    {
+        direction = PowerDirection.Neutral;
+        Play(SwordMove.Charge, clips.Charge(PowerDirection.Neutral).Hold);
     }
 
     /// <summary>Winds up the power attack <paramref name="move"/> picks, <paramref name="wound"/> seconds in already.</summary>
@@ -277,6 +309,14 @@ internal sealed class PlayerSword(SwordClips clips)
         return 0;
     }
 
+    /// <summary>A fast attack A, after <see cref="FastDelay"/>.</summary>
+    void StartFast()
+    {
+        chainDue = false;
+        if (FastDelay <= 0) PlayFast(clips.Fast);
+        else fastIn = FastDelay;
+    }
+
     void PlayFast(MoveClip clip)
     {
         chained = false;
@@ -289,7 +329,7 @@ internal sealed class PlayerSword(SwordClips clips)
     internal void Reset()
     {
         attackWas = kickWas = kickWanted = chained = false;
-        under = float.NaN;
+        under = fastIn = float.NaN;
         Play(SwordMove.Ready, clips.Idle);
     }
 
@@ -300,6 +340,7 @@ internal sealed class PlayerSword(SwordClips clips)
         Cycle = 0;
         stepFrom = 0;
         kickAttack = false;
+        fastIn = float.NaN;
         if (swing) { Swing++; SwingStarted = true; }
     }
 }

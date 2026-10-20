@@ -175,8 +175,9 @@ internal static class CombatReplay
                 times[t.Tick] = t.Time;
                 if (t.Orc is { } o) followed[t.Tick] = o.Id;
                 if (t.Kick && timeline.HasCommands) requests.Add(t.Time);
-                combat.Step(t.Seconds, (ulong)t.Tick, t.Held.HasFlag(InputButtons.Attack), t.Held.HasFlag(InputButtons.Attack2), t.KickHeld || t.Kick,
-                    t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded, t.Sprint);
+                // With no weapon in hand the donor's player ignores attack, block and kick: so does the lab's sword.
+                combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
+                    t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded, t.Sprint);
                 if (combat.Sword.SwingStarted) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
                 if (driveBody)
                 {

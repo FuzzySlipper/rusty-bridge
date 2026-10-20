@@ -148,7 +148,7 @@ internal sealed class LabCombat : IDisposable
     {
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
-        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick);
+        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded);
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);

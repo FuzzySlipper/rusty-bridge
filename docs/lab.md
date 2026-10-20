@@ -117,6 +117,14 @@ the lab plays `build.json` again.
   against the neutral 0.45 at the sword's speed), and releases 0.57 and 0.63 s after their press, with `T_in` and
   `B_in` still playing, were fast attacks. The wind-up starts when the arm is free: a press during a kick winds up
   when the kick ends.
+- **When A begins:** 2 to 3 ticks after the release, 2.6 on average over 12 releases (`PlayerSword.FastDelay`,
+  0.04 s; #10142). The arm stays in the wind-up meanwhile, and a press then already chains B. Without the delay the
+  lab's chains ran a few ticks ahead, so presses the donor dropped in B landed after the lab's B and began an A
+  (the replays' mean lag went from −36 ms to −10 ms).
+- **The direction:** the command rule picks all but four of the hand fights' wind-ups (each with the −150 back-walk:
+  one gave neutral, one R with a strafe, two B), and the one hold through B whose idle went R while moving back
+  (126804). The body's velocity explains that one but misses more of the others (40 against the command rule's 52
+  of 74 picks, idle restarts included), so the command rule stays.
 - **The chain:** a press while A plays chains `layer_fastattack_*_B`, which begins as A ends: 18 to 20 ticks after
   A in all 16 recorded chains. The press also winds up under A and B: still held when B ends, the charge goes on
   from there, its direction picked then. B ends ready.
@@ -127,8 +135,14 @@ the lab plays `build.json` again.
   after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
 - **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press in its second half starts A again
   at once; one at cycle 0.32 did nothing, one at 0.60 played A two ticks later (`PlayerSword.FastEndOpen`, 0.5).
-- **Attack late in a kick:** a tap from about cycle 0.75 of the kick releases the neutral power attack at once
-  (three did, at 0.84 to 1.00; two at about 0.65 did nothing).
+- **Attack in the air (the jump attack):** attack pressed in the air holds the neutral power attack's idle at once,
+  with no wind-up, and the release is the power attack. The donor also plays `layer_combo_sword_fall_noshield_jump_in`
+  over it, which the lab doesn't yet (#10144). Every press #10131 read as "power after a kick" was a jump: 126588 and
+  128150 pressed mid-jump (`IN_JUMP`, the `jump_in` clip, rising), and the three taps late in a kick (cycle 0.84 to
+  1.00) all came in a jump that began during the kick. A press in the air during a kick before about cycle 0.75 did
+  nothing (`PlayerSword.KickAttackOpen`); on the ground a tap during a kick does nothing.
+- **Not explained** (one case each): a tap released a tick after its wind-up began played nothing (127146; pressed as
+  a kick ended); two presses during A (cycles 0.21 and 0.71) didn't chain B (120884, 120893).
 - **A parried blow doesn't stop the swing.** The donor plays `layer_bounce_*` on none of the 23 player blows its
   orcs parried or blocked in the arena recordings, and chains and kicks on after them. The lab played a bounce
   there until #10131, which cut off the hand fights' chains.
@@ -147,9 +161,7 @@ so a new kick needs F to go down again. Kicks cut into charges and swings. In th
   | 10 | a kick was playing, and F was let go before it ended |
   | 4 | stamina below 3, after sprinting |
   | 3 | in the air, F let go before landing (one of them also below 3) |
-  | 1 | attack pressed the tick before |
-
-  That last one is the only refusal the rule doesn't explain.
+  | 1 | no weapon in hand (below, "Replay": the view model shows none) |
 
 ### Stamina
 
@@ -229,7 +241,7 @@ The smoke also checks, on the real product headless:
   one batch, is still one fast attack. The product keeps an attack or block press until a step has seen it. A hold
   is still a power attack.
 - **The moves on authored clips:** the chain, A's recovery, a hold through B, each direction, a long wind-up released
-  early, kicks waiting, dropped and cutting a charge, attack late in a kick, and the stamina rules.
+  early, kicks waiting, dropped and cutting a charge, attacks in the air (the jump attack), the delay before A, and the stamina rules.
 - **Phase timing:** windup ×2 opens the fast attack's window twice as late, recovery ×3 lengthens its end, and the
   retuned clips reach the fight through `LabCombat.Retune`.
 
@@ -294,19 +306,22 @@ playing when the recording starts isn't counted as begun.
 
 | What | First fight | Second fight |
 | --- | --- | --- |
-| Moves begun together, by family | 19 of 20 | 42 of 45 |
-| The same, by clip | 18 of 20 | 41 of 45 |
-| Fast attacks begun, donor and lab | 13, 21 | 27, 35 |
-| Kick requests the lab kicks or refuses as the donor did | 17 of 19 | 15 of 15 |
+| Moves begun together, by family | 19 of 20 | 45 of 45 |
+| The same, by clip | 19 of 20 | 43 of 45 |
+| Fast attacks begun, donor and lab | 13, 13 | 27, 28 |
+| Kick requests the lab kicks or refuses as the donor did | 19 of 19 | 15 of 15 |
 
 Before #10131 the lab played every variant as its neutral move and bounced its sword off parries: 14 of 20 and 21
-of 46 began together. The lab's extra fast attacks follow a move it got wrong:
-- **Power attacks without a wind-up:** twice a press 20–24 ticks after a kick ended released the neutral power
-  attack with no wind-up (126599, 128161). A similar press at 116112 wound up and played A. The lab plays A, and its
-  presses during the donor's power attack then chain B and A that the donor never began.
-- **The direction picked after B:** one hold through B released R where the lab picked B (126828).
-- **A tap released a tick into its wind-up:** the donor played nothing (127146), the lab A.
-- **A finishing move:** the donor played `layer_behead_*_out` (129270), which the lab doesn't have.
+of 46 began together. After #10131 it began 21 and 35 fast attacks to the donor's 13 and 27. #10142 found why:
+- **No weapon in hand:** from 115491 to about 115890 the first fight's view model shows no layer at all, until a
+  quick draw (`layer_sword_noshield_quickdraw`): the sword was away, and the donor ignored 30 attack presses and two
+  kick requests. The replay now feeds the lab's sword no attack, block or kick while the donor's view model shows no
+  layer but the quick draw (`ReplayTick.Armed`). The lab doesn't put its sword away (#10148, quick draw).
+- **The jump attack:** above, "Attack in the air".
+- **When A begins:** above.
+
+What's left: the direction after B (126828: R, the lab B), the unexplained tap and chain (above), and a finishing
+move (`layer_behead_*_out`, 129270) the lab plays as the neutral power attack.
 - **Movement:** commands run at 1000, about 1400 on a diagonal, and 150 for the slow walk while charging or guarding.
   The replay scales them against a run. The lab's body averages 4.20 against the donor's 4.69 m/s, and 2.78 against 1.68.
 - **Jumps:** all 12 came through.
@@ -406,8 +421,8 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - combos (`layer_combo_*`), the finishing moves (`layer_behead_*`), the jump attack and the quick draw;
-  - a power attack released straight after a kick without a wind-up (two cases, rule not found);
+  - combos (`layer_combo_*`), the finishing moves (`layer_behead_*`), the jump attack's fall clip and damage, and the
+    quick draw;
   - the shield-holding moves.
 - **Stamina:** what empty stamina does to the sprint, and the costs of parrying, blocking and dodging
   (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.

@@ -112,7 +112,11 @@ published) hold no combat data.
   before `TakeDamage`. The player's blows also take:
   - **×2 when critical.** The melee routine's `DmgCrit` is `DmgBase × (1 + (the player's byte +0x21F7 != 0))`.
     The byte is a random roll at the swing: below 2 × an equipment stat plus the weapon's chance,
-    for weapons that can critical. A critical power attack also carries damage type bit 0x10000.
+    for weapons that can critical. The stat is the player's dexterity, `player_dexterity_{critical_hit + 1}`
+    (1, 3, 6), as strength is read; the chance 2%, 6%, 12% (`CombatData.PlayerCriticalChance`). The
+    recordings agree: 1 critical in 45 power blows with a new game's skills, 13 in 111 at `critical_hit` 2.
+    Only moves with `critical_enable` roll (the power attacks' releases and the combos; no fast attack
+    criticalled in 91 blows; #10146). A critical power attack also carries damage type bit 0x10000.
     NPCs' bytes are set too, but their blows aren't doubled.
   - **×3 on an NPC that isn't alerted** (`mul_damages_Npc_Not_alerted`): its alert level
     (+0x36EC) is at most `mul_damages_Npc_Not_alerted_level` (0), and its state (+0x1A5C) isn't 3.

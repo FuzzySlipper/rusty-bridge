@@ -17,10 +17,11 @@ internal sealed record DamageComparison(int Tick, string Recording, string Move,
 /// <summary>
 /// The lab's damage against recorded donor blows: every player blow on an orc with the short sword's fast, power, jump
 /// or rush attack, or a kick, asked again through the lab's own path (<see cref="LabCombat.PlayerAsks"/>), with the move and
-/// hit group the recording gives. Where the two differ, the reason is one the lab's inputs explain:
+/// hit group the recording gives, and the recorded critical (#10146: the lab's own roll gives way to it). Where the two
+/// differ, the reason is one the lab's inputs explain:
 /// <list type="bullet">
-/// <item>the donor's blow was a critical (×2), which the lab doesn't roll;</item>
-/// <item>the orc wasn't alert (×3 for a blow at or below the not-alerted level), and the lab's orc always is.</item>
+/// <item>the orc wasn't alert (×3 for a blow at or below the not-alerted level), and the lab's orc always is;</item>
+/// <item>the orc was getting up (<c>StandUp_*</c>: ×2), and the lab's orc is never down.</item>
 /// </list>
 /// </summary>
 internal static class DamageCalibration
@@ -70,10 +71,11 @@ internal static class DamageCalibration
                 if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
                 var player = d.Attacker with { Layers = [move],
                     Cycle = moveCycles.GetValueOrDefault(d.Tick)?.GetValueOrDefault(donorMove, float.NaN) is float c && !float.IsNaN(c) ? c : d.Attacker.Cycle };
-                float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength);
+                // The recorded critical (the byte from v11, or a critical power attack's damage type) is the lab's roll here.
+                float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength,
+                    critical: d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0);
                 string reason =
                     donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
-                    : d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0 ? "a critical (×2): the lab rolls none"
                     : d.VictimAlert is int alert && alert <= settings.NotAlertedLevel && d.VictimNpcState != CombatModel.NotAlertedExemptState
                         ? $"the orc wasn't alert (×{settings.NotAlertedMultiplier:0.#}): the lab's always is"
                     : d.Victim.Sequence.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase) && MathF.Abs(d.Requested - 2 * lab) < .01f

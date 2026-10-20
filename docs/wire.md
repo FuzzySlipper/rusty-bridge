@@ -340,6 +340,8 @@ docs/combat.md has the pipeline. Where its factors come from:
     equipment sum from +0x3E5600) + the chance` (the weapon's +0x1198, or the attacker's +0x1210). It
     needs a can-critical byte too (the weapon's +0x1124, or the attacker's +0x1230).
   - **On the Wire:** the damage record's `attacker_critical`, read when `TakeDamage` arrives inside the routine.
+  - **The rates (#10146):** the chance is 2 × `player_dexterity_{critical_hit + 1}` plus the short sword's `WCritHit`
+    (0): 2% for a new game, 12% at level 2. Recorded: 1 of 45 and 13 of 111 power blows (docs/combat.md).
 - **Not alerted:** × `mul_damages_Npc_Not_alerted` (settings global `0x2279D1A0`+0x430) when
   `abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level` (+0x434) and `[npc+0x1A5C] != 3`. The
   record's `victim_alert` and `victim_npc_state` carry both.

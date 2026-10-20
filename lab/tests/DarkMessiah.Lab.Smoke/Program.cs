@@ -591,6 +591,29 @@ host.Call(engine =>
     foreach (var d in damage.Where(d => !d.Agrees)) Console.WriteLine($"    {d}");
     Check(damage.Count >= 20 && damage.Count(d => d.Agrees) >= damage.Count * 8 / 10 && damage.All(d => d.Agrees || d.Reason != "unexplained"),
         $"the lab's damage matches recorded blows ({damage.Count(d => d.Agrees)} of {damage.Count}), and every difference has a known reason");
+    // Criticals (#10146): 2 × player_dexterity_{critical_hit + 1} percent, rolled on blows whose move may critical.
+    {
+        var labBuild = combat.Build!;
+        var noviceRate = Rate(labBuild with { SkillLevels = new Dictionary<string, int> { ["critical_hit"] = 0 } });
+        var expertRate = Rate(labBuild with { SkillLevels = new Dictionary<string, int> { ["critical_hit"] = 2 } });
+        combat.Rebuild(labBuild);
+        combat.Reset();
+        Check(MathF.Abs(noviceRate.Chance - 2) < .01f && MathF.Abs(expertRate.Chance - 12) < .01f,
+            FormattableString.Invariant($"the critical chance is 2 × player_dexterity at critical_hit + 1: {noviceRate.Chance:0.#}% for a new game, {expertRate.Chance:0.#}% at level 2"));
+        Check(MathF.Abs(noviceRate.Rolled - 2) < .5f && MathF.Abs(expertRate.Rolled - 12) < .8f,
+            FormattableString.Invariant($"and the lab's seeded roll lands at those rates over 20000 rolls: {noviceRate.Rolled:0.00}% and {expertRate.Rolled:0.00}% (the recordings: 1 of 45 and 13 of 111)"));
+        var mayCritical = real.Moves.Select(m => (m.Clip, combat.Model.EventOf(new DarkMessiah.Combat.Party("player", "", [m.Clip], (m.Open + m.Close) / 2, "#1"))?.CanCritical == true)).ToList();
+        Check(mayCritical.Where(m => m.Clip.Contains("fastattack")).All(m => !m.Item2) && mayCritical.Where(m => m.Clip.Contains("bigslash")).All(m => m.Item2),
+            "power attacks may critical (critical_enable), fast attacks may not");
+        (float Chance, float Rolled) Rate(CharacterBuild build)
+        {
+            combat.Rebuild(build);
+            combat.Reset();
+            int hits = 0;
+            for (int i = 0; i < 20000; i++) hits += combat.RollCritical() ? 1 : 0;
+            return (combat.CriticalChance, hits / 200f);
+        }
+    }
     var adrenaline = AdrenalineCalibration.Measure(calibrated, combat);
     foreach (var byMove in adrenaline.GroupBy(a => a.Move))
         Console.WriteLine($"  adrenaline {byMove.Key}: {byMove.Count(a => a.Agrees)} of {byMove.Count()} landed blows fill the gauge as the lab's does");

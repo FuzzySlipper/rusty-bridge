@@ -222,6 +222,21 @@ names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-cri
 - **An orc getting up takes ×2:** four blows on an orc in `StandUp_*` asked twice the lab's, the only unexplained
   doubles (one of them the old `l01_a-layers` fast attack). The lab's orc is never down (#10152).
 
+### Criticals
+
+A critical doubles a blow (docs/combat.md, "The decisions"). The lab rolls one as the donor does (#10146):
+- **Which blows:** those whose `.qct` event has `critical_enable`: the power attacks' releases, the jump attack, the
+  rush and the Fatality; never a fast attack (none of 91 recorded fast blows was critical).
+- **The chance:** `2 × player_dexterity_{critical_hit level + 1}` percent plus the weapon's `WCritHit` (0 for the
+  short sword): 2% for a new game, 6% at level 1, 12% at level 2 (`CombatData.PlayerCriticalChance`, `LabCombat.CriticalChance`).
+  The recordings bear it out: 1 critical in 45 power blows with a new game's skills, 13 in 111 with `critical_hit` 2.
+  The level-*L* reading of the table (0, 2 and 6%) fits neither.
+- **The roll:** `LabCombat.RollCritical`, seeded (`CriticalSeed`), so fights, replays and the smoke repeat; 20000 rolls
+  land at 1.96% and 12.21%.
+- **Replays and calibration** take the donor's recorded critical instead (a lab blow within 12 ticks of a critical
+  donor blow; `DamageCalibration` asks with the recorded byte), so criticals no longer differ.
+- **Slow time:** `slowtime_critical_*` in the settings asks for none (duration 0, factor 1).
+
 ### Kicks
 
 A press of F asks for a kick, and stands while F is held. The kick starts on the first step the body may kick: no
@@ -295,7 +310,7 @@ off any move but another kick or a broken parry.
 and rush attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
 recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
 whose `HitPow` comes from `first_basic.qct` like the others', and with the recording's player strength (from v16, its
-`extra_damage` level; docs/combat.md, "The player's strength"). 269 of 289 agree:
+`extra_damage` level; docs/combat.md, "The player's strength"), and the recorded critical. 278 of 289 agree:
 - **Fast attacks:** A 69 of 71, B 8 of 8, C 3 of 3, D 2 of 2, E 2 of 2. The chained-slash recording's player has
   `extra_damage` 3, strength 6: its blows ask four times a new game's.
 - **Power attacks:** 35 of 36, and the one `B_out` blow.
@@ -306,7 +321,6 @@ whose `HitPow` comes from `first_basic.qct` like the others', and with the recor
   their recorded blows struck an orc whose health didn't fall, which the calibration leaves out with the dead.
 - **The differences:**
   - two blows on an orc not yet alert (×3) at the start of the chained-slash recording;
-  - criticals (×2), which the lab doesn't roll: the runs with every skill have `critical_hit` 2, and roll them often;
   - four blows on an orc getting up (×2, above);
   - a blow in a recording before Wire v11 asking twice the lab's, most likely a critical. Neither the critical byte
     nor the orc's alert level is on the Wire before v11.

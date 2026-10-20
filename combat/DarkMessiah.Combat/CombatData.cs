@@ -6,10 +6,12 @@ namespace DarkMessiah.Combat;
 /// One contact of an attack: its damage factor (HitPow), whether it breaks a parry, how far its sweep reaches
 /// (`range`, Source units), how the attacker moves through it (`AttackMove`: 1 in place, more for lunges, jumps
 /// and kicks; 0 when not given), the adrenaline it gives the player when it lands (`adrenalineadd`), and whether a
-/// blow on the head cuts it off (`cutheadflag`: the huge slash's head blows killed an orc of 100000 health).
+/// blow on the head cuts it off (`cutheadflag`: the huge slash's head blows killed an orc of 100000 health), and whether
+/// a player's blow with it may be a critical (`critical_enable`: the power attacks' releases and the combos, not the
+/// fast attacks).
 /// </summary>
 public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
-    bool CutsHead = false)
+    bool CutsHead = false, bool CanCritical = false)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
@@ -51,8 +53,9 @@ public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLeve
     public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1);
 }
 
-/// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done".</summary>
-public sealed record WeaponData(string Model, float Damage);
+/// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done", and `WCritHit`, the critical
+/// chance it adds (percent; 0 for the short sword).</summary>
+public sealed record WeaponData(string Model, float Damage, float CriticalChance = 0);
 
 /// <summary>
 /// Dark Messiah's combat tables, read from the `.qct` files beside each
@@ -73,6 +76,16 @@ public sealed class CombatData
     /// level + 1 (server.dll+0x419275; docs/combat.md, "The player's strength"). 0 when the table is missing.
     /// </summary>
     public float PlayerStrength(int extraDamageLevel) => PlayerSkillNumber($"player_strength_{Math.Clamp(extraDamageLevel, 0, 3) + 1}") ?? 0;
+
+    /// <summary>
+    /// The player's chance of a critical, percent, on a blow whose move may critical (<see cref="AttackEvent.CanCritical"/>):
+    /// twice <c>player_dexterity_{critical_hit level + 1}</c> (1, 3, 6 for levels 0 to 2), plus the weapon's
+    /// <c>WCritHit</c>. The roll (server.dll+0x416000) asks <c>RandomFloat(0, 100) &lt; 2 × the stat + the chance</c>; the
+    /// recordings bear the level + 1 reading out: 1 critical in 45 power blows with a new game's skills (2%), 13 in 111
+    /// with <c>critical_hit</c> 2 (12%; #10146).
+    /// </summary>
+    public float PlayerCriticalChance(int criticalHitLevel, float weaponChance = 0) =>
+        2 * (PlayerSkillNumber($"player_dexterity_{Math.Clamp(criticalHitLevel, 0, 3) + 1}") ?? 0) + weaponChance;
 
     /// <summary>
     /// A number in <c>player_basic.qct</c>'s stat block: the <c>skills</c> block that holds <paramref name="key"/>. The
@@ -234,15 +247,15 @@ public sealed class CombatData
     static AttackEvent Event(KeyValues b) =>
         new(b.Number("HitPow") ?? 1, (b.Number("breakparade") ?? 0) > 0 || (b.Number("forcebreakparade") ?? 0) > 0,
             b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0), b.Number("adrenalineadd") ?? 0,
-            (b.Number("cutheadflag") ?? 0) > 0);
+            (b.Number("cutheadflag") ?? 0) > 0, (b.Number("critical_enable") ?? 0) > 0);
 
     public WeaponData? Weapon(string model)
     {
         if (model.Length == 0) return null;
         if (_weapons.TryGetValue(model, out var cached)) return cached;
         WeaponData? data = null;
-        if (Read(model)?.FirstOrDefault()?.Find("entity_data")?.Number("WDmg") is float damage)
-            data = new WeaponData(model, damage);
+        if (Read(model)?.FirstOrDefault()?.Find("entity_data") is { } entity && entity.Number("WDmg") is float damage)
+            data = new WeaponData(model, damage, entity.Number("WCritHit") ?? 0);
         return _weapons[model] = data;
     }
 }

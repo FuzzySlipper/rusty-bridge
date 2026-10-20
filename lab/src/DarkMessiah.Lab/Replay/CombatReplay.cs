@@ -123,6 +123,9 @@ internal interface IReplayBody
 /// </summary>
 internal static class CombatReplay
 {
+    /// <summary>How far, ticks, a lab blow may land from the donor's for the donor's critical to be its (the replays' moves begin within a few ticks).</summary>
+    const int CriticalTicks = 12;
+
     /// <summary>
     /// Which of the donor's swings a blow at <paramref name="tick"/> belongs to: the latest move started on the view
     /// model at or before it (its index in <paramref name="swings"/>), or -1 before the first.
@@ -166,6 +169,9 @@ internal static class CombatReplay
         var ownBuild = combat.Build;
         if (timeline.Build is { } recorded) combat.Rebuild(recorded);
         combat.Reset();
+        // A lab blow is a critical where the donor's blow within a few ticks was: replays take the recorded roll.
+        var recordedCriticals = timeline.Fight.Damage.Where(d => d.Attacker.IsPlayer && d.AttackerCritical).Select(d => d.Tick).ToArray();
+        combat.RecordedCritical = tick => recordedCriticals.Any(c => Math.Abs(c - (long)tick) <= CriticalTicks);
         combat.God = true;
         combat.Log = log;
         bool grounded = true;
@@ -207,6 +213,7 @@ internal static class CombatReplay
             if (driveBody) body!.End();
             combat.Log = null;
             combat.Orc.StopFollowing();
+            combat.RecordedCritical = null;
             if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild);
             combat.Reset();
             combat.God = god;

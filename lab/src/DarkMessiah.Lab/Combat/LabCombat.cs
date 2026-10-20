@@ -62,6 +62,9 @@ internal sealed class LabCombat : IDisposable
     double now;
     // The swing window last settled (a hit, or a kick decided: SwingKey), and the last swing that hit or missed outright.
     int settledSwing = -1, decidedSwing = -1;
+    // The critical roll: seeded, so fights, replays and the smoke repeat.
+    Random criticals = new(CriticalSeed);
+    internal const int CriticalSeed = 10146;
     bool canFatality = true;
     double deadSeconds;
 
@@ -209,6 +212,11 @@ internal sealed class LabCombat : IDisposable
         float asked = PlayerAsks(player, orc, group, kick: false, Orc.Health);
         // The blow's .qct event gives adrenaline; the Fatality spends it, and a head blow of a cutting move kills.
         var hit = model.EventOf(player);
+        if (hit?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
+        {
+            asked = PlayerAsks(player, orc, group, kick: false, Orc.Health, critical: true);
+            Criticals++;
+        }
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
         if (Sword.Move == SwordMove.Fatality) Adrenaline.Spend();
         if (hit?.CutsHead == true && group == HeadGroup) asked = MathF.Max(asked, Orc.Health);
@@ -279,10 +287,27 @@ internal sealed class LabCombat : IDisposable
     /// calibration asks the same of recorded blows.
     /// </summary>
     /// <param name="strength">The player's strength; null for the build's (<see cref="PlayerStrength"/>).</param>
-    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null) => (kick
+    /// <param name="critical">The blow is a critical (×2): the lab's roll, or a recorded one.</param>
+    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false) => (kick
         ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false, VictimAlert: 3))
         : model.Damage(new DamageCase(0, victim, player, "weapon_arx_short_sword", group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3, AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+
+    /// <summary>
+    /// The player's critical chance, percent, on a blow whose move may critical: from the build's <c>critical_hit</c>
+    /// level and the sword's <c>WCritHit</c> (<see cref="CombatData.PlayerCriticalChance"/>; 2 for a new game, 12 at level 2).
+    /// </summary>
+    internal float CriticalChance => model.Data.PlayerCriticalChance(Build?.Level("critical_hit") ?? 0,
+        model.Data.Weapon(FirstPerson.SwordModel)?.CriticalChance ?? 0);
+
+    /// <summary>One critical roll at <see cref="CriticalChance"/>, as the donor's <c>RandomFloat(0, 100) &lt; chance</c>.</summary>
+    internal bool RollCritical() => criticals.NextSingle() * 100 < CriticalChance;
+
+    /// <summary>Criticals the lab's blows have landed since the fight began.</summary>
+    internal int Criticals { get; private set; }
+
+    /// <summary>In a replay, whether the donor's blow near a tick was a critical: taken instead of the roll.</summary>
+    internal Func<ulong, bool>? RecordedCritical { get; set; }
 
     /// <summary>The player's strength, from the build's <c>extra_damage</c> level (<see cref="CombatData.PlayerStrength"/>).</summary>
     internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
@@ -365,6 +390,8 @@ internal sealed class LabCombat : IDisposable
         Sword.Reset();
         Stamina.Reset();
         Adrenaline.Reset();
+        criticals = new Random(CriticalSeed);
+        Criticals = 0;
         Orc.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();

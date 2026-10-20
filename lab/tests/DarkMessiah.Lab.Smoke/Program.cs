@@ -719,7 +719,13 @@ host.Call(engine =>
     {
         if (!File.Exists(path)) { Console.WriteLine($"skip the {Path.GetFileName(path)} replay: no local/recordings/experiments/{Path.GetFileName(path)}"); continue; }
         var report = CombatReplay.Run(combat, path, product);
+        // RB_ALL=1 prints each movement replay's whole report: the blows that differ, one by one.
         foreach (var line in (Environment.GetEnvironmentVariable("RB_ALL") is null ? report.Lines().Take(10).Concat(report.Lines().Where(l => l.Contains("adrenaline:"))) : report.Lines())) Console.WriteLine($"  {line}");
+        // The followed orc carries the recording's kit and the blade traces the donor's arcs (#10177): in the fatality run,
+        // with one orc and no shield, a third of the player's blows agree (none did before).
+        if (Path.GetFileName(path) == "l01_a-v16-fatality.rbrec")
+            Check(report.PlayerBlows.Count("agree") * 3 >= report.PlayerBlows.Donor,
+                $"{report.Name}: the lab's blows agree with the donor's on a third or more ({report.PlayerBlows.Count("agree")} of {report.PlayerBlows.Donor})");
         foreach (var family in families)
         {
             var m = report.Moves.GetValueOrDefault(family);

@@ -36,5 +36,137 @@
     "attackCooldown": 1.0,
     "parryChance": 0.5,
     "respawnSeconds": 3
+  },
+  "swingArcs": {
+    "layer_fastattack_sword_noshield_A": {
+      "side": [
+        -32,
+        43
+      ],
+      "up": [
+        6,
+        -6
+      ]
+    },
+    "layer_fastattack_sword_noshield_B": {
+      "side": [
+        20,
+        -48
+      ],
+      "up": [
+        0,
+        0
+      ]
+    },
+    "layer_fastattack_sword_noshield_C": {
+      "side": [
+        -32,
+        43
+      ],
+      "up": [
+        0,
+        0
+      ]
+    },
+    "layer_fastattack_sword_noshield_D": {
+      "side": [
+        20,
+        -48
+      ],
+      "up": [
+        0,
+        0
+      ]
+    },
+    "layer_fastattack_sword_noshield_E": {
+      "side": [
+        27,
+        -32
+      ],
+      "up": [
+        0,
+        0
+      ]
+    },
+    "layer_bigslash_sword_noshield_out": {
+      "side": [
+        -5,
+        20
+      ],
+      "up": [
+        6,
+        -8
+      ]
+    },
+    "layer_bigslash_sword_noshield_T_out": {
+      "side": [
+        -5,
+        20
+      ],
+      "up": [
+        6,
+        -8
+      ]
+    },
+    "layer_bigslash_sword_noshield_B_out": {
+      "side": [
+        -5,
+        20
+      ],
+      "up": [
+        6,
+        -8
+      ]
+    },
+    "layer_bigslash_sword_noshield_L_out": {
+      "side": [
+        -5,
+        20
+      ],
+      "up": [
+        6,
+        -8
+      ]
+    },
+    "layer_bigslash_sword_noshield_R_out": {
+      "side": [
+        -5,
+        20
+      ],
+      "up": [
+        6,
+        -8
+      ]
+    },
+    "layer_combo_sword_huge_noshield": {
+      "side": [
+        0,
+        5
+      ],
+      "up": [
+        -1,
+        -5
+      ]
+    },
+    "layer_combo_sword_fall_noshield_out": {
+      "side": [
+        0,
+        0
+      ],
+      "up": [
+        21,
+        -39
+      ]
+    },
+    "layer_combo_sword_rush_noshield": {
+      "side": [
+        40,
+        40
+      ],
+      "up": [
+        -29,
+        -29
+      ]
+    }
   }
 }

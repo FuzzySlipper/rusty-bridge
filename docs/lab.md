@@ -56,7 +56,7 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 | Fast or power | whether the wind-up (`layer_bigslash_*_in`) has played: a release from the held idle is a power attack (see "The player's moves") |
 | Stamina | `player_basic.qct`'s `skills` block, `stamina_kick_npc`/`stamina_kick_all` in the settings, and server.dll's ConVar defaults (see "The player's moves") |
 | The kick's contact | no events in its clip. `combat.json` sets cycles 0.36–0.42; recorded kicks land at 0.38–0.41 |
-| How far the blade reaches | the sword's `rangeattack`, 100 units (2.54 m). The trace runs from the eye toward the blade's tip, as the donor's do |
+| How far the blade reaches, and where | the move's `.qct` `range` (120 units when it gives none). The trace runs from just above the eye along the view, turned by the move's arc (`combat.json` `swingArcs`, calibrated against the donor's traces; see "The blade's trace") |
 | What a swing struck | the shared `HitSweep` through the orc's hit boxes and its items' hulls: the same measure as the mirror's Shadow contacts |
 | The orc's verdict, damage, the player's parry | `CombatModel` (docs/combat.md): the same rules scored against recordings |
 | The kick's damage | the settings' `kick_damage` (1) |
@@ -194,10 +194,10 @@ sprinted and then charged.
 
 Recorded in `l01_a-v16-adrenaline*`, `-fatality*`, `-whirlwind` and `-disarm` (#10145; the scenarios of the same
 names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-crit`, `-slowmo`) and hand2's behead.
-- **The gauge in replays:** replays hold the lab's gauge to the recording's, since the lab's replayed blows don't land
-  as the donor's do: its orc carries a shield the scenario orcs didn't, and its traced hit parts differ ("Where they
-  differ" below). The lab's own gauge, run from the donor's start on the lab's blows, stays within 1 of the donor's on
-  4% to 100% of a replay's ticks (each replay reports it); per landed blow it agrees 159 of 162 times (below).
+- **The gauge in replays:** replays hold the lab's gauge to the recording's, since the lab's replayed blows still land
+  where the donor's do only part of the time (#10177: "The blade's trace" below). The lab's own gauge, run from the
+  donor's start on the lab's blows, stays within 1 of the donor's on 19% to 100% of a replay's ticks (each replay
+  reports it); per landed blow it agrees 159 of 162 times (below).
 - **The gauge** (`PlayerAdrenaline`): each blow that takes health gives its `.qct` event's `adrenalineadd` (a fast
   attack 0.5, a power attack 3, the jump and rush attacks 1, a disarm 8), up to 20 (the Wire's `MaxAdrenaline`): 159
   of 162 landed blows fill it as the lab's does (`AdrenalineCalibration`; the three are a power attack's layer
@@ -251,6 +251,29 @@ aren't slowed.
   removal is rusty-engine #10176.
 - **Impales** (`layer_Impal_*`, `layer_Ground_Impal_*`, `impalflag`): never recorded. They need an orc knocked down or
   stunned (#10152).
+
+### The blade's trace
+
+What a swing strikes is a ray traced each step its hit window is open (#10177):
+- **The donor's rays:** every recorded player trace (663, from 22 recordings) starts about 9 units above the recorded
+  eye and runs level, sweeping across the view as the swing plays, not toward the first-person blade: fast attack A
+  from 33° right at cycle 0.30, through the centre at 0.50, to 43° left at 0.75; B back the other way; the power attack
+  within 20° of the centre. They reach 119 to 130 units.
+- **The lab's:** it traced from the eye toward its first-person blade's tip, which sits low and to the side of the
+  camera: 42° to 69° off the view and 22° to 69° down (B 60° up), so it struck legs where the donor struck heads, or
+  nothing. Now it traces from `LabCombat.TraceRise` (9 units) above the eye along the view turned by the move's arc:
+  `combat.json` `swingArcs`, a side and an up angle at the window's opening and close, linear between (fast A −32° to
+  43°; B 20° to −48°; the power attacks −5° to 20°, up 6° to −8°; the jump attack's strike a 21° to −39° chop; C, D and
+  E alternate as A and B, E from 27° to −32°), for the move's `.qct` range (120 units).
+- **The replay's orc carries the recording's kit** (`OrcPose.Kit`, the items the recorded orc owns from Wire v10): no
+  recorded orc has had a shield, so a followed orc shows and traces only its cleaver. The lab's own orc keeps its
+  shield.
+- **A head cut needs a Fatality:** the power attack has `cutheadflag` too, but its head blows never killed; a
+  Fatality's head blow turned an orc of 100000 health into a ragdoll. The lab kills on the Fatality's only.
+- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the parry bot 8 of
+  16 (was 7), hand1 6 of 10 (was 1), hand2 10 of 31 (3), the fatality run 10 of 27 (0). Most remaining differences are
+  the hit group (head against chest or arm): an arc is an average, and each donor ray varies (the power attack's from
+  20° right to 32° left). Matching each needs the donor's trace rule from server.dll's melee routine.
 
 ### Criticals
 
@@ -419,7 +442,7 @@ playing when the recording starts isn't counted as begun.
 | What | Donor | Lab | Agree |
 | --- | --- | --- | --- |
 | Fast attacks, power attacks, kicks begun | 7, 9, 8 | 8, 9, 8 | 24 of 24 begin together, the lab 4 ms ahead on average |
-| The player's blows on the followed orc | 16 | 14 | 4 agree, 6 differ |
+| The player's blows on the followed orc | 16 | 13 | 6 agree, 5 differ (#10177; 4 before) |
 | The orc's blows on the player | 40 | 54 | 37 agree |
 
 **`l01_a-v14-arena-bot.rbrec`** (90 s: the parry bot, then scripted walking, a jump, kick spam and kicks mid-swing):
@@ -480,10 +503,8 @@ the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
 - **Which part a swing strikes:**
   - Donor blows on hit group 1 (4.2 and 9 damage) were the lab's on group 4 (1.4 and 3).
   - One donor hit was a lab parry, and one donor NoEffect a lab hit.
-  - Why they can differ: the lab traces from the eye toward its own blade, against an orc posed from
-    states streamed every few ticks. Neither the donor's sweep nor the orc's exact pose is reproduced.
-- **Parry or shield:** where the donor's verdict is Parry, the lab's trace met
-  the orc's shield and decided Shield.
+  - Why they can differ: the lab traces the donor's average arc for each move ("The blade's trace"), against an orc
+    posed from states streamed every few ticks. Neither the donor's exact ray nor the orc's exact pose is reproduced.
 - **Kicks:** three donor kicks landed where the lab's missed. The lab's kick
   reach is its own number (`KickRange`).
 - **The orc's blows:** they use the donor's reach test. The lab-only ones are

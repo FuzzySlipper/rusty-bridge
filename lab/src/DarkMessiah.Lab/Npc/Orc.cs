@@ -18,8 +18,10 @@ internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
 /// stands and faces, its health, and what it plays. <see cref="Fresh"/> is set when the recording streamed its
 /// animation this tick (an NPC's state reaches the Wire every few ticks; between them the lab plays it on).
 /// </summary>
+/// <param name="Kit">The model paths of the items the recorded orc owns (Wire v10's owners): its cleaver, and a shield
+/// if it has one. Null where the recording doesn't say (before v10): the lab's own kit.</param>
 internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float Health, string Sequence, float Cycle, float Rate,
-    string? Layer, float LayerCycle, bool Fresh);
+    string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null);
 
 /// <summary>
 /// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, and a minimal fight loop, not the donor's AI
@@ -77,6 +79,8 @@ internal sealed class Orc : IDisposable
 
     /// <summary>Following a recorded orc (<see cref="Follow"/>): its own loop, reactions and pushes are off.</summary>
     internal bool Following { get; private set; }
+    // The items it holds: its own kit, or the followed orc's. No recorded orc has had a shield (#10177).
+    bool holdsCleaver = true, holdsShield = true;
     string? followed;
     float followRate = 1;
     readonly HashSet<(string Clip, int Part, float At)> landed = [];
@@ -94,6 +98,11 @@ internal sealed class Orc : IDisposable
         Feet = pose.Feet;
         Facing = pose.Facing;
         Health = pose.Health;
+        if (pose.Kit is { } kit)
+        {
+            holdsCleaver = kit.Any(m => m.Equals(Cleaver, StringComparison.OrdinalIgnoreCase));
+            holdsShield = kit.Any(m => m.Equals(Shield, StringComparison.OrdinalIgnoreCase));
+        }
         var (clipBefore, before, layerBefore, layerCycleBefore) = (Clip, Cycle, Layer, LayerCycle);
         if (pose.Fresh && body.Model.Info.Clips.ContainsKey(pose.Sequence))
         {
@@ -138,6 +147,7 @@ internal sealed class Orc : IDisposable
     internal void StopFollowing()
     {
         Following = false;
+        holdsCleaver = holdsShield = true;
         followed = null;
         landed.Clear();
         Spawn();
@@ -243,8 +253,8 @@ internal sealed class Orc : IDisposable
         Present();
         var pose = Rig.Pose(engine, body, Placement);
         var targets = new List<PosedTarget> { new(body.Model.Info, body.Model.Joints, pose) };
-        foreach (var (item, attachment) in new[] { (cleaver, "RightHand"), (shield, "LeftShield") })
-            if (Rig.Attached(body.Model, pose, attachment) is Transform at)
+        foreach (var (item, attachment, held) in new[] { (cleaver, "RightHand", holdsCleaver), (shield, "LeftShield", holdsShield) })
+            if (held && Rig.Attached(body.Model, pose, attachment) is Transform at)
                 targets.Add(new(item.Model.Info, item.Model.Joints, Rig.Rest(engine, item.Instance, at), Holder: 0));
         return targets;
     }
@@ -256,8 +266,8 @@ internal sealed class Orc : IDisposable
         if (!Alive && downSeconds > .5f) return [];
         var pose = Rig.Pose(engine, body, Placement);
         var facts = new List<AppearanceFact> { body.Fact(Placement) };
-        if (Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
-        if (Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
+        if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
+        if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
         return facts;
     }
 

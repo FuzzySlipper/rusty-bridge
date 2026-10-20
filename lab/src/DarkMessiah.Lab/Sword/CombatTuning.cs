@@ -14,8 +14,10 @@ namespace DarkMessiah.Lab.Sword;
 /// <param name="KickRange">How far in front of the eye, metres, a kick reaches an orc.</param>
 /// <param name="KickPush">How far a kick pushes the orc back, metres.</param>
 /// <param name="Phases">Each move's windup, active and recovery timing against the donor's clip (1 plays it as the donor does).</param>
+/// <param name="SwingArcs">Where each swing's trace points across its hit window, by first-person clip (docs/lab.md, "The
+/// blade's trace"): calibrated against the donor's recorded traces. A clip not listed traces straight along the view.</param>
 internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScale, float[] KickWindow,
-    float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc)
+    float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc, Dictionary<string, SwingArc>? SwingArcs = null)
 {
     internal const string Path = "combat.json";
 
@@ -34,6 +36,11 @@ internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScal
             Authored.Positive(Path, $"phases.{name}.windup", p.Windup);
             Authored.Positive(Path, $"phases.{name}.active", p.Active);
             Authored.Positive(Path, $"phases.{name}.recovery", p.Recovery);
+        }
+        foreach (var (clip, arc) in t.SwingArcs ?? [])
+        {
+            Authored.Require(arc.Side.Length == 2 && arc.Side.All(a => a is >= -90 and <= 90), Path, $"swingArcs.{clip}.side", "must be two angles, degrees, within ±90.");
+            Authored.Require(arc.Up.Length == 2 && arc.Up.All(a => a is >= -90 and <= 90), Path, $"swingArcs.{clip}.up", "must be two angles, degrees, within ±90.");
         }
         OrcTuning o = t.Orc;
         Authored.Positive(Path, "orc.health", o.Health);
@@ -55,6 +62,17 @@ internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScal
 internal sealed record MovePhases(float Windup, float Active, float Recovery)
 {
     internal static readonly MovePhases Donor = new(1, 1, 1);
+}
+
+/// <summary>
+/// A swing's trace direction across its hit window, against the view: <paramref name="Side"/> degrees to the left (negative
+/// right) and <paramref name="Up"/> degrees up, each from the window's opening to its close, linearly. A move in parts sweeps
+/// each part's window the same way.
+/// </summary>
+internal sealed record SwingArc(float[] Side, float[] Up)
+{
+    internal (float Side, float Up) At(float fraction) =>
+        (Side[0] + (Side[1] - Side[0]) * fraction, Up[0] + (Up[1] - Up[0]) * fraction);
 }
 
 /// <summary>The phase timing of the player's three traced moves.</summary>

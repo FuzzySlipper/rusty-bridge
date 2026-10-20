@@ -6,7 +6,8 @@ namespace DarkMessiah.Combat;
 /// One contact of an attack: its damage factor (HitPow), whether it breaks a parry, how far its sweep reaches
 /// (`range`, Source units), how the attacker moves through it (`AttackMove`: 1 in place, more for lunges, jumps
 /// and kicks; 0 when not given), the adrenaline it gives the player when it lands (`adrenalineadd`), and whether a
-/// blow on the head cuts it off (`cutheadflag`: the huge slash's head blows killed an orc of 100000 health), and whether
+/// blow on the head may cut it off (`cutheadflag`: a Fatality's head blow turned an orc of 100000 health into a ragdoll;
+/// the power attack has the flag too, and its head blows never did), and whether
 /// a player's blow with it may be a critical (`critical_enable`: the power attacks' releases and the combos, not the
 /// fast attacks), and the slow motion the move asks for as it begins (`slowtime_delay`, `_duration`, `_factor`: the
 /// Whirlwind's ×0.5 for 2.5 s; null when it asks none).

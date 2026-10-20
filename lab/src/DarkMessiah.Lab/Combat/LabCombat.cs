@@ -177,7 +177,7 @@ internal sealed class LabCombat : IDisposable
         else if (Sword.Traced && settledSwing != SwingKey)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
-            else Swing(tick, eye, feet);
+            else Swing(tick, eye, forward, feet);
         }
         else if (Sword.Swinging && Sword.Move != SwordMove.Kick && decidedSwing != Sword.Swing && Sword.Clip.Traced && Sword.Cycle > Sword.Clip.LastClose)
         {
@@ -188,9 +188,9 @@ internal sealed class LabCombat : IDisposable
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { PlayerHealth = Tuning.PlayerHealth; deadSeconds = 0; Message = "Back on your feet"; }
     }
 
-    void Swing(ulong tick, Vector3 eye, Vector3 feet)
+    void Swing(ulong tick, Vector3 eye, Vector3 forward, Vector3 feet)
     {
-        var (start, end) = FirstPerson.Trace(eye);
+        var (start, end) = Aim(eye, forward);
         var targets = Orc.Targets();
         var contacts = targets.Count == 0 ? [] : sweep.Sweep(start, end, Radius, targets);
         if (contacts.Count == 0) { Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, start, end, null, "none")); return; }
@@ -226,7 +226,9 @@ internal sealed class LabCombat : IDisposable
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
         AdrenalineGained += hit?.Adrenaline ?? 0;
         if (Sword.Move == SwordMove.Fatality) { Adrenaline.Spend(); FatalityLanded = true; }
-        if (hit?.CutsHead == true && group == HeadGroup) asked = MathF.Max(asked, Orc.Health);
+        // Only a Fatality's head blow cuts the head off: the power attack has cutheadflag too, and its head blows
+        // never killed (#10177). The donor's beheaded orc becomes a ragdoll whatever its health.
+        if (hit?.CutsHead == true && group == HeadGroup && Sword.Move == SwordMove.Fatality) asked = MathF.Max(asked, Orc.Health);
         bool wasAlive = Orc.Alive;
         Orc.Damage(asked);
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
@@ -236,6 +238,33 @@ internal sealed class LabCombat : IDisposable
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
         Message = Orc.Alive ? FormattableString.Invariant($"Hit for {asked:0.##}") : "The orc falls";
     }
+
+    /// <summary>
+    /// Where this step traces the blade (docs/lab.md, "The blade's trace"): a ray as the donor's are, from just above the
+    /// eye (<see cref="TraceRise"/>) along the view turned by the move's <see cref="SwingArc"/> at this point of its hit
+    /// window, as far as the move's <c>.qct</c> range (120 units when it gives none).
+    /// </summary>
+    internal (Vector3 Start, Vector3 End) Aim(Vector3 eye, Vector3 forward)
+    {
+        var clip = Sword.Clip;
+        var window = clip.Windows[Math.Max(0, Sword.Window)];
+        float fraction = window.Close > window.Open ? Math.Clamp((Sword.TraceCycle - window.Open) / (window.Close - window.Open), 0, 1) : 0;
+        var (side, up) = Tuning.SwingArcs?.GetValueOrDefault(clip.Clip)?.At(fraction) ?? (0, 0);
+        var view = Vector3.Normalize(forward);
+        var level = Vector3.Normalize(view with { Y = 0 });
+        var left = Vector3.Cross(Vector3.UnitY, level);
+        float pitch = MathF.Asin(Math.Clamp(view.Y, -1, 1)) + up * MathF.PI / 180, yaw = side * MathF.PI / 180;
+        var direction = MathF.Cos(pitch) * (MathF.Cos(yaw) * level + MathF.Sin(yaw) * left) + MathF.Sin(pitch) * Vector3.UnitY;
+        float range = (model.EventOf(new Party("player", "", [clip.Clip], Sword.TraceCycle, "#1"))?.Range ?? AttackEvent.DefaultRange) * SourceSpace.MetresPerUnit;
+        var start = eye + Vector3.UnitY * TraceRise;
+        return (start, start + direction * range);
+    }
+
+    /// <summary>
+    /// How far above the recorded eye the donor's traces begin: 9 units (7 to 10 in the fatality run's), metres. The
+    /// client view's eye and the server's differ by about that.
+    /// </summary>
+    internal const float TraceRise = 9 * SourceSpace.MetresPerUnit;
 
     /// <summary>
     /// The Whirlwind's blow: its clip has no hit events, and the recorded one landed the tick it began (240 on the orc

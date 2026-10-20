@@ -1,0 +1,98 @@
+{
+  "description": "Fights with the club (sword_noshield set; WDmg 3) (#10148): every skill module, weapon_arxclub given and drawn, a new orc with 100000 health, approached to 55 units before each move: nine cycles of an 8-click burst (a full fast chain), a power attack held 1.2 s and two single fast attacks.",
+  "seconds": 120,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arxclub",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxclub",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    {
+      "wait": 0.3
+    },
+    {
+      "repeat": 9,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "repeat": 8,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "click": 1,
+          "ms": 1200
+        },
+        {
+          "wait": 1.5
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 0.6
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 1.2
+        }
+      ]
+    }
+  ]
+}

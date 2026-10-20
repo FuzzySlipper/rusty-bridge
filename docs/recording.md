@@ -150,16 +150,22 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `whirlwind` | the same, crouched (`+duck`) through each of three cycles | twelve power strikes |
 | `disarm` | every skill, the short sword, one orc with 1000 health | fourteen pairs of power strikes (none disarmed: the second press came while the first played) |
 | `rush-attack` | every skill (`combat_rush_attack`, the Charge, among them), the short sword, a new orc with 1000 health for each rush | from 360 units, three each: a 1 s charge, then `+forward +sprint` and the release 0.6 s later; a sprint, then a 1 s or 0.3 s hold; a run after a charge |
-| `daggers-goblin` | the short sword in hand, the kryss daggers given, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
+| `daggers-goblin` | every skill, the kryss daggers drawn, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
+| `weapon-long-sword`, `weapon-club` | every skill, the weapon given and drawn, a new orc with 100000 health | approached to 55 units before each move, nine times: a burst of 8 clicks, a 1.2 s hold, two taps |
+| `weapon-daggers` | the same with the kryss daggers | the same at 45 units, then three power and three fast attacks at an unaware orc turned away (no backstab landed) |
+| `weapon-staff` | the same with the combat staff | the same at 65 units with bursts of 24 clicks and 1.8 s holds (its wind-up is 1.4 s), then the same tries at an unaware orc (no breakneck) |
+| `weapon-switch` | every skill, the long sword, kryss daggers, combat staff and club given, a new orc with 100000 health | `use` each in turn, three rounds, attacking 0, 0.3 or 0.8 s after: two clicks, then a 1.2 s hold |
+| `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
 | `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
 
 **What the console can't stage:**
 - **Skills one by one:** only `mm_player_skills_grosbill 1` (every skill at its maximum level) or none. `skills_set` and `skills_add`
   are item data keys, not commands; learning a skill is the character sheet's. Wire v15 records which modules the
   player had either way.
-- **Daggers and spells in hand:** `give` puts them in the inventory (the daggers' two entities are owned by the
-  player), but `use`, `mm_previtem` and `mm_nextitem` don't equip them. That takes the inventory and belt UI, so play
-  those with `--hand`. `give spell_fire_1` and `give spell_air_3` equip, but clicking them doesn't cast.
+- **Weapons in hand:** `give` then `use` draws a weapon only when the player has its skill: without skills only the
+  short sword and the club came to hand, and the daggers and staffs stayed in the inventory. With
+  `mm_player_skills_grosbill 1` every melee weapon tried draws (`weapons-probe`, #10148), and `use` on another switches.
+- **Spells in hand:** `give spell_fire_1` and `give spell_air_3` equip, but clicking them doesn't cast.
 - **A still NPC:** `ai_disable 1` holds it still, but it then counts as unaware (the not-alerted ×3 and more), so its
   damage doesn't calibrate; `chained-slash` lets the orc fight.
 - **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down.

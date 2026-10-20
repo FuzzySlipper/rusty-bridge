@@ -1,0 +1,74 @@
+{
+  "description": "Weapons probe (#10148): with every skill (staffs, daggers and heavier swords require theirs), from the save's empty hands, give each weapon and use it, then use it again (to put it away): which equip?",
+  "seconds": 35,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "give weapon_mm_staff_combat",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 3
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 2
+    },
+    "give weapon_mm_daggers_kryss",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 3
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 2
+    },
+    "give weapon_arx_long_sword",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 3
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 2
+    },
+    "give weapon_mm_daggers_light",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_daggers_light",
+    {
+      "wait": 3
+    },
+    "use weapon_mm_daggers_light",
+    {
+      "wait": 2
+    },
+    "give weapon_mm_staff_fire",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_staff_fire",
+    {
+      "wait": 3
+    },
+    "use weapon_mm_staff_fire",
+    {
+      "wait": 2
+    }
+  ]
+}

@@ -15,13 +15,14 @@ internal sealed record DamageComparison(int Tick, string Recording, string Move,
 }
 
 /// <summary>
-/// The lab's damage against recorded donor blows: every player blow on an orc with the short sword's fast, power, jump
-/// or rush attack, or a kick, asked again through the lab's own path (<see cref="LabCombat.PlayerAsks"/>), with the move and
-/// hit group the recording gives, and the recorded critical (#10146: the lab's own roll gives way to it). Where the two
+/// The lab's damage against recorded donor blows: every player blow on an orc with a weapon the lab plays (a sword, the
+/// club, daggers or a staff: <see cref="LabWeapon.ClassOf"/>; #10148) by its fast, power, jump or rush attack, or a kick, asked again through the lab's own path (<see cref="LabCombat.PlayerAsks"/>), with the move and
+/// hit group the recording gives, the weapon then in hand (its <c>WDmg</c> and its class's moves), and the recorded critical (#10146: the lab's own roll gives way to it). Where the two
 /// differ, the reason is one the lab's inputs explain:
 /// <list type="bullet">
 /// <item>the orc wasn't alert (×3 for a blow at or below the not-alerted level), and the lab's orc always is;</item>
-/// <item>the orc was getting up (<c>StandUp_*</c>: ×2), and the lab's orc is never down.</item>
+/// <item>the orc was getting up (<c>StandUp_*</c>: ×2), and the lab's orc is never down;</item>
+/// <item>the orc was stunned (<c>Stunned</c>: ×1.5; the staff's blows stun), and the lab's orc never is (#10152).</item>
 /// </list>
 /// </summary>
 internal static class DamageCalibration
@@ -49,10 +50,26 @@ internal static class DamageCalibration
             // The player's move clips and their cycles as each blow arrived (the view model's layers): a swing in parts
             // (the rush attack) asks by its clip's cycle.
             var moveCycles = new Dictionary<int, Dictionary<string, float>>();
+            // The weapon in the player's hand as each blow arrived, by model (from Wire v15; before it the short sword), and
+            // each victim's sequence the frame before (a blow's own frame can already play the hit reaction it caused).
+            var weapons = new Dictionary<int, string>();
+            var before = new Dictionary<(int Tick, ushort Victim), string>();
+            var lastSequence = new Dictionary<ushort, string>();
             using (var stream = File.OpenRead(path))
                 foreach (var f in RecordingReader.Frames(stream))
+                {
                     if (f.Damage.Count > 0)
-                        foreach (var d in f.Damage) moveCycles.TryAdd(d.Tick, MoveLayers(f));
+                        foreach (var d in f.Damage)
+                        {
+                            moveCycles.TryAdd(d.Tick, MoveLayers(f));
+                            if (f.Version >= 15 && f.Stats.Valid != 0 && f.Entities.TryGetValue(f.Stats.Weapon, out var held) && f.Models.GetValueOrDefault(held.ModelIndex) is { } model)
+                                weapons.TryAdd(d.Tick, model);
+                            if (lastSequence.TryGetValue(d.Victim, out var was)) before.TryAdd((d.Tick, d.Victim), was);
+                        }
+                    foreach (var (index, e) in f.Entities)
+                        if (f.Classes.GetValueOrDefault(e.ClassId) == "npc_orc_sword" && f.Sequences.GetValueOrDefault(e.ModelIndex) is { } names && e.Sequence >= 0 && e.Sequence < names.Length)
+                            lastSequence[index] = names[e.Sequence];
+                }
             foreach (var d in fight.Damage)
             {
                 // A swing that kills goes on to touch the body: those contacts ask nothing of a victim already at 0.
@@ -65,24 +82,35 @@ internal static class DamageCalibration
                 bool kick = (d.DamageType & CombatModel.KickDamage) != 0 && swung is null or "kick";
                 string? family = kick ? "kick" : swung;
                 string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? "";
-                string? move = kick ? clips.Kick.Clip : clips.Moves.Any(m => m.Clip == donorMove) ? donorMove
-                    : family switch { "fast attack" => clips.Fast.Clip, "power attack" => clips.Power.Clip, _ => null };
+                string weapon = weapons.GetValueOrDefault(d.Tick, LabWeapon.ShortSword);
+                if (!kick && combat.ClipsFor(weapon) is null) continue;
+                var set = kick ? clips : combat.ClipsFor(weapon)!;
+                string? move = kick ? clips.Kick.Clip : set.Moves.Any(m => m.Clip == donorMove) ? donorMove
+                    : family switch { "fast attack" => set.Fast.Clip, "power attack" => set.Power.Clip, _ => null };
                 if (donorMove.Length == 0) donorMove = move ?? "";
-                if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
+                if (move is null) continue;
                 var player = d.Attacker with { Layers = [move],
                     Cycle = moveCycles.GetValueOrDefault(d.Tick)?.GetValueOrDefault(donorMove, float.NaN) is float c && !float.IsNaN(c) ? c : d.Attacker.Cycle };
                 // The recorded critical (the byte from v11, or a critical power attack's damage type) is the lab's roll here.
                 float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength,
-                    critical: d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0);
+                    critical: d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0, weapon: kick ? null : weapon);
                 string reason =
                     donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
                     : d.VictimAlert is int alert && alert <= settings.NotAlertedLevel && d.VictimNpcState != CombatModel.NotAlertedExemptState
                         ? $"the orc wasn't alert (×{settings.NotAlertedMultiplier:0.#}): the lab's always is"
                     : d.Victim.Sequence.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase) && MathF.Abs(d.Requested - 2 * lab) < .01f
                         ? $"the orc was getting up ({d.Victim.Sequence}): ×2, and the lab's orc is never down"
+                    : Stunned() is string stun && MathF.Abs(d.Requested - 1.5f * lab) < .01f
+                        ? $"the orc was stunned ({stun}): ×1.5, and the lab's orc is never stunned (#10152)"
                     : d.VictimAlert is null ? "before Wire v11: neither the critical byte nor the orc's alert level is on the Wire"
                     : "unexplained";
                 results.Add(new DamageComparison(d.Tick, Path.GetFileNameWithoutExtension(path), move, kick ? null : d.HitGroup, d.Requested, lab, reason));
+
+                // Stunned as the blow arrived, or the frame before.
+                string? Stunned() =>
+                    d.Victim.Sequence.StartsWith("Stunned", StringComparison.OrdinalIgnoreCase) ? d.Victim.Sequence
+                    : Index(d.Victim.Id) is ushort i && before.GetValueOrDefault((d.Tick, i)) is { } was && was.StartsWith("Stunned", StringComparison.OrdinalIgnoreCase) ? $"{was}, the tick before"
+                    : null;
             }
             // Kicks, which Blows leaves out (it keeps slash and club blows): the player's kick damage on an orc.
             using (var stream = File.OpenRead(path))
@@ -107,6 +135,10 @@ internal static class DamageCalibration
         }
         return results;
     }
+
+    /// <summary>The entity index of a party named <c>#index</c> or <c>#index.serial</c>.</summary>
+    static ushort? Index(string id) =>
+        id.StartsWith('#') && ushort.TryParse(id.AsSpan(1, (id.IndexOf('.') is int dot and > 0 ? dot : id.Length) - 1), out var index) ? index : null;
 
     /// <summary>The player's first-person move clips playing in a frame (any move family), with their cycles.</summary>
     internal static Dictionary<string, float> MoveLayers(RecordedFrame f)

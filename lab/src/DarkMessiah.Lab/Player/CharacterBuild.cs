@@ -37,9 +37,6 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
     /// <summary>A skill's level; 0 for one the build doesn't name.</summary>
     internal int Level(string skill) => SkillLevels.GetValueOrDefault(skill);
 
-    /// <summary>The weapons the lab can play now: the short sword. Others wait for #10148, shields for #10149.</summary>
-    internal const string PlayableWeapon = "models/items/weapons/sword_short/sword_short.mdl";
-
     internal bool Has(string module) => Modules.Contains(module);
 
     public override string ToString() =>
@@ -52,7 +49,8 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
     /// <list type="bullet">
     /// <item>each skill is one of <c>mm_skills_infos.txt</c>'s, at a level from 0 to its <c>max_level</c>;</item>
     /// <item>a skill above level 0 has what it <c>requires</c>: one of the skills its "a|b" list names, above level 0;</item>
-    /// <item>the weapon and off-hand are imported items (their <c>.qct</c>) the lab can play;</item>
+    /// <item>the weapon and off-hand are imported items (their <c>.qct</c>) the lab can play: a sword, the club, daggers or a
+    /// staff (<see cref="Sword.LabWeapon.ClassOf"/>), and no shield yet (#10149);</item>
     /// <item>each spell is in <c>spells.txt</c>.</item>
     /// </list>
     /// </summary>
@@ -77,7 +75,7 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
             foreach (var level in skill.Levels.Where(l => l.Level <= file.Skills.GetValueOrDefault(skill.Name)))
                 modules.UnionWith(level.Modules);
         Authored.Require(isItem(file.Weapon), P, "weapon", $"{file.Weapon} isn't an imported item (no .qct).");
-        Authored.Require(Same(file.Weapon, PlayableWeapon), P, "weapon", $"the lab plays only the short sword ({PlayableWeapon}) yet; other weapons are #10148.");
+        Authored.Require(Sword.LabWeapon.ClassOf(file.Weapon) is not null, P, "weapon", $"{file.Weapon} isn't a sword, the club, daggers or a staff (models/items/weapons/sword_*, club, daggers*, staff_*): the lab plays no other weapon.");
         Authored.Require(file.OffHand is null || isItem(file.OffHand), P, "offHand", $"{file.OffHand} isn't an imported item (no .qct).");
         Authored.Require(file.OffHand is null, P, "offHand", "the lab doesn't play a shield yet (#10149): use null.");
         foreach (var spell in file.Spells)
@@ -94,8 +92,6 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
         new(SkillModuleNames.Of(stats.Modules).ToHashSet(StringComparer.Ordinal), weapon is null ? "none" : VpkIndex.Normalize(weapon),
             offHand is null ? null : VpkIndex.Normalize(offHand), [], recording,
             version >= 16 ? SkillNames.ByIndex.ToDictionary(n => n, n => stats.SkillLevel(n)) : new Dictionary<string, int>());
-
-    static bool Same(string a, string b) => VpkIndex.Normalize(a) == VpkIndex.Normalize(b);
 }
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.

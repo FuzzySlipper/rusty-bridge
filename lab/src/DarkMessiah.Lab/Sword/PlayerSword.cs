@@ -4,7 +4,7 @@ using DarkMessiah.Shared;
 namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
-internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind }
+internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind, Undraw, Draw }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -67,16 +67,27 @@ internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Ope
     /// A clip that closes more than one window (2190) strikes in parts, the later ones from 2107 to 2190 (<see cref="Later"/>):
     /// the rush attack's two, at 0.09–0.17 and 0.47–0.57. Its second part's blows landed at cycles 0.466 and 0.48, before
     /// that part's 2186 (0.49).
+    /// <para>The daggers' and the staff's clips (#10148) lack some closes: with neither 2190 nor 2110 a window closes at
+    /// the first 2102 after it opens. The staff's A and C hold their recorded blows that way (A at cycles 0.60–0.81 in
+    /// 0.57–0.79, C at 0.74–0.86 in 0.73–0.87), as does the daggers' huge slash's first part (0.22 in 0.15–0.22). Such a
+    /// clip with more than one 2107 strikes in parts from each, to the next 2102, else the next part, else its end: the
+    /// daggers' huge slash's second part from 0.49 holds its blow at 0.57; the staff's four parts have no recorded blow.</para>
     /// </summary>
     internal static MoveClip Of(ModelClip clip, float rate = 1, bool loop = false)
     {
         float First(int e) => clip.At(e).DefaultIfEmpty(float.NaN).First();
+        var opens = clip.At(2107).ToArray();
+        var closes = clip.At(2190).ToArray();
+        var ends = clip.At(2102).ToArray();
+        float EndAfter(float from, float next) => ends.Where(e => e > from).DefaultIfEmpty(next).First();
         float open = First(2186), close = First(2190);
         if (float.IsNaN(open)) open = First(2107);
         if (float.IsNaN(close)) close = First(2110);
-        var opens = clip.At(2107).ToArray();
-        var closes = clip.At(2190).ToArray();
-        (float, float)[]? later = closes.Length > 1 && opens.Length == closes.Length ? opens.Zip(closes).Skip(1).ToArray() : null;
+        if (float.IsNaN(close) && float.IsFinite(open)) close = EndAfter(open, float.NaN);
+        (float, float)[]? later = closes.Length > 1 && opens.Length == closes.Length ? opens.Zip(closes).Skip(1).ToArray()
+            : closes.Length == 0 && float.IsNaN(First(2110)) && opens.Length > 1
+                ? opens.Skip(1).Select((o, i) => (o, MathF.Min(EndAfter(o, 1), i + 2 < opens.Length ? opens[i + 2] : 1))).ToArray()
+            : null;
         return new(clip.Name, clip.Seconds / rate, loop, open, close, Later: later);
     }
 }
@@ -92,18 +103,24 @@ internal enum PowerDirection { Neutral, T, B, L, R }
 internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 
 /// <summary>
-/// The clips the player's sword moves play: the short sword without a shield. <see cref="Charges"/> holds the neutral
-/// power attack and each directional one the model has.
+/// The clips the player's weapon moves play, for its class (<see cref="WeaponClass"/>; docs/lab.md, "Weapons").
+/// <see cref="Charges"/> holds the neutral power attack and each directional one the model has.
 /// </summary>
-/// <param name="Chain">The fast attacks in the order they chain, <c>layer_fastattack_*_A</c> to <c>_E</c>.</param>
-/// <param name="FastEnd">The recovery after an A or an E nothing chains onto, <c>layer_fastattack_*_end</c>.</param>
+/// <param name="Chain">The fast attacks in the order they chain, <c>layer_fastattack_*_A</c> to <c>_E</c> (the staff's to <c>_D</c>).</param>
+/// <param name="Ends">Each fast attack's recovery when nothing chains onto it, or null for none: the sword's one
+/// <c>fastattack_*_end</c> after A and E, the daggers' <c>end_A</c> to <c>end_D</c>, the staff's <c>A_end</c> to <c>C_end</c>.</param>
+/// <param name="Wraps">A press during the last fast attack chains A again (the daggers' E, the staff's D).</param>
+/// <param name="Draw">The weapon coming to hand (<c>*_draw</c>); null when it comes at once (a simple weapon, the club).</param>
+/// <param name="QuickDraw">The weapon coming back to hand after the hands were taken (<c>*_quickdraw</c>: an orc's grab).</param>
+/// <param name="Undraw">The weapon put away (<c>*_undraw</c>), before another is drawn.</param>
 /// <param name="Leap">The jump attack's clips (the game's Leaping Attack); null when the model has none.</param>
-/// <param name="Rush">The rush attack (the game's Charge, <c>layer_combo_sword_rush_noshield</c>, two strikes); null when the model has none.</param>
-/// <param name="Fatality">The Fatality's huge slash (<c>layer_combo_sword_huge_noshield</c>, two strikes); null when the model has none.</param>
-/// <param name="Whirlwind">The Whirlwind (<c>layer_combo_sword_trample_noshield</c>: no hit events, it strikes as it starts); null when none.</param>
-internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain, MoveClip FastEnd,
-    MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null, MoveClip? Rush = null, MoveClip? Fatality = null,
-    MoveClip? Whirlwind = null)
+/// <param name="Rush">The rush attack (the game's Charge, <c>layer_combo_*_rush</c>, two strikes for the sword); null when the model has none.</param>
+/// <param name="Fatality">The Fatality's huge slash (<c>layer_combo_*_huge</c>); null when the model has none.</param>
+/// <param name="Whirlwind">The Whirlwind (<c>layer_combo_*_trample</c>: no hit events, it strikes as it starts); null when none.</param>
+internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain,
+    IReadOnlyList<MoveClip?> Ends, MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null,
+    MoveClip? Rush = null, MoveClip? Fatality = null, MoveClip? Whirlwind = null, bool Wraps = false, MoveClip? Draw = null, MoveClip? QuickDraw = null,
+    MoveClip? Undraw = null)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
 
@@ -111,6 +128,8 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     internal MoveClip Fast => Chain[0];
     /// <summary>The second, B.</summary>
     internal MoveClip FastB => Chain[1];
+    /// <summary>A's recovery.</summary>
+    internal MoveClip? FastEnd => Ends[0];
 
     /// <summary>The neutral power attack's release.</summary>
     internal MoveClip Power => Charges[PowerDirection.Neutral].Out;
@@ -127,33 +146,63 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
         move.Y < 0 ? PowerDirection.B : move.X < 0 ? PowerDirection.L : move.X > 0 ? PowerDirection.R : move.Y > 0 ? PowerDirection.T : PowerDirection.Neutral;
 
     /// <summary>
-    /// The clips from the first-person model, attacks at the sword's <c>speed_attack</c> (1.10 for the short sword),
-    /// the kick's contact window from the tuning (its clip has no hit events), and each move's phase timing from it.
+    /// How each class names its clips in <c>first_basic</c>. <c>{0}</c> is a fast attack's letter, a power attack's
+    /// direction prefix (<c>L_</c>, or none) or a phase (<c>in</c>, <c>idle</c>, <c>out</c>, <c>cancel</c>).
     /// </summary>
-    internal static SwordClips From(ModelInfo model, float attackSpeed, CombatTuning tuning)
+    sealed record Names(string Idle, string Fast, string Letters, Func<char, string?> End, string Charge, string Parry, string Kick, string Broken,
+        string LeapIn, string Leap, string Rush, string Huge, string Trample, string Set, bool Wraps);
+
+    static Names For(WeaponClass weapon) => weapon switch
     {
+        WeaponClass.Daggers => new("layer_daggers_idle", "layer_fastattack_daggers_{0}", "ABCDE", c => c == 'E' ? null : $"layer_fastattack_daggers_end_{c}",
+            "layer_bigslash_Daggers_{0}{1}", "layer_parry_Daggers_{0}", "layer_daggers_kick_medium", "layer_state_daggers_parry_breaked",
+            "layer_combo_daggers_fall_in", "layer_combo_daggers_fall_{0}", "layer_combo_daggers_rush", "layer_combo_daggers_huge", "layer_combo_daggers_trample",
+            "daggers", Wraps: true),
+        WeaponClass.Staff => new("layer_staff_idle", "layer_fastattack_staff_{0}", "ABCD", c => c == 'D' ? null : $"layer_fastattack_staff_{c}_end",
+            "layer_bigslash_staff_{0}{1}", "layer_parry_staff_{0}", "layer_staff_kick_medium", "layer_state_staff_parry_breaked",
+            "layer_combo_staff_fall_jump_in", "layer_combo_staff_fall_{0}", "layer_combo_staff_rush", "layer_combo_staff_huge", "layer_combo_staff_trample",
+            "staff", Wraps: true),
+        _ => new("layer_sword_noshield_idle", "layer_fastattack_sword_noshield_{0}", "ABCDE", c => c is 'A' or 'E' ? "layer_fastattack_sword_noshield_end" : null,
+            "layer_bigslash_sword_noshield_{0}{1}", "layer_parry_sword_noshield_{0}", "layer_sword_noshield_kick_medium", "layer_state_sword_parry_breaked",
+            "layer_combo_sword_fall_noshield_jump_in", "layer_combo_sword_fall_noshield_{0}", "layer_combo_sword_rush_noshield", "layer_combo_sword_huge_noshield",
+            "layer_combo_sword_trample_noshield", "sword_noshield", Wraps: false),
+    };
+
+    /// <summary>
+    /// The short sword's clips, attacks at its <c>speed_attack</c> (1.10), the kick's contact window from the tuning (its
+    /// clip has no hit events), and each move's phase timing from it.
+    /// </summary>
+    internal static SwordClips From(ModelInfo model, float attackSpeed, CombatTuning tuning) => From(model, WeaponClass.Sword, attackSpeed, tuning);
+
+    /// <summary>
+    /// A weapon's clips from the first-person model for its class: attacks at its <c>speed_attack</c>, draws at the
+    /// clips' own rate (the recorded draws took their clips' length), no draw for a <paramref name="simple"/> weapon.
+    /// </summary>
+    internal static SwordClips From(ModelInfo model, WeaponClass weapon, float attackSpeed, CombatTuning tuning, bool simple = false)
+    {
+        var n = For(weapon);
         MoveClip C(string name, float rate = 1, bool loop = false) => MoveClip.Of(model.Clips[name], rate, loop);
+        MoveClip? Maybe(string name, float rate = 1, bool loop = false) => model.Clips.ContainsKey(name) ? C(name, rate, loop) : null;
+        string F(string pattern, params object[] args) => string.Format(System.Globalization.CultureInfo.InvariantCulture, pattern, args);
         var charges = new Dictionary<PowerDirection, PowerClips>();
         foreach (var direction in Enum.GetValues<PowerDirection>())
         {
             string at = direction == PowerDirection.Neutral ? "" : $"{direction}_";
-            if (!model.Clips.ContainsKey($"layer_bigslash_sword_noshield_{at}out")) continue;
-            charges[direction] = new PowerClips(C($"layer_bigslash_sword_noshield_{at}in", attackSpeed),
-                C($"layer_bigslash_sword_noshield_{at}idle", loop: true), C($"layer_bigslash_sword_noshield_{at}out", attackSpeed) with { Phases = tuning.Phases.Power });
+            if (!model.Clips.ContainsKey(F(n.Charge, at, "out"))) continue;
+            charges[direction] = new PowerClips(C(F(n.Charge, at, "in"), attackSpeed), C(F(n.Charge, at, "idle"), loop: true),
+                C(F(n.Charge, at, "out"), attackSpeed) with { Phases = tuning.Phases.Power });
         }
-        return new SwordClips(C("layer_sword_noshield_idle", loop: true), charges,
-            "ABCDE".Select(c => C($"layer_fastattack_sword_noshield_{c}", attackSpeed) with { Phases = tuning.Phases.Fast }).ToList(),
-            C("layer_fastattack_sword_noshield_end", attackSpeed),
-            C("layer_parry_sword_noshield_in"), C("layer_parry_sword_noshield_idle", loop: true), C("layer_parry_sword_noshield_out"),
-            C("layer_sword_noshield_kick_medium") with { Open = tuning.KickWindow[0], Close = tuning.KickWindow[1], Phases = tuning.Phases.Kick },
-            C("layer_state_sword_parry_breaked"),
-            model.Clips.ContainsKey("layer_combo_sword_fall_noshield_out")
-                ? new LeapClips(C("layer_combo_sword_fall_noshield_jump_in"), C("layer_combo_sword_fall_noshield_idle", loop: true),
-                    C("layer_combo_sword_fall_noshield_out"), C("layer_combo_sword_fall_noshield_cancel"))
+        var chain = n.Letters.Select(c => C(F(n.Fast, c), attackSpeed) with { Phases = tuning.Phases.Fast }).ToList();
+        var ends = n.Letters.Select(c => n.End(c) is { } end ? C(end, attackSpeed) : null).ToList();
+        return new SwordClips(C(n.Idle, loop: true), charges, chain, ends,
+            C(F(n.Parry, "in")), C(F(n.Parry, "idle"), loop: true), C(F(n.Parry, "out")),
+            C(n.Kick) with { Open = tuning.KickWindow[0], Close = tuning.KickWindow[1], Phases = tuning.Phases.Kick },
+            C(n.Broken),
+            model.Clips.ContainsKey(F(n.Leap, "out"))
+                ? new LeapClips(C(n.LeapIn), C(F(n.Leap, "idle"), loop: true), C(F(n.Leap, "out")), C(F(n.Leap, "cancel")))
                 : null,
-            model.Clips.ContainsKey("layer_combo_sword_rush_noshield") ? C("layer_combo_sword_rush_noshield") : null,
-            model.Clips.ContainsKey("layer_combo_sword_huge_noshield") ? C("layer_combo_sword_huge_noshield") : null,
-            model.Clips.ContainsKey("layer_combo_sword_trample_noshield") ? C("layer_combo_sword_trample_noshield") : null);
+            Maybe(n.Rush), Maybe(n.Huge), Maybe(n.Trample), n.Wraps,
+            simple ? null : Maybe($"layer_{n.Set}_draw"), Maybe($"layer_{n.Set}_quickdraw"), Maybe($"layer_{n.Set}_undraw"));
     }
 }
 
@@ -173,8 +222,9 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 /// that power attack (<c>_out</c>): the directional wind-ups are longer than the neutral one;</item>
 /// <item>a press while A plays chains B (<c>_B</c>) when A ends, and winds up under it: still held when B ends, the
 /// charge goes on from there, its direction picked then. With <c>combat_chained_slash</c> the chain goes on through
-/// C, D and E (<see cref="ChainLength"/>). An A or an E nothing chains onto recovers (<c>_end</c>), and a press in its
-/// second half starts A again at once;</item>
+/// C, D and E (<see cref="ChainLength"/>). An A or the last one nothing chains onto recovers (<c>_end</c>), and a press
+/// in its second half starts A again at once. The daggers' and the staff's other fast attacks recover too, each with its
+/// own (<see cref="SwordClips.Ends"/>), and a press during their last (the daggers' E, the staff's D) chains A again;</item>
 /// <item>attack pressed in a jump (in the air, or just after landing, <see cref="Landing"/>) does nothing until
 /// <see cref="AirDelay"/>, and is dropped if let go before <see cref="AirHoldMin"/>. Then, still held, in the air and with
 /// <c>combat_vertical_attack</c> (<see cref="CanLeap"/>), the jump attack winds up (<c>combo_sword_fall_*_jump_in</c>),
@@ -193,7 +243,10 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 /// from any move but a kick or a broken parry, when the caller allows it (on the ground, with stamina,
 /// <see cref="PlayerStamina"/>). Starting consumes the press;</item>
 /// <item>a broken parry staggers it (<c>layer_state_sword_parry_breaked</c>). A blow the orc parries or blocks doesn't
-/// stop the swing: the donor plays <c>layer_bounce_*</c> on none of the 23 recorded, and chains and kicks on after them.</item>
+/// stop the swing: the donor plays <c>layer_bounce_*</c> on none of the 23 recorded, and chains and kicks on after them;</item>
+/// <item>another weapon taken (<see cref="Equip"/>) puts this one away (<c>*_undraw</c>) and draws it (<c>*_draw</c>), and the
+/// weapon coming back after the hands were taken plays the quick draw (<see cref="QuickDraw"/>). Presses during either
+/// are dropped; attack still held when the draw ends winds up the power attack (#10148).</item>
 /// </list>
 /// While a move's hit window is open (<see cref="Traced"/>) the lab traces the blade every step. No Engine calls:
 /// the state and its clip and cycle are all it owns.
@@ -201,6 +254,8 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 internal sealed class PlayerSword(SwordClips clips)
 {
     SwordClips clips = clips;
+    // The weapon to draw once this one is put away (null when none is due).
+    SwordClips? drawing;
     // How long a charge has wound up under A and B (NaN when none): a press while A plays starts one.
     float under = float.NaN;
     // Seconds until a released charge's fast attack begins (NaN when none is due).
@@ -213,6 +268,8 @@ internal sealed class PlayerSword(SwordClips clips)
     float leapHeld, airHold;
 
     internal SwordMove Move { get; private set; } = SwordMove.Ready;
+    /// <summary>The weapon's clips, as last equipped or retuned.</summary>
+    internal SwordClips Clips => clips;
     internal MoveClip Clip { get; private set; } = clips.Idle;
     internal float Cycle { get; private set; }
     /// <summary>The power attack the current charge would release.</summary>
@@ -235,7 +292,9 @@ internal sealed class PlayerSword(SwordClips clips)
     /// <summary>Parrying: the guard is up (in, or held), which turns an orc's blow aside unless it breaks parries.</summary>
     internal bool Parrying => Move == SwordMove.Parry;
     /// <summary>A swing or kick is under way: the body moves at <see cref="CombatTuning.AttackMovementScale"/>.</summary>
-    internal bool Busy => Move is not (SwordMove.Ready or SwordMove.Parry);
+    internal bool Busy => Move is not (SwordMove.Ready or SwordMove.Parry or SwordMove.Undraw or SwordMove.Draw);
+    /// <summary>The weapon is being put away or drawn: no attack, parry or kick starts.</summary>
+    internal bool Drawing => Move is SwordMove.Undraw or SwordMove.Draw;
     /// <summary>True on the step a swing (not a wind-up) begins: what an orc sees coming.</summary>
     internal bool SwingStarted { get; private set; }
     /// <summary>
@@ -307,7 +366,43 @@ internal sealed class PlayerSword(SwordClips clips)
     /// </summary>
     internal const float LeapReleaseOpen = .5f;
 
-    internal void Retune(SwordClips nextClips) => clips = nextClips;
+    /// <summary>The same weapon's clips retimed (the tuning changed): the move playing goes on.</summary>
+    internal void Retune(SwordClips nextClips)
+    {
+        if (drawing is not null) drawing = nextClips;
+        else clips = nextClips;
+    }
+
+    /// <summary>
+    /// Takes another weapon: this one is put away (its <c>_undraw</c>), then <paramref name="next"/> drawn (its <c>_draw</c>,
+    /// or at once when it has none). The recorded switches drew each weapon as soon as the last was away: the short and
+    /// long sword's undraw 0.27 s, the daggers' 0.17 s, the staff's 0.33 s, then the draw for its clip's length (the
+    /// sword's 1.83 s, the daggers' 0.8 s, the staff's 1.5 s; the club none).
+    /// </summary>
+    internal void Equip(SwordClips next)
+    {
+        drawing = next;
+        under = fastIn = airSince = float.NaN;
+        if (clips.Undraw is { } undraw) Play(SwordMove.Undraw, undraw);
+        else Drawn();
+    }
+
+    /// <summary>The weapon comes back after the hands were taken (an orc's grab, 6.6 s in the recordings): the quick draw.</summary>
+    internal void QuickDraw()
+    {
+        drawing = null;
+        under = fastIn = airSince = float.NaN;
+        if (clips.QuickDraw is { } quick) Play(SwordMove.Draw, quick);
+        else Play(SwordMove.Ready, clips.Idle);
+    }
+
+    void Drawn()
+    {
+        clips = drawing ?? clips;
+        drawing = null;
+        if (clips.Draw is { } draw) Play(SwordMove.Draw, draw);
+        else Play(SwordMove.Ready, clips.Idle);
+    }
 
     /// <summary>Advances one step with the buttons as they are now (held); presses are their going down between steps.</summary>
     /// <param name="move">The movement input (side, forward), which picks a charge's direction.</param>
@@ -333,6 +428,14 @@ internal sealed class PlayerSword(SwordClips clips)
         kickWas = kickHeld;
         if (!attackHeld) under = float.NaN;
         else if (!float.IsNaN(under)) under += seconds;
+        if (Drawing)
+        {
+            // Presses while the weapon is put away or drawn are dropped (taps during the recorded draws played nothing).
+            if (!done) return;
+            if (Move == SwordMove.Undraw) Drawn();
+            else Play(SwordMove.Ready, clips.Idle);
+            return;
+        }
         if (kickWanted && mayKick && Move is not (SwordMove.Kick or SwordMove.Broken))
         {
             kickWanted = false;
@@ -397,15 +500,19 @@ internal sealed class PlayerSword(SwordClips clips)
                 else if (done && Clip == clips.ParryIn) Play(SwordMove.Parry, clips.ParryHold);
                 break;
             case SwordMove.Fast:
-                int at = ChainIndex();
-                // A press while one plays chains the next (one deep), up to the build's chain length; it also winds up under it.
-                if (attackPressed && !chained && at + 1 < Math.Min(ChainLength, clips.Chain.Count)) { chained = true; under = 0; }
+                int at = ChainIndex(), last = clips.Chain.Count - 1;
+                // A press while one plays chains the next (one deep), up to the build's chain length, or past the daggers'
+                // E or the staff's D to A again; it also winds up under it.
+                bool next = at + 1 < Math.Min(ChainLength, clips.Chain.Count) || clips.Wraps && at == last && ChainLength > last;
+                if (attackPressed && !chained && next) { chained = true; under = 0; }
                 if (!done) break;
-                if (chained) PlayFast(clips.Chain[at + 1]);
-                // A, and E (the last), recover when nothing chains onto them; the others go on winding up if attack is
-                // held, from the press under them or from now, or end ready.
-                else if (at == 0 || at == clips.Chain.Count - 1) Play(SwordMove.FastEnd, clips.FastEnd);
+                var end = clips.Ends[at];
+                if (chained) PlayFast(clips.Chain[at == last ? 0 : at + 1]);
+                // A, and the last, recover when nothing chains onto them; the others go on winding up if attack is held,
+                // from the press under them or from now, or recover (the daggers and staff), or end ready (the sword).
+                else if (end is not null && (at == 0 || at == last)) Play(SwordMove.FastEnd, end);
                 else if (attackHeld) Charge(move, float.IsNaN(under) ? 0 : under);
+                else if (end is not null) Play(SwordMove.FastEnd, end);
                 else Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.Kick:
@@ -495,6 +602,8 @@ internal sealed class PlayerSword(SwordClips clips)
 
     internal void Reset()
     {
+        if (drawing is not null) clips = drawing;
+        drawing = null;
         attackWas = kickWas = kickWanted = chained = false;
         under = fastIn = airSince = float.NaN;
         landed = float.PositiveInfinity;

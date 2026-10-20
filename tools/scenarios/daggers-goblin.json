@@ -1,11 +1,13 @@
 {
-  "description": "The kryss daggers given (owned; equipping them needs the inventory UI, so play --hand to fight with them) against a goblin with a club and shield, approached to reach: fast attacks, power attacks and kicks (#10148, #10155).",
+  "description": "The kryss daggers, drawn with every skill (their skill is what lets use equip them; #10148), against a goblin with a club and shield, approached to reach: fast attacks, power attacks and kicks (#10148, #10155).",
   "seconds": 60,
   "setup": [
     "sv_cheats 1",
     "god",
-    "give weapon_arx_short_sword",
-    "use weapon_arx_short_sword",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
     "give weapon_mm_daggers_kryss",
     "use weapon_mm_daggers_kryss",
     "setpos 0 -2400 0",

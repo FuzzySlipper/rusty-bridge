@@ -1,0 +1,156 @@
+{
+  "description": "Fights with the combat staff (staff set, fastattack A-D; reach 110) (#10148): every skill module, weapon_mm_staff_combat given and drawn, a new orc with 100000 health, approached to 65 units before each move: nine cycles of a 24-click burst (its B and C are 1 s each, so the chain reaches D), a power attack held 1.8 s (its wind-up is 1.4 s) and two single fast attacks. Then three times each a power and a fast attack, without approaching, at an unaware orc (ai_disable 1) spawned in front and turned away: does the breakneck trigger?",
+  "seconds": 200,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_mm_staff_combat",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    {
+      "wait": 0.3
+    },
+    {
+      "repeat": 9,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 65
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "repeat": 24,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 65
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "click": 1,
+          "ms": 1800
+        },
+        {
+          "wait": 3
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 65
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 0.9
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 1.2
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        "ai_disable 1",
+        "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "wait": 1
+        },
+        {
+          "click": 1,
+          "ms": 1800
+        },
+        {
+          "wait": 3
+        },
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        "ai_disable 1",
+        "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "wait": 1
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 3
+        },
+        "ai_disable 0"
+      ]
+    }
+  ]
+}

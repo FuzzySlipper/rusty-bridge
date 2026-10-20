@@ -153,8 +153,6 @@ internal static class CombatReplay
 
     internal static ReplayReport Run(LabCombat combat, InputTimeline timeline, IReplayBody? body = null)
     {
-        var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
-        string[] moves = clips.Moves.Select(m => m.Clip).ToArray();
         var log = new List<CombatEvent>();
         var labSwings = new List<DonorSwing>();
         var followed = new Dictionary<int, string>();
@@ -169,14 +167,19 @@ internal static class CombatReplay
         bool god = combat.God;
         // From v15 the replay plays the donor player's build; the lab's own comes back after.
         var ownBuild = combat.Build;
-        if (timeline.Build is { } recorded) combat.Rebuild(recorded);
+        if (timeline.Build is { } recorded) combat.Rebuild(recorded, draw: false);
         combat.Reset();
+        // The moves of the weapon the replay holds: the recording's, from v15 (#10148).
+        var clips = combat.Sword.Clips;
+        string[] moves = clips.Moves.Select(m => m.Clip).ToArray();
         // A lab blow is a critical where the donor's blow within a few ticks was: replays take the recorded roll.
         var recordedCriticals = timeline.Fight.Damage.Where(d => d.Attacker.IsPlayer && d.AttackerCritical).Select(d => d.Tick).ToArray();
         combat.RecordedCritical = tick => recordedCriticals.Any(c => Math.Abs(c - (long)tick) <= CriticalTicks);
         combat.God = true;
         combat.Log = log;
         bool grounded = true;
+        int switched = 0;
+        SwordMove lastMove = combat.Sword.Move;
         PlayerAdrenaline? shadow = null;
         int shadowTicks = 0, shadowNear = 0;
         if (driveBody) body!.Begin();
@@ -192,10 +195,14 @@ internal static class CombatReplay
                     combat.Adrenaline.Set(adrenaline, t.AdrenalineMax);
                     if (shadow is null) { shadow = new PlayerAdrenaline(); shadow.Set(adrenaline, t.AdrenalineMax); }
                 }
+                // The donor took another weapon: the lab's sword puts its own away and draws that one (#10148).
+                for (; switched < timeline.WeaponChanges.Count && timeline.WeaponChanges[switched].Tick <= t.Tick; switched++)
+                    if (LabWeapon.ClassOf(timeline.WeaponChanges[switched].Model) is not null) combat.Arm(timeline.WeaponChanges[switched].Model);
                 // With no weapon in hand the donor's player ignores attack, block and kick: so does the lab's sword.
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
-                if (combat.Sword.SwingStarted) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                lastMove = combat.Sword.Move;
                 // The gauge the lab's own blows would keep (the fight's is held to the donor's), against the donor's.
                 if (shadow is not null && t.Adrenaline is float donorGauge)
                 {
@@ -230,7 +237,7 @@ internal static class CombatReplay
             combat.Log = null;
             combat.Orc.StopFollowing();
             combat.RecordedCritical = null;
-            if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild);
+            if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild, draw: false);
             combat.Reset();
             combat.God = god;
         }
@@ -258,7 +265,9 @@ internal static class CombatReplay
                 }
             return (donor.Count, lab.Count, together);
         }
-        var moveCounts = moves.Select(InputTimeline.Family).OfType<string>().Distinct().ToDictionary(f => f, f => Pair(c => InputTimeline.Family(c) == f, lag: true));
+        // With switches, the put-aways and draws too (#10148).
+        var moveCounts = moves.Select(InputTimeline.Family).Concat(timeline.WeaponChanges.Count > 0 ? ["put away", "draw"] : []).OfType<string>().Distinct()
+            .ToDictionary(f => f, f => Pair(c => InputTimeline.Family(c) == f, lag: true));
         var byClip = timeline.Swings.Select(s => s.Clip).Concat(labSwings.Select(s => s.Clip)).Distinct()
             .ToDictionary(c => c, c => Pair(x => x == c, lag: false));
 

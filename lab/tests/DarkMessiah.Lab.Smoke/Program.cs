@@ -28,7 +28,7 @@ PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{a
 var clips = new SwordClips(M("idle", 2, true),
     new Dictionary<PowerDirection, PowerClips> { [PowerDirection.Neutral] = Charge(""), [PowerDirection.T] = Charge("T-", .7f), [PowerDirection.B] = Charge("B-"), [PowerDirection.L] = Charge("L-") },
     [M("fast", .3f, open: .33f, close: .78f), M("fast-b", .4f, open: .3f, close: .7f), M("fast-c", .4f, open: .3f, close: .7f),
-     M("fast-d", .4f, open: .3f, close: .7f), M("fast-e", .37f, open: .3f, close: .7f)], M("fast-end", .5f),
+     M("fast-d", .4f, open: .3f, close: .7f), M("fast-e", .37f, open: .3f, close: .7f)], [M("fast-end", .5f), null, null, null, M("fast-end", .5f)],
     M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("broken", .8f));
 const float Tick = 1f / 60;
 var sword = new PlayerSword(clips) { FastDelay = 0 };
@@ -416,7 +416,7 @@ host.Call(engine =>
     // Builds (#10140): build.json's, checked against mm_skills_infos.txt and the item tables.
     var own = combat.Build!;
     Check(own.Source == BuildFile.Path && own.Modules.SetEquals(["combat_big_slash", "combat_huge_slash", "combat_parry", "combat_fatality"])
-        && own.Weapon == CharacterBuild.PlayableWeapon && own.OffHand is null,
+        && own.Weapon == LabWeapon.ShortSword && own.OffHand is null,
         $"the lab plays build.json: every skill at 0 gives the combat skill's level-0 modules, as a new donor game has ({own})");
     var file = combat.BuildFile!;
     string? Refused(BuildFile f) { try { combat.BuildFrom(f); return null; } catch (InvalidOperationException e) { return e.Message; } }
@@ -427,10 +427,13 @@ host.Call(engine =>
     var chain = new Dictionary<string, int>(file.Skills) { ["combat"] = 1, ["extra_damage"] = 1, ["adrenaline"] = 1 };
     Check(Refused(file with { Skills = chain }) is null && Refused(file with { Skills = new Dictionary<string, int>(chain) { ["combat"] = 0 } }) is string chained && chained.Contains("extra_damage"),
         "with one of its requirements it's accepted, and that one needs its own (extra_damage needs combat or projectile)");
-    Check(Refused(file with { Weapon = "models/items/weapons/sword_long/sword_long.mdl" }) is string weapon && weapon.Contains("#10148")
+    Check(Refused(file with { Weapon = "models/items/weapons/sword_long/sword_long.mdl" }) is null
+        && Refused(file with { Weapon = "models/items/weapons/daggers_kryss/daggers_kryss.mdl" }) is null
+        && Refused(file with { Weapon = "models/items/weapons/staff_combat/staff_combat.mdl" }) is null
+        && Refused(file with { Weapon = "models/items/weapons/bow_classic/bow_classic.mdl" }) is string bow && bow.Contains("isn't a sword")
         && Refused(file with { OffHand = "models/items/armors/shield_orc/shield_orc.mdl" }) is string shield && shield.Contains("#10149")
         && Refused(file with { Weapon = "models/items/weapons/nothing/nothing.mdl" }) is string missing && missing.Contains("isn't an imported item"),
-        "weapons and shields the lab can't play yet are refused, naming their task; items the import lacks too");
+        "swords, daggers and staffs are played (#10148); a bow and shields aren't yet (shields naming #10149); items the import lacks are refused");
     combat.Rebuild(WithSkill("stamina", 1));
     Check(combat.Build!.Has("double_sprint") && combat.Stamina.Rules.Max == 12, $"stamina 1 gives double_sprint, and stamina's maximum becomes 12: {combat.Stamina.Rules.Max}");
     combat.Rebuild(file);
@@ -493,7 +496,7 @@ host.Call(engine =>
     // here straight from the .qct files: the lab's damage is Arkane's.
     var data = product.Donor.Combat;
     float powerPow = data.Character(DarkMessiah.Combat.CombatData.PlayerAttacksModel)!.Attack("layer_bigslash_sword_noshield_out")!.Events[0].HitPow;
-    float wdmg = data.Weapon(FirstPerson.SwordModel)!.Damage;
+    float wdmg = data.Weapon(combat.FirstPerson.SwordModel)!.Damage;
     SwingTrace? body = null;
     for (int attempt = 0; attempt < 6 && body is null; attempt++)
     {
@@ -563,6 +566,95 @@ host.Call(engine =>
         $"the player's guard meets the orc's blows: {combat.OrcStats.Parried - p0} parried, {combat.OrcStats.Broken - b0} broken");
     Advance(30);
     Check(true, $"the fight runs: {combat.Message}");
+
+    // Weapons (#10148): each class's moves from first_basic, each weapon's numbers from its .qct.
+    const string LongSword = "models/items/weapons/sword_long/sword_long.mdl", Club = "models/items/weapons/club/club.mdl",
+        Kryss = "models/items/weapons/daggers_kryss/daggers_kryss.mdl", CombatStaff = "models/items/weapons/staff_combat/staff_combat.mdl";
+    {
+        var (kryss, staffWeapon, club, longSword) = (LabWeapon.Of(donor, Kryss), LabWeapon.Of(donor, CombatStaff), LabWeapon.Of(donor, Club), LabWeapon.Of(donor, LongSword));
+        float Units(LabWeapon w) => w.Range / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        Check(kryss.Class == WeaponClass.Daggers && staffWeapon.Class == WeaponClass.Staff && club is { Class: WeaponClass.Sword, Simple: true } && longSword is { Class: WeaponClass.Sword, Simple: false }
+            && MathF.Abs(Units(kryss) - 80) < .01f && MathF.Abs(Units(staffWeapon) - 110) < .01f && MathF.Abs(Units(longSword) - 100) < .01f
+            && MathF.Abs(kryss.AttackSpeed - 1.1f) < 1e-3f && MathF.Abs(staffWeapon.AttackSpeed - 1.1f) < 1e-3f && longSword.AttackSpeed == 1 && club.AttackSpeed == 1,
+            "weapons read their class and .qct: the kryss daggers reach 80 units at speed 1.10, the combat staff 110 at 1.10, the long sword 100 at 1, the club is a simple weapon");
+        var daggerClips = combat.ClipsFor(Kryss)!;
+        var staff = combat.ClipsFor(CombatStaff)!;
+        var clubClips = combat.ClipsFor(Club)!;
+        Check(daggerClips.Chain.Select(c => c.Clip).SequenceEqual("ABCDE".Select(c => $"layer_fastattack_daggers_{c}")) && daggerClips.Wraps
+            && daggerClips.Ends.Select(e => e?.Clip).SequenceEqual(["layer_fastattack_daggers_end_A", "layer_fastattack_daggers_end_B", "layer_fastattack_daggers_end_C", "layer_fastattack_daggers_end_D", null])
+            && staff.Chain.Select(c => c.Clip).SequenceEqual("ABCD".Select(c => $"layer_fastattack_staff_{c}")) && staff.Wraps
+            && staff.Ends.Select(e => e?.Clip).SequenceEqual(["layer_fastattack_staff_A_end", "layer_fastattack_staff_B_end", "layer_fastattack_staff_C_end", null])
+            && daggerClips.Power.Clip == "layer_bigslash_Daggers_out" && staff.Power.Clip == "layer_bigslash_staff_out" && daggerClips.Charges.Count == 5 && staff.Charges.Count == 5
+            && daggerClips.Draw?.Clip == "layer_daggers_draw" && staff.Draw?.Clip == "layer_staff_draw" && clubClips.Draw is null && real.Draw?.Clip == "layer_sword_noshield_draw",
+            "the daggers chain A to E, the staff A to D, both wrapping to A, each with its own recovery but the last; both have five power attacks; the club draws at once");
+        foreach (var set in new[] { daggerClips, staff })
+            Check(set.Moves.Where(m => m != set.Whirlwind).All(m => m.Traced),
+                $"every {set.Idle.Clip.Replace("layer_", "").Replace("_idle", "")} move but the Whirlwind has a hit window: {string.Join(", ", set.Moves.Where(m => m != set.Whirlwind && !m.Traced).Select(m => m.Clip))}");
+        // Taps: A tap, then a tap as each new fast attack begins, until the sword has swungBefore `swings` times; the fast attacks it played, then how it ended.
+        (List<string> Played, SwordMove Last, string LastClip) Taps(SwordClips set, int swings, int chain = 5)
+        {
+            var s = new PlayerSword(set) { FastDelay = 0, ChainLength = chain };
+            s.Step(Tick, true, false, false);
+            s.Step(Tick, false, false, false);
+            var played = new List<string>();
+            for (int i = 0; i < 600; i++)
+            {
+                if (s.SwingStarted || i == 0 && s.Move == SwordMove.Fast) played.Add(s.Clip.Clip[^1..]);
+                bool tap = s.Move == SwordMove.Fast && s.Cycle < .5f && played.Count < swings && s.SwingStarted;
+                s.Step(Tick, tap, false, false);
+                if (tap) s.Step(Tick, false, false, false);
+                if (s.Move is SwordMove.Ready or SwordMove.FastEnd && played.Count > 0) return (played, s.Move, s.Clip.Clip);
+            }
+            return (played, s.Move, s.Clip.Clip);
+        }
+        var wrap = Taps(daggerClips, 6);
+        Check(string.Concat(wrap.Played) == "ABCDEA" && wrap.Last == SwordMove.FastEnd && wrap.LastClip == "layer_fastattack_daggers_end_A",
+            $"the daggers: a press during E chains A again (the recordings: 6 of 6), and that A recovers with end_A ({string.Concat(wrap.Played)}, then {wrap.LastClip})");
+        var threeDaggers = Taps(daggerClips, 3);
+        var oneStaff = Taps(staff, 1);
+        var threeStaff = Taps(staff, 3);
+        Check(threeDaggers.LastClip == "layer_fastattack_daggers_end_C" && oneStaff.LastClip == "layer_fastattack_staff_A_end" && threeStaff.LastClip == "layer_fastattack_staff_C_end"
+            && string.Concat(threeStaff.Played) == "ABC",
+            $"a daggers or staff chain stopped at C recovers with C's own (the recordings: end_C, C_end 9 of 9), A with A's ({threeDaggers.LastClip}, {oneStaff.LastClip}, {threeStaff.LastClip})");
+        var clubChain = Taps(clubClips, 5, chain: 2);
+        Check(string.Concat(clubChain.Played) == "AB", $"the club chains A and B only (the recordings: B to C 0 of 8; long sword 8 of 8): {string.Concat(clubChain.Played)}");
+        // Switching: the sword puts itself away, then the daggers are drawn; taps meanwhile are dropped, attack held winds up after.
+        var switching = new PlayerSword(real) { FastDelay = 0 };
+        switching.Equip(daggerClips);
+        bool undrawFirst = switching.Move == SwordMove.Undraw && switching.Clip.Clip == "layer_sword_noshield_undraw";
+        float away = 0, drawn = 0;
+        while (switching.Move == SwordMove.Undraw && away < 2) { switching.Step(Tick, false, false, false); away += Tick; }
+        bool daggersDraw = switching.Move == SwordMove.Draw && switching.Clip.Clip == "layer_daggers_draw";
+        int swungBefore = switching.Swing;
+        for (int i = 0; i < 6; i++) { switching.Step(Tick, i % 2 == 0, false, false); drawn += Tick; }
+        while (switching.Move == SwordMove.Draw && drawn < 3) { switching.Step(Tick, true, false, false); drawn += Tick; }
+        switching.Step(Tick, true, false, false);
+        Check(undrawFirst && daggersDraw && MathF.Abs(away - .267f) < .03f && MathF.Abs(drawn - .8f) < .03f && switching.Swing == swungBefore
+            && switching.Move == SwordMove.Charge && switching.Clip.Clip == "layer_bigslash_Daggers_in",
+            FormattableString.Invariant($"switching to the daggers puts the sword away ({away:0.00} s; recorded 0.27) and draws them ({drawn:0.00} s; recorded 0.84), taps meanwhile dropped, attack held winds up after: {switching.Clip.Clip}"));
+        var toClub = new PlayerSword(staff) { FastDelay = 0 };
+        toClub.Equip(clubClips);
+        float staffAway = 0;
+        while (toClub.Move == SwordMove.Undraw && staffAway < 2) { toClub.Step(Tick, false, false, false); staffAway += Tick; }
+        Check(MathF.Abs(staffAway - .333f) < .03f && toClub.Move == SwordMove.Ready && toClub.Clips == clubClips,
+            FormattableString.Invariant($"to the club: the staff away ({staffAway:0.00} s; recorded 0.33-0.39), the club in hand at once"));
+        var grabbed = new PlayerSword(real) { FastDelay = 0 };
+        grabbed.QuickDraw();
+        Check(grabbed.Move == SwordMove.Draw && grabbed.Clip.Clip == "layer_sword_noshield_quickdraw",
+            "the weapon coming back after the hands were taken plays the quick draw (the recordings: after each of 4 orc grabs)");
+        // The build's weapon: the club caps the chain at B even with the chained slash.
+        var labBuild = combat.Build!;
+        combat.Rebuild(labBuild with { Weapon = Club, Modules = new HashSet<string>(labBuild.Modules) { "combat_chained_slash" } }, draw: false);
+        bool clubCaps = combat.Sword.ChainLength == 2 && combat.Weapon.Model == Club && combat.Sword.Clips.Draw is null;
+        combat.Rebuild(labBuild with { Weapon = Kryss, Modules = new HashSet<string>(labBuild.Modules) { "combat_chained_slash" } }, draw: false);
+        bool daggersChain = combat.Sword.ChainLength == 5 && combat.Sword.Clips.Fast.Clip == "layer_fastattack_daggers_A" && combat.FirstPerson.SwordModel == Kryss;
+        combat.Rebuild(labBuild with { Weapon = CombatStaff }, draw: true);
+        bool drawing = combat.Sword.Move == SwordMove.Undraw && combat.FirstPerson.SwordModel == Kryss && combat.Weapon.Model == CombatStaff;
+        combat.Rebuild(labBuild, draw: false);
+        combat.Reset();
+        Check(clubCaps && daggersChain && drawing && combat.FirstPerson.SwordModel == LabWeapon.ShortSword,
+            "the build's weapon is the one played: the club with the chained slash still chains two, the daggers five, and a new build's weapon is drawn once the old is away");
+    }
 
     // Calibration: the lab's windows and clip rates against recorded player blows (Wire v9 and later).
     string recordings = Path.Combine(repo, "local", "recordings");
@@ -745,6 +837,61 @@ host.Call(engine =>
                 $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
         }
     }
+
+    // The other weapons' fights (#10148): their blows in each class's windows, at each weapon's speed, asking each
+    // weapon's damage, and replayed with the recording's weapon; the switches replayed with their draws.
+    string WeaponRun(string name) => Path.Combine(recordings, "experiments", $"l01_a-v17-weapon-{name}.rbrec");
+    var weaponRuns = new[] { ("long-sword", LongSword), ("club", Club), ("daggers-1", Kryss), ("daggers", Kryss), ("staff-1", CombatStaff), ("staff", CombatStaff) }
+        .Select(r => (Path: WeaponRun(r.Item1), Model: r.Item2)).Where(r => File.Exists(r.Path)).ToList();
+    if (weaponRuns.Count == 0) Console.WriteLine("skip the weapons' fights: no local/recordings/experiments/l01_a-v17-weapon-*.rbrec");
+    foreach (var group in weaponRuns.GroupBy(r => combat.ClipsFor(r.Model)!.Idle.Clip))
+    {
+        var set = combat.ClipsFor(group.First().Model)!;
+        var measured = SwordCalibration.Measure(group.Select(r => r.Path), set);
+        foreach (var move in measured.Where(m => m.Blows.Count > 0)) Console.WriteLine($"  {move}");
+        foreach (var move in measured.Where(m => m.Blows.Count >= 10))
+            Check(move.Inside >= move.Blows.Count * 8 / 10, $"{move.Clip}: recorded blows land inside the lab's window ({move.Inside} of {move.Blows.Count})");
+        foreach (var move in measured.Where(m => float.IsFinite(m.DonorCyclesPerSecond) && m.Blows.Count > 0))
+            Check(MathF.Abs(move.LabCyclesPerSecond / move.DonorCyclesPerSecond - 1) < .15f,
+                FormattableString.Invariant($"{move.Clip}: the lab plays it at the donor's rate ({move.LabCyclesPerSecond:0.00} against {move.DonorCyclesPerSecond:0.00} cycles/s)"));
+    }
+    if (weaponRuns.Count > 0)
+    {
+        var weaponDamage = DamageCalibration.Measure(weaponRuns.Select(r => r.Path), combat, real);
+        foreach (var byMove in weaponDamage.GroupBy(d => d.Move))
+            Console.WriteLine($"  damage {byMove.Key}: {byMove.Count(d => d.Agrees)} of {byMove.Count()} recorded blows ask what the lab asks");
+        foreach (var d in weaponDamage.Where(d => !d.Agrees).Take(20)) Console.WriteLine($"    {d}");
+        Check(weaponDamage.Count >= 20 && weaponDamage.Count(d => d.Agrees) >= weaponDamage.Count * 8 / 10 && weaponDamage.All(d => d.Agrees || d.Reason != "unexplained"),
+            $"each weapon's damage matches its recorded blows ({weaponDamage.Count(d => d.Agrees)} of {weaponDamage.Count}), and every difference has a known reason");
+    }
+    foreach (var (path, model) in weaponRuns)
+    {
+        var report = CombatReplay.Run(combat, path, product);
+        foreach (var line in (Environment.GetEnvironmentVariable("RB_ALL") is null ? report.Lines().Take(8) : report.Lines())) Console.WriteLine($"  {line}");
+        Check(report.Build?.Contains(model, StringComparison.Ordinal) == true, $"{report.Name}: the replay holds the recording's weapon ({model})");
+        // The power attacks where the run held them (staff-1's 1.2 s holds were shorter than the staff's wind-up: its one
+        // power attack is a jump's, pressed 0.31 s after a hop the approach made, which the replayed body doesn't make).
+        foreach (var family in new[] { "fast attack", "power attack" })
+        {
+            var m = report.Moves.GetValueOrDefault(family);
+            if (family == "power attack" && m.Donor < 5) continue;
+            Check(m.Donor > 0 && m.Together * 10 >= m.Donor * 8,
+                $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
+        }
+    }
+    string switches = WeaponRun("switch");
+    if (File.Exists(switches))
+    {
+        var report = CombatReplay.Run(combat, switches, product);
+        foreach (var line in report.Lines().Take(10)) Console.WriteLine($"  {line}");
+        foreach (var family in new[] { "put away", "draw" })
+        {
+            var m = report.Moves.GetValueOrDefault(family);
+            Check(m.Donor >= 10 && m.Together * 10 >= m.Donor * 8 && m.Lab <= m.Donor + 2,
+                $"{report.Name}: the lab's weapon is {(family == "draw" ? "drawn" : "put away")} with the donor's ({m.Together} of {m.Donor}, lab {m.Lab})");
+        }
+    }
+    else Console.WriteLine("skip the switching replay: no local/recordings/experiments/l01_a-v17-weapon-switch.rbrec");
 
     string stats = Path.Combine(recordings, "experiments", "l01_a-v15-stats.rbrec");
     if (File.Exists(stats))

@@ -51,8 +51,8 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 | What | Source |
 | --- | --- |
 | The moves' clips and their lengths | `first_basic`'s clips: frames over fps |
-| Attack playback rate | the weapon's `entity_data` `speed_attack`: 1.10 for the short sword, 0.80 for the orc's cleaver |
-| When a swing's blade is traced | the clip's events: 2186 opens the window, 2190 closes it. The T and B power attacks have neither (they start with 2170): 2107 to 2110, which bracket 2186–2190 in the clips that have both. The one recorded `B_out` blow lands inside (0.17 in 0.11–0.21); none checks T's (0.13–0.73) |
+| Attack playback rate | the weapon's `entity_data` `speed_attack`: 1.10 for the short sword, the daggers and the combat staff, 1 for the long sword and the club (none given), 0.80 for the orc's cleaver |
+| When a swing's blade is traced | the clip's events: 2186 opens the window, 2190 closes it. The T and B power attacks have neither (they start with 2170): 2107 to 2110, which bracket 2186–2190 in the clips that have both. The one recorded `B_out` blow lands inside (0.17 in 0.11–0.21); none checks T's (0.13–0.73). With neither 2190 nor 2110 (the staff's A and C, the daggers' and staff's huge slashes) the first 2102 after the open closes it; see "Weapons" |
 | Fast or power | whether the wind-up (`layer_bigslash_*_in`) has played: a release from the held idle is a power attack (see "The player's moves") |
 | Stamina | `player_basic.qct`'s `skills` block, `stamina_kick_npc`/`stamina_kick_all` in the settings, and server.dll's ConVar defaults (see "The player's moves") |
 | The kick's contact | no events in its clip. `combat.json` sets cycles 0.36–0.42; recorded kicks land at 0.38–0.41 |
@@ -84,8 +84,10 @@ slider per skill, saved back to the file):
   (Wire v15 shows exactly them).
 - **Requirements:** a skill above 0 needs one of the skills its `requires` names ("a|b" is either) above 0, and
   those need theirs: `adrenaline` needs `critical_hit` or `extra_damage`, which need `combat` or `projectile`.
-- **Items:** the weapon and the off-hand by model path, each an imported item (its `.qct`). The lab plays only the
-  short sword and no shield yet, and refuses others, naming #10148 and #10149.
+- **Items:** the weapon and the off-hand by model path, each an imported item (its `.qct`). The lab plays the swords,
+  the club, the daggers and the staffs (`models/items/weapons/sword_*`, `club`, `daggers*`, `staff_*`; see "Weapons"),
+  and no bow and no shield yet: it refuses those, a shield naming #10149. A new weapon is drawn: the one in hand is put
+  away first.
 - **Spells:** known spells by Arkane's id (`air_1`...), each in `spells.txt`; nothing reads them yet.
 
 An invalid file is refused with the field and the reason, and the last build stays. Mechanics ask the build
@@ -98,14 +100,14 @@ An invalid file is refused with the field and the reason, and the last build sta
   name, not checked against the donor.
 
 **Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats,
-and from v16 its skill levels.
-The report says what it was, and how often it changed later (the replay doesn't follow changes). After the replay
-the lab plays `build.json` again.
+and from v16 its skill levels. They follow the donor's weapon switches (see "Weapons"), not its later changes of
+modules or shield: the report says how often those changed. After the replay the lab plays `build.json` again.
 
 ## The player's moves
 
-`PlayerSword` plays the short sword's moves as the hand-played arena fights show them
-(`l01_a-v14-arena-hand*.rbrec`, read from the v14 commands against the view-model layers).
+`PlayerSword` plays the weapon's moves as the hand-played arena fights show them for the short sword
+(`l01_a-v14-arena-hand*.rbrec`, read from the v14 commands against the view-model layers), with each weapon class's
+clips and differences (see "Weapons").
 
 ### Fast and power attacks
 
@@ -146,6 +148,45 @@ the lab plays `build.json` again.
 - **A parried blow doesn't stop the swing.** The donor plays `layer_bounce_*` on none of the 23 player blows its
   orcs parried or blocked in the arena recordings, and chains and kicks on after them. The lab played a bounce
   there until #10131, which cut off the hand fights' chains.
+
+### Weapons
+
+`first_basic` has a move set per weapon class, and the build's weapon picks it (`LabWeapon`, `SwordClips.From`;
+#10148). The class follows the weapon's folder, as the game's entity classes do for every weapon recorded:
+`sword_*` and `club` play `sword_noshield`'s clips, `daggers*` the daggers', `staff_*` the staff's. Each weapon's own
+numbers come from its `.qct`'s `entity_data`: `rangeattack`, `speed_attack`, `WDmg`, `WCritHit` and `simple_weapon`.
+
+| Weapon | Class | `WDmg` | Reach | Speed | Fast attacks |
+| --- | --- | --- | --- | --- | --- |
+| Short sword, long sword | sword | 2, 3 | 100 units | 1.10, 1 | A to E with `combat_chained_slash` |
+| Club | sword, `simple_weapon` | 3 | 100 | 1 | A and B only |
+| Kryss daggers | daggers | 2 | 80 | 1.10 | A to E, then A again |
+| Combat staff | staff | 2 | 110 | 1.10 | A to D, then A again |
+
+The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.rbrec`) show where the classes differ:
+- **Equipping in a scenario:** `give` then `use` draws a weapon only with its skill (`mm_player_skills_grosbill 1`
+  gives every one; the staff, the daggers and the heavier swords need theirs).
+- **The chain:** the daggers chain A to E and the staff A to D, and a press during the last chains A again (the
+  daggers' E 6 of 6, the staff's D 8 of 8). The club chains A and B only, every chained-slash module learned (B to C 0
+  of 8 bursts; the long sword 8 of 8): the lab caps a simple weapon's chain at two.
+- **The recoveries:** the sword recovers with its one `fastattack_*_end` after A or E (as before). The daggers and the
+  staff have one per letter (`end_A` to `end_D`, `A_end` to `C_end`): wherever their chain stops, that letter's plays
+  (A 28 and 23 times, C 1 and 9, D 1), and the next press from its second half starts A.
+- **Power attacks:** five each, as the sword's. The staff's wind-up is 1.54 s (1.40 s at its speed): the first staff
+  run's 1.2 s holds were all released before it, and all made fast attacks.
+- **Hit windows:** the daggers' all have 2186 and 2190 but the huge slash; the staff's A and C close at 2102 (see
+  "Where the numbers come from").
+- **Switching** (`weapon-switch`): `use` on another weapon puts the one in hand away (`*_undraw`, at the clip's own
+  rate: the sword's 0.27 s, the daggers' 0.17 s, the staff's 0.33 s), then draws the new one as soon as the old is
+  away (`*_draw`: the sword's 1.83 s, the daggers' 0.8 s, the staff's 1.5 s). The club comes to hand without a draw.
+  Taps during either are dropped; attack held through the draw winds up the power attack as it ends.
+  `PlayerSword.Equip` plays this, and the weapon's model changes as its draw begins.
+- **The quick draw** (`*_quickdraw`) isn't a switch: it plays when the weapon comes back after the hands were empty,
+  6.6 s after each of the orc's `attack_grab`s in the long-sword run (4 of 4). The lab's orc doesn't grab yet, so
+  nothing calls `PlayerSword.QuickDraw`.
+- **Not seen:** the daggers' backstab readies by itself (`backstab_in`, `backstab_idle`) when the player stands behind
+  an orc, and cancels (`backstab_cancel`) as the player moves; no scripted press landed one, so the lab plays none.
+  No staff run showed the breakneck.
 
 ### The jump attack
 
@@ -357,6 +398,24 @@ sprinting first).
 | Rush attack, windows 0.09–0.17 and 0.47–0.57 | 4 of 4 (cycles 0.09–0.49) | 0.51 against 0.50 cycles/s |
 | Huge slash (the Fatality), windows 0.14–0.22 and 0.40–0.48 | 13 of 13 (cycles 0.15–0.45) | 0.48 against 0.47 cycles/s |
 
+**The other weapons (#10148)** calibrate on their scenario fights (`l01_a-v17-weapon-*`), each class's clips at each
+weapon's speed. The long sword and the club (speed 1) put 32 of 32 A blows, 19 of 19 B, 7, 9 and 7 of C to E and 11 of 11
+power blows inside the sword's windows, at 3.33 against 3.10 cycles/s for A (the short sword's are 3.67 against 3.50:
+the donor plays every class's clips 2 to 7% slower than their frames say).
+
+| Move | Recorded blows inside the window (±0.06) | Clip rate, lab against donor |
+| --- | --- | --- |
+| Daggers A to E | 30 of 31, 13 of 13, 6 of 6, 8 of 8, 5 of 5 | A 4.71 against 4.53; E 1.50 against 1.50 cycles/s |
+| Daggers' power attack, windows 0.13–0.23 and 0.50–0.63 | 21 of 23 | 0.83 against 0.83 cycles/s |
+| Daggers' huge slash, windows 0.15–0.22 and 0.49–1.00 | 2 of 2 (cycles 0.22 and 0.57) | 0.73 against 0.73 cycles/s |
+| Staff A, window 0.57–0.79 (2186 to 2102) | 29 of 29 (cycles 0.60–0.81) | 2.36 against 2.31 cycles/s |
+| Staff B, C (2186 to 2102) and D | 8 of 8, 9 of 9, 3 of 3 | 1.10, 1.10, 0.77 against 1.08, 1.09, 0.77 cycles/s |
+| Staff's power attack, windows 0.15–0.20 and 0.48–0.56 | 5 of 5 | 0.40 against 0.40 cycles/s |
+
+Their damage, asked with each blow's weapon (`WDmg` 3 for the long sword and the club, 2 for the daggers and the
+staff), agrees on every sword and daggers blow (36 and 46). Of the staff's 51, 26 agree; the others are the orc's state:
+stunned (the staff's blows stun: ×1.5, from server.dll, not the settings), getting up (×2) or not alert (×3).
+
 **A blow belongs to the newest move.** A kick can start while a power
 attack's layer is still fading out under it. Credited to the first layer
 listed, seven kicks counted as power blows late in the power clip
@@ -367,7 +426,7 @@ show kicks cutting into charges and swings anywhere, so the lab's kick may cut
 off any move but another kick or a broken parry.
 
 **Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast, power, jump
-and rush attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
+and rush attacks with any weapon the lab plays, by the one in hand then, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
 recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
 whose `HitPow` comes from `first_basic.qct` like the others', and with the recording's player strength (from v16, its
 `extra_damage` level; docs/combat.md, "The player's strength"), and the recorded critical. 278 of 289 agree:
@@ -475,7 +534,8 @@ of 46 began together. After #10131 it began 21 and 35 fast attacks to the donor'
 - **No weapon in hand:** from 115491 to about 115890 the first fight's view model shows no layer at all, until a
   quick draw (`layer_sword_noshield_quickdraw`): the sword was away, and the donor ignored 30 attack presses and two
   kick requests. The replay now feeds the lab's sword no attack, block or kick while the donor's view model shows no
-  layer but the quick draw (`ReplayTick.Armed`). The lab doesn't put its sword away (#10148, quick draw).
+  layer but the quick draw (`ReplayTick.Armed`). The lab's sword doesn't go away there: that was an orc's grab, which
+  the lab's orc doesn't make (see "Weapons", the quick draw).
 - **The jump attack:** above, "Attack in the air" and "The jump attack". Its rules from #10144 (the wait, the
   landing window, no parry in the air) keep both fights where #10142 left them.
 - **When A begins:** above.
@@ -496,6 +556,19 @@ move (`layer_behead_*_out`, 129270) the lab plays as the neutral power attack.
 | | power attacks | 44 of 44, lab 44 |
 | `l01_a-v16-whirlwind` | Whirlwinds | 1 of 1, lab 2 |
 | | power attacks | 15 of 15, lab 15 |
+
+**The other weapons (#10148)**, replayed from their scenarios with the recordings' weapons:
+
+| Recording | Fast attacks begun together, lab | Power attacks |
+| --- | --- | --- |
+| `l01_a-v17-weapon-long-sword` | 47 of 47, lab 51 | 5 of 5, lab 5 |
+| `l01_a-v17-weapon-club` | 43 of 45, lab 49 | 7 of 7, lab 7 |
+| `l01_a-v17-weapon-daggers-1`, `-daggers` | 64 of 65, lab 75; 62 of 62, lab 64 | 11 of 11; 11 of 12 |
+| `l01_a-v17-weapon-staff-1`, `-staff` | 48 of 50, lab 51; 76 of 78, lab 81 | the first run's one is a jump's; 10 of 11 |
+| `l01_a-v17-weapon-switch` | 6 of 6 | 4 of 4; put away 24 of 24, drawn 18 of 18 |
+
+Replays follow the donor's switches (`InputTimeline.WeaponChanges`): the lab's sword puts its weapon away as the
+donor's undraw begins, since the weapon on the Wire changes only as the draw does.
 
 Replays hold the lab's adrenaline to the recording's each tick (`ReplayTick.Adrenaline`): the donor also fills it on
 blows the lab doesn't follow.
@@ -599,7 +672,8 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - the disarm (above), the behead's trigger, and the quick draw;
+  - the disarm (above), the behead's trigger, and the quick draw after an orc's grab;
+  - the daggers' backstab and the staff's breakneck (see "Weapons");
   - the shield-holding moves.
 - **Stamina:** what empty stamina does to the sprint (the lab stops it at 0), and the costs of parrying, blocking and dodging
   (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.

@@ -82,7 +82,7 @@ internal sealed class LabCombat : IDisposable
         sweep = new HitSweep(engine, session);
         model = new CombatModel(donor.Combat);
         FirstPerson = new FirstPerson(engine, donor);
-        Sword = new PlayerSword(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, tuning));
+        Sword = new PlayerSword(FirstPerson.Clips(FirstPerson.Weapon, tuning));
         Orc = new Orc(engine, donor, tuning.Orc);
         this.donor = donor;
         staminaRules = StaminaRules.From(donor);
@@ -98,29 +98,72 @@ internal sealed class LabCombat : IDisposable
     internal CharacterBuild? Build { get; private set; }
 
     /// <summary>
-    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry, the chained slash, the jump and rush attacks).
+    /// Plays <paramref name="build"/>: stamina takes its maximum, the hand its weapon (<see cref="Arm"/>; a weapon the lab
+    /// doesn't play, or none, keeps the one in hand), and the sword its gated moves (the parry, the chained slash, the
+    /// jump and rush attacks).
     /// </summary>
-    internal void Rebuild(CharacterBuild build)
+    internal void Rebuild(CharacterBuild build, bool draw = true)
     {
         Build = build;
         Stamina.Retune(staminaRules.For(build));
+        if (LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
         Sword.CanParry = build.Has("combat_parry");
-        Sword.ChainLength = build.Has("combat_chained_slash") ? 5 : 2;
+        Sword.ChainLength = Weapon.Simple ? 2 : build.Has("combat_chained_slash") ? 5 : 2;
         Sword.CanLeap = build.Has("combat_vertical_attack");
         Sword.CanRush = build.Has("combat_rush_attack");
         canFatality = build.Has("combat_fatality");
         Sword.CanWhirl = build.Has("combat_trample");
     }
 
+    readonly Dictionary<string, SwordClips?> weaponClips = new(StringComparer.Ordinal);
+
+    /// <summary>A weapon's clips at the tuning the lab started with, by its model; null for one the lab doesn't play (the calibrations' move sets).</summary>
+    internal SwordClips? ClipsFor(string model)
+    {
+        model = RustyBridge.Wire.Donor.VpkIndex.Normalize(model);
+        if (!weaponClips.TryGetValue(model, out var clips))
+            weaponClips[model] = clips = LabWeapon.ClassOf(model) is null ? null : FirstPerson.Clips(LabWeapon.Of(donor, model), Tuning);
+        return clips;
+    }
+
+    /// <summary>The weapon the hand holds, or is drawing: the build's.</summary>
+    internal LabWeapon Weapon => drawing ?? FirstPerson.Weapon;
+    // The weapon being drawn once the one in hand is put away (null when none is).
+    LabWeapon? drawing;
+
+    /// <summary>
+    /// Takes <paramref name="model"/> in hand: the sword puts the one in hand away and draws it (<see cref="PlayerSword.Equip"/>),
+    /// its model in the hand once the old one is away; or, not <paramref name="draw"/>ing (a replay's start), at once.
+    /// </summary>
+    internal void Arm(string model, bool draw = true)
+    {
+        var weapon = LabWeapon.Of(donor, model);
+        if (weapon.Model == Weapon.Model) return;
+        Sword.ChainLength = weapon.Simple ? 2 : Build?.Has("combat_chained_slash") == true ? 5 : 2;
+        if (!draw)
+        {
+            drawing = null;
+            FirstPerson.Equip(weapon);
+            Sword.Retune(FirstPerson.Clips(weapon, Tuning));
+            Sword.Reset();
+            return;
+        }
+        drawing = weapon;
+        Sword.Equip(FirstPerson.Clips(weapon, Tuning));
+    }
+
     /// <summary>The authored build the lab plays (<c>build.json</c>), as last applied; replays play the recording's for their length.</summary>
     internal BuildFile? BuildFile { get; private set; }
 
-    /// <summary>Plays the build an authored file describes, checked first: an invalid file throws and changes nothing.</summary>
-    internal void Rebuild(BuildFile file)
+    /// <summary>
+    /// Plays the build an authored file describes, checked first: an invalid file throws and changes nothing. Its weapon
+    /// is drawn (a switch), or put in hand at once when not <paramref name="draw"/>ing (the lab starting).
+    /// </summary>
+    internal void Rebuild(BuildFile file, bool draw = true)
     {
         var build = BuildFrom(file);
         BuildFile = file;
-        Rebuild(build);
+        Rebuild(build, draw);
     }
 
     /// <summary>The donor's skills, for the build page.</summary>
@@ -152,7 +195,7 @@ internal sealed class LabCombat : IDisposable
     internal void Retune(CombatTuning next)
     {
         Tuning = next;
-        Sword.Retune(SwordClips.From(FirstPerson.ArmsModel.Info, FirstPerson.AttackSpeed, next));
+        Sword.Retune(FirstPerson.Clips(Weapon, next));
         Orc.Retune(next.Orc);
     }
 
@@ -173,6 +216,12 @@ internal sealed class LabCombat : IDisposable
         Stamina.Step(seconds, sprinting);
         Sword.Fatal = canFatality && Adrenaline.Full;
         Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
+        // The old weapon is away: the new one is in the hand as its draw begins.
+        if (drawing is { } next && Sword.Move != SwordMove.Undraw)
+        {
+            FirstPerson.Equip(next);
+            drawing = null;
+        }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
@@ -347,20 +396,22 @@ internal sealed class LabCombat : IDisposable
     }
 
     /// <summary>
-    /// What the player's blow asks, as the lab asks it: the short sword's swing by the move's clip, or a kick, on a
+    /// What the player's blow asks, as the lab asks it: the weapon's swing by the move's clip, or a kick, on a
     /// victim it takes as alert (its orc always is) and without a critical (the lab rolls none). The damage
     /// calibration asks the same of recorded blows.
     /// </summary>
     /// <param name="strength">The player's strength; null for the build's (<see cref="PlayerStrength"/>).</param>
     /// <param name="critical">The blow is a critical (×2): the lab's roll, or a recorded one.</param>
-    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false) => (kick
+    /// <param name="weapon">The weapon's model; null for the one in hand.</param>
+    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false,
+        string? weapon = null) => (kick
         ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false, VictimAlert: 3))
-        : model.Damage(new DamageCase(0, victim, player, "weapon_arx_short_sword", group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3, AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+        : model.Damage(new DamageCase(0, victim, player, weapon ?? FirstPerson.SwordModel, group, 0x4, 0, 0, victimHealth, victimHealth, false,
+            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: 3, AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
 
     /// <summary>
     /// The player's critical chance, percent, on a blow whose move may critical: from the build's <c>critical_hit</c>
-    /// level and the sword's <c>WCritHit</c> (<see cref="CombatData.PlayerCriticalChance"/>; 2 for a new game, 12 at level 2).
+    /// level and the weapon's <c>WCritHit</c> (<see cref="CombatData.PlayerCriticalChance"/>; 2 for a new game, 12 at level 2).
     /// </summary>
     internal float CriticalChance => model.Data.PlayerCriticalChance(Build?.Level("critical_hit") ?? 0,
         model.Data.Weapon(FirstPerson.SwordModel)?.CriticalChance ?? 0);

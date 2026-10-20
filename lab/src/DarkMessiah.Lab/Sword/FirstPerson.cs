@@ -6,35 +6,61 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Sword;
 
 /// <summary>
-/// The player's first-person arms and short sword, as Dark Messiah draws them: Arkane's <c>first_basic</c> arms with
-/// the move's clip laid over their idle, placed so their <c>eyes</c> attachment sits at the camera, and the sword on
-/// their <c>RightHand</c>. It also places the blade for the swing traces: the donor traces from the eye toward the
-/// blade, out to the weapon's <c>rangeattack</c> (100 units for the short sword), and records each blow's trace that way.
+/// The player's first-person arms and weapon, as Dark Messiah draws them: Arkane's <c>first_basic</c> arms with the
+/// move's clip laid over their class's idle, placed so their <c>eyes</c> attachment sits at the camera, and the weapon
+/// (the build's, <see cref="Equip"/>; the short sword until one is) on their <c>RightHand</c>. It also places the blade
+/// for the swing traces: the donor traces from the eye toward the blade, out to the weapon's <c>rangeattack</c> (100
+/// units for the short sword), and records each blow's trace that way.
 /// </summary>
 internal sealed class FirstPerson : IDisposable
 {
-    internal const string SwordModel = "models/Items/Weapons/Sword_Short/Sword_Short.mdl";
     internal const ulong ArmsId = 0x4C41_0001, SwordId = 0x4C41_0002;
+    // The weapons taken after the first, one id each.
+    const ulong OtherWeaponIds = 0x4C41_0100;
 
     readonly IEngineContext engine;
-    readonly Puppet arms, sword;
-    readonly (string Joint, Vector3 Tip) blade;
+    readonly DonorContent donor;
+    readonly Puppet arms;
+    // One puppet per weapon taken: the engine keeps an appearance it has published, so a weapon put away stays loaded, unpublished.
+    readonly Dictionary<string, Puppet> weapons = new(StringComparer.Ordinal);
+    Puppet sword;
+    (string Joint, Vector3 Tip) blade;
     float idleCycle;
 
     internal FirstPerson(IEngineContext engine, DonorContent donor)
     {
         this.engine = engine;
+        this.donor = donor;
         arms = new Puppet(engine, donor.Model(SwordClips.Model), ArmsId);
-        sword = new Puppet(engine, donor.Model(SwordModel), SwordId);
+        Weapon = LabWeapon.Of(donor, LabWeapon.ShortSword);
+        sword = weapons[Weapon.Model] = new Puppet(engine, donor.Model(Weapon.Model), SwordId);
         blade = Rig.BladeTip(sword.Model.Info);
-        Range = (donor.Number(SwordModel, "entity_data", "rangeattack") ?? 100) * SourceSpace.MetresPerUnit;
-        AttackSpeed = donor.Number(SwordModel, "entity_data", "speed_attack") ?? 1;
     }
 
-    /// <summary>The sword's attack range, metres: its <c>rangeattack</c>.</summary>
-    internal float Range { get; }
-    /// <summary>The sword's <c>speed_attack</c>: its attack clips' playback rate.</summary>
-    internal float AttackSpeed { get; }
+    /// <summary>The weapon in hand: its model, class and numbers.</summary>
+    internal LabWeapon Weapon { get; private set; }
+    /// <summary>The weapon's model path, which the combat model reads its <c>WDmg</c> and <c>WCritHit</c> by.</summary>
+    internal string SwordModel => Weapon.Model;
+    /// <summary>The weapon's attack range, metres: its <c>rangeattack</c>.</summary>
+    internal float Range => Weapon.Range;
+    /// <summary>The weapon's <c>speed_attack</c>: its attack clips' playback rate.</summary>
+    internal float AttackSpeed => Weapon.AttackSpeed;
+
+    /// <summary>Puts <paramref name="weapon"/> in the hand: its model is drawn from now.</summary>
+    internal void Equip(LabWeapon weapon)
+    {
+        if (weapon.Model == Weapon.Model) return;
+        Weapon = weapon;
+        if (!weapons.TryGetValue(weapon.Model, out var puppet))
+            weapons[weapon.Model] = puppet = new Puppet(engine, donor.Model(weapon.Model), OtherWeaponIds + (ulong)weapons.Count);
+        sword = puppet;
+        blade = Rig.BladeTip(sword.Model.Info);
+    }
+
+    /// <summary>A weapon's clips from the arms' model for its class, at its speed.</summary>
+    internal SwordClips Clips(LabWeapon weapon, CombatTuning tuning) =>
+        SwordClips.From(ArmsModel.Info, weapon.Class, weapon.AttackSpeed, tuning, weapon.Simple);
+
     internal DonorModel ArmsModel => arms.Model;
     /// <summary>Where the blade's tip is, as last posed.</summary>
     internal Vector3 Tip { get; private set; }
@@ -47,7 +73,7 @@ internal sealed class FirstPerson : IDisposable
     /// </summary>
     internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward)
     {
-        var idle = arms.Model.Clip("layer_sword_noshield_idle");
+        var idle = arms.Model.Clip(move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
         if (move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
@@ -74,6 +100,6 @@ internal sealed class FirstPerson : IDisposable
     public void Dispose()
     {
         arms.Dispose();
-        sword.Dispose();
+        foreach (var weapon in weapons.Values) weapon.Dispose();
     }
 }

@@ -60,27 +60,37 @@ internal sealed class InputTimeline
     internal bool HasCommands { get; private init; }
     /// <summary>
     /// From Wire v15, the donor player's build at the first frame with stats (<see cref="CharacterBuild.FromRecording"/>);
-    /// null before v15. <see cref="BuildChanges"/> counts later changes to its modules or items, which the replay doesn't follow.
+    /// null before v15. <see cref="BuildChanges"/> counts later changes to its modules or shield, which the replay doesn't
+    /// follow; the weapon's it does (<see cref="WeaponChanges"/>).
     /// </summary>
     internal CharacterBuild? Build { get; private init; }
     internal int BuildChanges { get; private init; }
+    /// <summary>
+    /// From Wire v15, each switch to another weapon (#10148): the model taken, and the tick the donor began putting the
+    /// last one away (its <c>_undraw</c> starting; the weapon on the Wire changes only as the draw begins). Hands emptied
+    /// and filled again with the same weapon (an orc's grab) aren't switches.
+    /// </summary>
+    internal IReadOnlyList<(int Tick, string Model)> WeaponChanges { get; private init; } = [];
     /// <summary>Recorded frames without input (older Wire, or no player): not replayed.</summary>
     internal int Skipped { get; private init; }
 
     /// <summary>
     /// The move family a first-person clip plays: Dark Messiah's fast attacks (A to E), its power attacks' releases (the
     /// neutral one and the directional T, B, L and R ones), its kicks, the jump attack's strike (<c>combo_*_fall_*_out</c>)
-    /// the rush attack (<c>combo_*_rush_*</c>) and the Fatality (<c>combo_*_huge_*</c>, <c>behead_*_out</c>) and the Whirlwind (<c>combo_*_trample_*</c>). Null for
-    /// anything else (charges, idles, parries, movement).
+    /// the rush attack (<c>combo_*_rush_*</c>) and the Fatality (<c>combo_*_huge_*</c>, <c>behead_*_out</c>) and the Whirlwind (<c>combo_*_trample_*</c>),
+    /// and a weapon put away (<c>*_undraw</c>) or drawn (<c>*_draw</c>; not the quick draw). Null for anything else (charges,
+    /// idles, parries, movement).
     /// </summary>
     internal static string? Family(string clip) =>
-        clip.Contains("fastattack", StringComparison.Ordinal) && !clip.EndsWith("_end", StringComparison.Ordinal) ? "fast attack"
+        clip.Contains("fastattack", StringComparison.Ordinal) && !clip.Contains("_end", StringComparison.Ordinal) ? "fast attack"
         : clip.Contains("bigslash", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "power attack"
         : clip.Contains("kick", StringComparison.Ordinal) ? "kick"
         : clip.Contains("_fall_", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "jump attack"
-        : clip.Contains("combo_sword_rush", StringComparison.Ordinal) ? "rush attack"
-        : clip.Contains("combo_sword_huge", StringComparison.Ordinal) || clip.Contains("behead", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "fatality"
-        : clip.Contains("combo_sword_trample", StringComparison.Ordinal) ? "whirlwind"
+        : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_rush", StringComparison.Ordinal) ? "rush attack"
+        : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_huge", StringComparison.Ordinal) || clip.Contains("behead", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "fatality"
+        : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_trample", StringComparison.Ordinal) ? "whirlwind"
+        : clip.EndsWith("_undraw", StringComparison.Ordinal) ? "put away"
+        : clip.EndsWith("_draw", StringComparison.Ordinal) ? "draw"
         : null;
 
     /// <param name="moves">The lab's first-person clips (fast, power, kick); the donor's moves are their families' clips, variants included.</param>
@@ -98,7 +108,9 @@ internal sealed class InputTimeline
         bool commands = false;
         CharacterBuild? build = null;
         int buildChanges = 0;
-        (SkillModules, string?, string?) lastKit = default;
+        (SkillModules, string?) lastKit = default;
+        var weaponChanges = new List<(int, string)>();
+        string? lastWeapon = null;
         var lastCommand = (Buttons: InputButtons.None, Actions: PlayerActions.None);
         using (var stream = File.OpenRead(path))
             foreach (var f in RecordingReader.Frames(stream))
@@ -111,10 +123,18 @@ internal sealed class InputTimeline
                 if (f.Version >= 15 && f.Stats.Valid != 0)
                 {
                     string? Model(ushort index) => index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var e) ? f.Models.GetValueOrDefault(e.ModelIndex) : null;
-                    var kit = (f.Stats.Modules, Model(f.Stats.Weapon), Model(f.Stats.Shield));
-                    if (build is null) build = CharacterBuild.FromRecording(f.Stats, f.Version, kit.Item2, kit.Item3, Path.GetFileName(path));
+                    var kit = (f.Stats.Modules, Model(f.Stats.Shield));
+                    string? weapon = Model(f.Stats.Weapon);
+                    if (build is null) build = CharacterBuild.FromRecording(f.Stats, f.Version, weapon, kit.Item2, Path.GetFileName(path));
                     else if (kit != lastKit) buildChanges++;
                     lastKit = kit;
+                    if (weapon is not null && lastWeapon is not null && weapon != lastWeapon)
+                    {
+                        // From the put-away that began within the last second, else now.
+                        var away = swings.LastOrDefault(s => Family(s.Clip) == "put away" && s.Tick <= f.Tick && f.Tick - s.Tick < 1 / f.TickInterval);
+                        weaponChanges.Add((away?.Tick ?? f.Tick, weapon));
+                    }
+                    if (weapon is not null) lastWeapon = weapon;
                 }
                 var view = f.ClientView;
                 if (f.Version < 12 || f.Input.Valid == 0 || !view.Flags.HasFlag(ClientViewFlags.Player) || !view.Flags.HasFlag(ClientViewFlags.ViewAngles))
@@ -177,7 +197,7 @@ internal sealed class InputTimeline
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
         return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands,
-            Build = build, BuildChanges = buildChanges };
+            Build = build, BuildChanges = buildChanges, WeaponChanges = weaponChanges };
     }
 
     /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>

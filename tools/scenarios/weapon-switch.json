@@ -1,0 +1,459 @@
+{
+  "description": "Weapon switching and quick draw (#10148): every skill module, the long sword, kryss daggers, combat staff and club given, a new orc with 100000 health. Switch through them with use and attack 0, 0.3 or 0.8 s after the switch (two fast clicks, then a held power attack): how long a draw takes, and whether an attack during the draw is a quick draw.",
+  "seconds": 150,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_long_sword",
+    "give weapon_mm_daggers_kryss",
+    "give weapon_mm_staff_combat",
+    "give weapon_arxclub",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    {
+      "wait": 0.3
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.12
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 2.2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_daggers_kryss",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arxclub",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    "use weapon_arx_long_sword",
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 1200
+    },
+    {
+      "wait": 2
+    }
+  ]
+}

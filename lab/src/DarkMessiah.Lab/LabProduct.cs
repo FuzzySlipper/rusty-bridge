@@ -57,7 +57,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
-        combat.Rebuild(BuildFile.Load(engine));
+        combat.Rebuild(BuildFile.Load(engine), draw: false);
         time = new WorldTime(engine);
         developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);
         hud = engine.Ui.OpenStream(new UiStreamRequest("darkmessiah-lab", "rusty-bridge.lab.hud"));

@@ -94,6 +94,58 @@ while the player is mounted.
 - Arkane's `valve.rc` does not exec `autoexec.cfg`, so binds have to come
   from the console.
 
+## Scenarios
+
+`rbwire scenario NAME` stages one mechanic and records it, from one command on den-win11. Run it through the
+desktop helper so it outlives the SSH session and its input reaches the game:
+
+```
+ssh den-win11 'C:\Users\agent\crew\bin\run-on-desktop.ps1 -NoWait -Command "C:\Users\agent\rusty-bridge\rbwire\rbwire.exe scenario chained-slash"'
+```
+
+**What it does:**
+1. **Launch:** closes a running game (unless `--reuse`) and starts `mm.exe -game mm -steam` straight into `rb_start`
+   (below, "A save past the ride"), with Steam's app id in the environment (`SteamAppId`/`SteamGameId` 2100; without
+   them the game can't mount its content). Steam's own launch options are left alone, and no Steam restart is needed.
+2. **The level:** waits for the tap log's `dump (level+5s)` line.
+3. **Setup:** sends the scenario's console lines through the tap's control file, one at a time.
+4. **Record and play:** records for the scenario's seconds to `C:\Users\agent\rusty-bridge\recordings\l01_a-v<Wire version>-NAME.rbrec`
+   (or `--out`), and meanwhile plays its scripted input through the playtest agent's desktop lease. With `--hand`, or a
+   scenario without `play`, it records without input while someone plays over Moonlight.
+5. **The log:** everything it does goes to the recording's `.log` beside it; `rbwire info` follows on the console.
+
+**Input only to the game.** Before every input step the game must be running and in front (it is brought forward
+once if not); otherwise the input stops and the recording carries on. A dead game leaves other agents' windows in
+front, and input would land in them.
+
+**Scenario files** are `tools/scenarios/NAME.json`, copied beside rbwire as `scenarios/` when it's published
+(`dotnet publish wire/RustyBridge.Wire.Cli -c Release -o C:\Users\agent\rusty-bridge\rbwire`):
+- `description`, `seconds` (default 60), `launch` (the game's arguments; default the `rb_start` ones);
+- `setup`: console lines, `{"wait": seconds}`, and `{"approach": "npc_goblin", "distance": 60}`, which puts the player
+  that many units in front of the nearest living NPC of that class on the Wire, facing it. NPCs spawned with
+  `mm_npc_create` land where the view points, often out of reach;
+- `play`: console lines, `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
+  digits, `SPACE`, `SHIFT`, `CTRL`, `ALT`, `ESC`, `ENTER`, `TAB` or virtual-key codes), `{"wait": seconds}` and
+  `{"repeat": n, "steps": [...]}`.
+
+To add one, copy a file, change its setup and play, publish, and run it. Recordings of skills or items other than
+the arena's go in `local/recordings/experiments/` (the lab's replays of `local/recordings` expect fights).
+
+| Scenario | Setup | Play |
+| --- | --- | --- |
+| `chained-slash` | every skill module, the short sword, one orc held still (`ai_disable 1`) and approached | 10 bursts of 8 quick clicks, then 3 kicks |
+| `daggers-goblin` | the short sword in hand, the kryss daggers given, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
+| `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
+
+**What the console can't stage:**
+- **Skills one by one:** only `mm_player_skills_grosbill 1` (every module) or none. `skills_set` and `skills_add`
+  are item data keys, not commands; learning a skill is the character sheet's. Wire v15 records which modules the
+  player had either way.
+- **Daggers and spells in hand:** `give` puts them in the inventory (the daggers' two entities are owned by the
+  player), but `use`, `mm_previtem` and `mm_nextitem` don't equip them. That takes the inventory and belt UI, so play
+  those with `--hand`. `give spell_fire_1` and `give spell_air_3` equip, but clicking them doesn't cast.
+- **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down.
+
 ## A save past the ride
 
 l01_a opens with a two-minute horse ride, and `setpos` is ignored while the player is mounted. To skip it, there is a save just after the ride:

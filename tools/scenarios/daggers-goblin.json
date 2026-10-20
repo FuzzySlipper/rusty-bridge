@@ -1,0 +1,63 @@
+{
+  "description": "The kryss daggers given (owned; equipping them needs the inventory UI, so play --hand to fight with them) against a goblin with a club and shield, approached to reach: fast attacks, power attacks and kicks (#10148, #10155).",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "give weapon_mm_daggers_kryss",
+    "use weapon_mm_daggers_kryss",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_goblin models/NPC/Goblin/Npc_Goblin.mdl weapon_arxclub weapon_mm_shield_gob",
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_goblin",
+      "distance": 60
+    },
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "repeat": 6,
+      "steps": [
+        {
+          "repeat": 3,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 80
+            },
+            {
+              "wait": 0.6
+            }
+          ]
+        },
+        {
+          "click": 1,
+          "ms": 1200
+        },
+        {
+          "wait": 1.5
+        },
+        {
+          "hold": [
+            "F"
+          ],
+          "ms": 150
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    }
+  ]
+}

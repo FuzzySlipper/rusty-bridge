@@ -1,0 +1,67 @@
+{
+  "description": "The short sword with every skill module (combat_chained_slash among them) against one orc held still (ai_disable) in reach: long fast-attack chains, then kicks (#10143).",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 55
+    },
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "repeat": 10,
+      "steps": [
+        {
+          "repeat": 8,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "hold": [
+            "F"
+          ],
+          "ms": 150
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    }
+  ]
+}

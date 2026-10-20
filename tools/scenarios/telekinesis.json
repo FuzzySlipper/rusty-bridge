@@ -1,0 +1,25 @@
+{
+  "description": "Every skill module (telekynesis among them) and mana streamed, by an orc. Telekinesis can't be given from the console (give spell_air_1 and weapon_MMSpell_weapon_AIR_1 shut the game down): play --hand and take it from the belt to cast (#10164).",
+  "seconds": 50,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 200
+    },
+    {
+      "wait": 1
+    }
+  ]
+}

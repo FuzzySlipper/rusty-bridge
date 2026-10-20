@@ -112,6 +112,22 @@ public sealed class CombatData
         return Math.Max(0, part);
     }
 
+    /// <summary>
+    /// Which part of a player's first-person attack lands at a cycle of its clip: the last 2107 event at or before it
+    /// (0 before the first). 2107 opens each of a multi-part swing's strikes: the rush attack's second part landed at
+    /// cycles 0.466 and 0.48 (#10144), past its second 2107 (0.468) and before its 2186 (0.489) and its part event 2139 (0.53).
+    /// </summary>
+    public int PlayerPart(string clip, float cycle)
+    {
+        if (clip.Length == 0) return 0;
+        if (!_events.TryGetValue(PlayerAttacksModel, out var events)) _events[PlayerAttacksModel] = events = _eventsOf?.Invoke(PlayerAttacksModel) ?? StudioModel.Events(PlayerAttacksModel, _read);
+        if (!events.TryGetValue(clip, out var list)) return 0;
+        int part = -1;
+        foreach (var (at, id) in list)
+            if (id == 2107 && at <= cycle + 0.005f) part++;
+        return Math.Max(0, part);
+    }
+
     readonly Func<string, IReadOnlyDictionary<string, IReadOnlyList<(float Cycle, int Event)>>>? _eventsOf;
 
     /// <summary>

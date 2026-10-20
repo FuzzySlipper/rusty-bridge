@@ -66,14 +66,16 @@ internal sealed class InputTimeline
     internal int Skipped { get; private init; }
 
     /// <summary>
-    /// The move family a first-person clip plays: Dark Messiah's fast attacks (A, and B that alternates with it), its
-    /// power attacks' releases (the neutral one and the directional T, B, L and R ones), and its kicks. Null for
-    /// anything else (charges, idles, parries, movement).
+    /// The move family a first-person clip plays: Dark Messiah's fast attacks (A to E), its power attacks' releases (the
+    /// neutral one and the directional T, B, L and R ones), its kicks, the jump attack's strike (<c>combo_*_fall_*_out</c>)
+    /// and the rush attack (<c>combo_*_rush_*</c>). Null for anything else (charges, idles, parries, movement).
     /// </summary>
     internal static string? Family(string clip) =>
         clip.Contains("fastattack", StringComparison.Ordinal) && !clip.EndsWith("_end", StringComparison.Ordinal) ? "fast attack"
         : clip.Contains("bigslash", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "power attack"
         : clip.Contains("kick", StringComparison.Ordinal) ? "kick"
+        : clip.Contains("_fall_", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "jump attack"
+        : clip.Contains("combo_sword_rush", StringComparison.Ordinal) ? "rush attack"
         : null;
 
     /// <param name="moves">The lab's first-person clips (fast, power, kick); the donor's moves are their families' clips, variants included.</param>

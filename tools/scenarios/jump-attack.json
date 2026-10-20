@@ -1,0 +1,230 @@
+{
+  "description": "Jump attacks (#10144) with every skill module (combat_vertical_attack among them): the short sword against one orc with 1000 health. From 80 units, +jump then a click 0.1 or 0.3 s later, held 0.06, 0.15 or 1 s (three of each); then drops from 200 units up, 100 out, clicked 0.3 s into the fall for the same holds (two of each).",
+  "seconds": 170,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.1
+        },
+        {
+          "click": 1,
+          "ms": 60
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.1
+        },
+        {
+          "click": 1,
+          "ms": 150
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.1
+        },
+        {
+          "click": 1,
+          "ms": 1000
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 60
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 150
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "+jump",
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 1000
+        },
+        "-jump",
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 100,
+          "height": 200
+        },
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 60
+        },
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 100,
+          "height": 200
+        },
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 150
+        },
+        {
+          "wait": 2.5
+        }
+      ]
+    },
+    {
+      "repeat": 2,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 100,
+          "height": 200
+        },
+        {
+          "wait": 0.3
+        },
+        {
+          "click": 1,
+          "ms": 1000
+        },
+        {
+          "wait": 2.5
+        }
+      ]
+    }
+  ]
+}

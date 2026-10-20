@@ -4,7 +4,7 @@ using DarkMessiah.Shared;
 namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
-internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken }
+internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -12,9 +12,27 @@ internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, 
 /// </summary>
 /// <param name="Phases">How long each phase plays against the clip's own timing: before the hit window (windup), in it
 /// (the active, committed part) and after it (recovery). Null plays the clip as the donor does.</param>
-internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Open, float Close, MovePhases? Phases = null)
+/// <param name="Later">The hit windows after the first, of a move that strikes more than once (the rush attack's two
+/// parts); phases time the first only.</param>
+internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Open, float Close, MovePhases? Phases = null,
+    (float Open, float Close)[]? Later = null)
 {
     internal bool Traced => float.IsFinite(Open) && float.IsFinite(Close);
+
+    /// <summary>Every hit window, in order.</summary>
+    internal IReadOnlyList<(float Open, float Close)> Windows => [(Open, Close), .. Later ?? []];
+
+    /// <summary>Where the last hit window closes.</summary>
+    internal float LastClose => Later is { Length: > 0 } later ? later[^1].Close : Close;
+
+    /// <summary>The hit window the cycles <paramref name="from"/> to <paramref name="to"/> overlap, or -1.</summary>
+    internal int WindowAt(float from, float to)
+    {
+        if (!Traced) return -1;
+        var windows = Windows;
+        for (int i = 0; i < windows.Count; i++) if (from <= windows[i].Close && to >= windows[i].Open) return i;
+        return -1;
+    }
 
     /// <summary>How long one play takes, its phases scaled.</summary>
     internal float Duration => !Traced || Phases is null ? Seconds
@@ -38,14 +56,28 @@ internal sealed record MoveClip(string Clip, float Seconds, bool Loop, float Ope
 
     /// <summary>
     /// A clip's timing as dm-import recorded it, played at <paramref name="rate"/>, with its first hit window: 2186 to
-    /// 2190. The T and B power attacks have neither (they start with 2170 instead): their window is 2107 to 2110, which
-    /// brackets 2186–2190 in the clips that have both, and holds the one recorded <c>B_out</c> blow (cycle 0.17 in 0.11–0.21).
+    /// 2190. Where a clip lacks one of them, 2107 opens it and 2110 closes it, which bracket 2186–2190 in the clips that
+    /// have both:
+    /// <list type="bullet">
+    /// <item>the T and B power attacks have neither (they start with 2170): 2107 to 2110 holds the one recorded <c>B_out</c>
+    /// blow (cycle 0.17 in 0.11–0.21);</item>
+    /// <item>the jump attack's <c>combo_sword_fall_*_out</c> has 2107 and 2190: 0.03 to 0.27 holds its recorded blows
+    /// (cycles 0.15 to 0.20).</item>
+    /// </list>
+    /// A clip that closes more than one window (2190) strikes in parts, the later ones from 2107 to 2190 (<see cref="Later"/>):
+    /// the rush attack's two, at 0.09–0.17 and 0.47–0.57. Its second part's blows landed at cycles 0.466 and 0.48, before
+    /// that part's 2186 (0.49).
     /// </summary>
     internal static MoveClip Of(ModelClip clip, float rate = 1, bool loop = false)
     {
         float First(int e) => clip.At(e).DefaultIfEmpty(float.NaN).First();
-        bool thrust = float.IsNaN(First(2186)) && float.IsNaN(First(2190)) && float.IsFinite(First(2170));
-        return new(clip.Name, clip.Seconds / rate, loop, First(thrust ? 2107 : 2186), First(thrust ? 2110 : 2190));
+        float open = First(2186), close = First(2190);
+        if (float.IsNaN(open)) open = First(2107);
+        if (float.IsNaN(close)) close = First(2110);
+        var opens = clip.At(2107).ToArray();
+        var closes = clip.At(2190).ToArray();
+        (float, float)[]? later = closes.Length > 1 && opens.Length == closes.Length ? opens.Zip(closes).Skip(1).ToArray() : null;
+        return new(clip.Name, clip.Seconds / rate, loop, open, close, Later: later);
     }
 }
 
@@ -65,8 +97,10 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 /// </summary>
 /// <param name="Chain">The fast attacks in the order they chain, <c>layer_fastattack_*_A</c> to <c>_E</c>.</param>
 /// <param name="FastEnd">The recovery after an A or an E nothing chains onto, <c>layer_fastattack_*_end</c>.</param>
+/// <param name="Leap">The jump attack's clips (the game's Leaping Attack); null when the model has none.</param>
+/// <param name="Rush">The rush attack (the game's Charge, <c>layer_combo_sword_rush_noshield</c>, two strikes); null when the model has none.</param>
 internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain, MoveClip FastEnd,
-    MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken)
+    MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null, MoveClip? Rush = null)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
 
@@ -78,8 +112,8 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     /// <summary>The neutral power attack's release.</summary>
     internal MoveClip Power => Charges[PowerDirection.Neutral].Out;
 
-    /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release and the kick.</summary>
-    internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick];
+    /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release, the kick, the jump attack's strike and the rush.</summary>
+    internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush }];
 
     /// <summary>The power attack's clips for <paramref name="direction"/>, the neutral ones when the model has none for it.</summary>
     internal PowerClips Charge(PowerDirection direction) => Charges.GetValueOrDefault(direction) ?? Charges[PowerDirection.Neutral];
@@ -108,9 +142,20 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
             C("layer_fastattack_sword_noshield_end", attackSpeed),
             C("layer_parry_sword_noshield_in"), C("layer_parry_sword_noshield_idle", loop: true), C("layer_parry_sword_noshield_out"),
             C("layer_sword_noshield_kick_medium") with { Open = tuning.KickWindow[0], Close = tuning.KickWindow[1], Phases = tuning.Phases.Kick },
-            C("layer_state_sword_parry_breaked"));
+            C("layer_state_sword_parry_breaked"),
+            model.Clips.ContainsKey("layer_combo_sword_fall_noshield_out")
+                ? new LeapClips(C("layer_combo_sword_fall_noshield_jump_in"), C("layer_combo_sword_fall_noshield_idle", loop: true),
+                    C("layer_combo_sword_fall_noshield_out"), C("layer_combo_sword_fall_noshield_cancel"))
+                : null,
+            model.Clips.ContainsKey("layer_combo_sword_rush_noshield") ? C("layer_combo_sword_rush_noshield") : null);
     }
 }
+
+/// <summary>
+/// The jump attack's clips, <c>layer_combo_sword_fall_noshield_*</c>: the wind-up from a jump (<c>jump_in</c>), the
+/// held pose (<c>idle</c>), the strike (<c>out</c>, HitPow 2) and the landing that cuts it short (<c>cancel</c>).
+/// </summary>
+internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveClip Cancel);
 
 /// <summary>
 /// The player's sword arm as Dark Messiah plays it, on admitted world seconds, as the hand-played fights show it
@@ -124,11 +169,17 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
 /// charge goes on from there, its direction picked then. With <c>combat_chained_slash</c> the chain goes on through
 /// C, D and E (<see cref="ChainLength"/>). An A or an E nothing chains onto recovers (<c>_end</c>), and a press in its
 /// second half starts A again at once;</item>
-/// <item>attack pressed in the air holds the neutral power attack's idle at once, with no wind-up, and releases it as
-/// the power attack: the donor's jump attack (its <c>combo_sword_fall</c> clip is #10144's). Late in a kick (from
-/// <see cref="KickAttackOpen"/>) the same press cuts the kick short. Every such case in the hand-played fights was in
-/// the air;</item>
-/// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release);</item>
+/// <item>attack pressed in a jump (in the air, or just after landing, <see cref="Landing"/>) does nothing until
+/// <see cref="AirDelay"/>, and is dropped if let go before <see cref="AirHoldMin"/>. Then, still held, in the air and with
+/// <c>combat_vertical_attack</c> (<see cref="CanLeap"/>), the jump attack winds up (<c>combo_sword_fall_*_jump_in</c>),
+/// holds (<c>_idle</c>) and strikes on release (<c>_out</c>); released early in its wind-up (before
+/// <see cref="LeapReleaseOpen"/>) it is the neutral power attack instead, and a landing cuts it short (<c>_cancel</c>),
+/// to the neutral power attack's hold. Otherwise the press holds the neutral power attack, released as it (at once if
+/// let go already). Late in a kick (from <see cref="KickAttackOpen"/>)
+/// a press in the air cuts the kick short the same way;</item>
+/// <item>while sprinting, a charge released from its hold is the rush attack with <c>combat_rush_attack</c>
+/// (<see cref="CanRush"/>; the game's Charge, Sprint+Power Strike), and one released before its hold plays nothing;</item>
+/// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release), from the ground;</item>
 /// <item>a kick asked for (pressed, and still held) plays <c>layer_sword_noshield_kick_medium</c> as soon as it may:
 /// from any move but a kick or a broken parry, when the caller allows it (on the ground, with stamina,
 /// <see cref="PlayerStamina"/>). Starting consumes the press;</item>
@@ -145,8 +196,12 @@ internal sealed class PlayerSword(SwordClips clips)
     float under = float.NaN;
     // Seconds until a released charge's fast attack begins (NaN when none is due).
     float fastIn = float.NaN;
+    // Seconds since an attack pressed in a jump (NaN when none is waiting), and since the body last landed.
+    float airSince = float.NaN, landed = float.PositiveInfinity;
     PowerDirection direction;
     bool chained, chainDue, attackWas, kickWas, kickWanted, kickAttack;
+    // How long the jump attack has held its pose, and how long a press in a jump was held.
+    float leapHeld, airHold;
 
     internal SwordMove Move { get; private set; } = SwordMove.Ready;
     internal MoveClip Clip { get; private set; } = clips.Idle;
@@ -158,9 +213,13 @@ internal sealed class PlayerSword(SwordClips clips)
     /// <summary>The blade is traced this step: a swing's or kick's hit window is open.</summary>
     /// A step that crosses the whole window (a phase tuned shorter than a step) still counts: the window overlaps the
     /// cycles the step covered.
-    internal bool Traced => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick && Clip.Traced && stepFrom <= Clip.Close && Cycle >= Clip.Open;
+    internal bool Traced => Swinging && Window >= 0;
+    /// <summary>The hit window this step's cycles overlap (the rush attack has two), or -1.</summary>
+    internal int Window => Swinging ? Clip.WindowAt(stepFrom, Cycle) : -1;
+    /// <summary>A move that swings or kicks plays: its hit window may be open.</summary>
+    internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush;
     /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
-    internal float TraceCycle => Clip.Traced ? Math.Clamp(Cycle, Clip.Open, Clip.Close) : Cycle;
+    internal float TraceCycle => Window is int w and >= 0 ? Math.Clamp(Cycle, Clip.Windows[w].Open, Clip.Windows[w].Close) : Cycle;
     float stepFrom;
     /// <summary>Parrying: the guard is up (in, or held), which turns an orc's blow aside unless it breaks parries.</summary>
     internal bool Parrying => Move == SwordMove.Parry;
@@ -178,6 +237,10 @@ internal sealed class PlayerSword(SwordClips clips)
     /// docs/lab.md, "Fast and power attacks").
     /// </summary>
     internal int ChainLength { get; set; } = 2;
+    /// <summary>The build has <c>combat_vertical_attack</c> (the combat skill's level 3, the game's Leaping Attack).</summary>
+    internal bool CanLeap { get; set; }
+    /// <summary>The build has <c>combat_rush_attack</c> (the combat skill's level 1, the game's Charge).</summary>
+    internal bool CanRush { get; set; }
     /// <summary>A kick was asked for and hasn't started: it starts on the first step it may.</summary>
     internal bool KickWanted => kickWanted;
 
@@ -199,15 +262,46 @@ internal sealed class PlayerSword(SwordClips clips)
     /// </summary>
     internal float FastDelay { get; set; } = .04f;
 
+    /// <summary>
+    /// How long attack pressed in a jump must be held before anything plays: the jump attack's wind-up, or the neutral
+    /// power attack's hold, began 8 or 9 ticks after the press in all 31 recorded (#10144: 8.4 on average, 0.125 s).
+    /// Every press released sooner (4 or 5 ticks) played nothing, with or without the jump attack's skill.
+    /// </summary>
+    internal float AirDelay { get; set; } = .125f;
+
+    /// <summary>
+    /// An attack pressed in a jump and let go sooner than this is dropped: taps of 4 and 5 ticks played nothing (13), presses
+    /// let go after 8 ticks still played the power attack at 9 (126588, 128150). Between them, not measured finer.
+    /// </summary>
+    internal float AirHoldMin { get; set; } = .1f;
+
+    /// <summary>
+    /// How long after landing an attack still counts as pressed in the jump: taps up to 16 ticks after touching down
+    /// were dropped (or, held, made the jump's power attack), from 30 ticks they were ordinary presses (126664, 128223).
+    /// Between them, not measured finer.
+    /// </summary>
+    internal float Landing { get; set; } = .35f;
+
+    /// <summary>
+    /// Released before this cycle of the jump attack's wind-up, the press is the neutral power attack; from it the wind-up
+    /// plays out and strikes. Releases at 0.1 to 0.2 (six) gave the power attack, one at 0.9 the strike: between them, not
+    /// measured finer.
+    /// </summary>
+    internal const float LeapReleaseOpen = .5f;
+
     internal void Retune(SwordClips nextClips) => clips = nextClips;
 
     /// <summary>Advances one step with the buttons as they are now (held); presses are their going down between steps.</summary>
     /// <param name="move">The movement input (side, forward), which picks a charge's direction.</param>
     /// <param name="mayKick">The body may kick now: on the ground, with the stamina for it.</param>
-    /// <param name="airborne">The body is in the air: attack goes straight to the power attack's hold (the jump attack).</param>
-    internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickHeld, Vector2 move = default, bool mayKick = true, bool airborne = false)
+    /// <param name="airborne">The body is in the air: attack makes the jump attack, or the neutral power attack.</param>
+    /// <param name="sprinting">The body sprints: a charge's release is the rush attack, or nothing.</param>
+    internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickHeld, Vector2 move = default, bool mayKick = true, bool airborne = false,
+        bool sprinting = false)
     {
         SwingStarted = false;
+        landed = airborne ? 0 : landed + seconds;
+        bool inJump = airborne || landed < Landing;
         stepFrom = Cycle;
         Cycle = Clip.Advance(Cycle, seconds);
         bool done = !Clip.Loop && Cycle >= 1;
@@ -226,6 +320,22 @@ internal sealed class PlayerSword(SwordClips clips)
             Play(SwordMove.Kick, clips.Kick, swing: true);
             return;
         }
+        if (!float.IsNaN(airSince))
+        {
+            // A press in a jump waits: dropped if let go soon, else the jump attack, the neutral power attack's hold, or
+            // (let go already) the neutral power attack.
+            airSince += seconds;
+            if (attackHeld) airHold = airSince;
+            if (!attackHeld && airHold < AirHoldMin) airSince = float.NaN;
+            else if (airSince >= AirDelay)
+            {
+                airSince = float.NaN;
+                if (!attackHeld) Play(SwordMove.Power, clips.Power, swing: true);
+                else if (airborne && CanLeap && clips.Leap is { } leap) Play(SwordMove.Leap, leap.In);
+                else AirCharge();
+            }
+            return;
+        }
         if (!float.IsNaN(fastIn))
         {
             // A press while A is due chains B already, and winds up under it, as one in A does.
@@ -242,13 +352,23 @@ internal sealed class PlayerSword(SwordClips clips)
         switch (Move)
         {
             case SwordMove.Ready:
-                if (attackHeld && airborne) AirCharge();
+                if (attackHeld && inJump) airSince = airHold = 0;
                 else if (attackHeld) Charge(move, 0);
-                else if (blockHeld && CanParry) Play(SwordMove.Parry, clips.ParryIn);
+                // No parry starts in the air: block pressed mid-jump (128149, held 4 ticks) played none.
+                else if (blockHeld && CanParry && !airborne) Play(SwordMove.Parry, clips.ParryIn);
                 break;
             case SwordMove.Charge:
                 var charge = clips.Charge(direction);
-                if (!attackHeld) { if (Clip == charge.Hold) Play(SwordMove.Power, charge.Out, swing: true); else StartFast(); }
+                if (!attackHeld)
+                {
+                    if (Clip == charge.Hold)
+                    {
+                        if (sprinting && CanRush && clips.Rush is { } rush) Play(SwordMove.Rush, rush, swing: true);
+                        else Play(SwordMove.Power, charge.Out, swing: true);
+                    }
+                    else if (sprinting) Play(SwordMove.Ready, clips.Idle);
+                    else StartFast();
+                }
                 else if (done && Clip == charge.In) Play(SwordMove.Charge, charge.Hold);
                 break;
             case SwordMove.Parry:
@@ -272,6 +392,12 @@ internal sealed class PlayerSword(SwordClips clips)
                 if (kickAttack && !attackHeld) Play(SwordMove.Power, clips.Power, swing: true);
                 else if (done) Play(SwordMove.Ready, clips.Idle);
                 break;
+            case SwordMove.Leap:
+                Leap(seconds, attackHeld, airborne, done);
+                break;
+            case SwordMove.LeapCancel:
+                if (done) { if (attackHeld) AirCharge(); else Play(SwordMove.Power, clips.Power, swing: true); }
+                break;
             case SwordMove.FastEnd:
                 if (attackPressed && Cycle >= FastEndOpen) StartFast();
                 else if (done) Play(SwordMove.Ready, clips.Idle);
@@ -282,7 +408,27 @@ internal sealed class PlayerSword(SwordClips clips)
         }
     }
 
-    /// <summary>The jump attack's charge: the neutral power attack's hold at once, no wind-up.</summary>
+    /// <summary>
+    /// The jump attack's wind-up and hold (#10144): released early in the wind-up it is the neutral power attack; else the
+    /// wind-up plays out, the hold plays once at least, and the release strikes. Landing first cuts it short.
+    /// </summary>
+    void Leap(float seconds, bool attackHeld, bool airborne, bool done)
+    {
+        var leap = clips.Leap!;
+        if (!airborne) Play(SwordMove.LeapCancel, leap.Cancel);
+        else if (Clip == leap.In)
+        {
+            if (!attackHeld && Cycle < LeapReleaseOpen) Play(SwordMove.Power, clips.Power, swing: true);
+            else if (done) { Play(SwordMove.Leap, leap.Idle); leapHeld = 0; }
+        }
+        else
+        {
+            // The pose plays through once (4 ticks in every recorded strike) before the release strikes.
+            if ((leapHeld += seconds) >= leap.Idle.Seconds && !attackHeld) Play(SwordMove.LeapOut, leap.Out, swing: true);
+        }
+    }
+
+    /// <summary>The neutral power attack's hold at once, no wind-up: what a press in a jump holds without the jump attack.</summary>
     void AirCharge()
     {
         direction = PowerDirection.Neutral;
@@ -329,7 +475,8 @@ internal sealed class PlayerSword(SwordClips clips)
     internal void Reset()
     {
         attackWas = kickWas = kickWanted = chained = false;
-        under = fastIn = float.NaN;
+        under = fastIn = airSince = float.NaN;
+        landed = float.PositiveInfinity;
         Play(SwordMove.Ready, clips.Idle);
     }
 

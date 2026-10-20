@@ -15,8 +15,8 @@ internal sealed record DamageComparison(int Tick, string Recording, string Move,
 }
 
 /// <summary>
-/// The lab's damage against recorded donor blows: every player blow on an orc with the short sword's fast or power
-/// attack, or a kick, asked again through the lab's own path (<see cref="LabCombat.PlayerAsks"/>), with the move and
+/// The lab's damage against recorded donor blows: every player blow on an orc with the short sword's fast, power, jump
+/// or rush attack, or a kick, asked again through the lab's own path (<see cref="LabCombat.PlayerAsks"/>), with the move and
 /// hit group the recording gives. Where the two differ, the reason is one the lab's inputs explain:
 /// <list type="bullet">
 /// <item>the donor's blow was a critical (×2), which the lab doesn't roll;</item>
@@ -45,20 +45,31 @@ internal static class DamageCalibration
                     if (f.Stats.Valid != 0) { extraDamage = f.Stats.SkillLevel("extra_damage"); break; }
                 }
             float strength = combat.Model.Data.PlayerStrength(extraDamage);
+            // The player's move clips and their cycles as each blow arrived (the view model's layers): a swing in parts
+            // (the rush attack) asks by its clip's cycle.
+            var moveCycles = new Dictionary<int, Dictionary<string, float>>();
+            using (var stream = File.OpenRead(path))
+                foreach (var f in RecordingReader.Frames(stream))
+                    if (f.Damage.Count > 0)
+                        foreach (var d in f.Damage) moveCycles.TryAdd(d.Tick, MoveLayers(f));
             foreach (var d in fight.Damage)
             {
                 // A swing that kills goes on to touch the body: those contacts ask nothing of a victim already at 0.
                 if (!d.Attacker.IsPlayer || d.Victim.Class != "npc_orc_sword" || d.Defended || d.HealthBefore <= 0) continue;
-                bool kick = (d.DamageType & CombatModel.KickDamage) != 0;
                 // The newest move layer (an earlier move's can be fading under it), as the lab plays it: the same clip
-                // (A, B, each power attack's direction), or its family's neutral move for one the lab lacks.
-                string? family = kick ? "kick" : d.Attacker.Layers.Select(Replay.InputTimeline.Family).LastOrDefault(f => f is not null);
+                // (A, B, each power attack's direction), or its family's neutral move for one the lab lacks. The jump
+                // and rush attacks' blows carry the kick's damage bit too (they always push): a kick is one the newest
+                // move doesn't say is a swing.
+                string? swung = d.Attacker.Layers.Select(Replay.InputTimeline.Family).LastOrDefault(f => f is not null);
+                bool kick = (d.DamageType & CombatModel.KickDamage) != 0 && swung is null or "kick";
+                string? family = kick ? "kick" : swung;
                 string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? "";
                 string? move = kick ? clips.Kick.Clip : clips.Moves.Any(m => m.Clip == donorMove) ? donorMove
                     : family switch { "fast attack" => clips.Fast.Clip, "power attack" => clips.Power.Clip, _ => null };
                 if (donorMove.Length == 0) donorMove = move ?? "";
                 if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
-                var player = d.Attacker with { Layers = [move] };
+                var player = d.Attacker with { Layers = [move],
+                    Cycle = moveCycles.GetValueOrDefault(d.Tick)?.GetValueOrDefault(donorMove, float.NaN) is float c && !float.IsNaN(c) ? c : d.Attacker.Cycle };
                 float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength);
                 string reason =
                     donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
@@ -74,9 +85,13 @@ internal static class DamageCalibration
                 foreach (var f in RecordingReader.Frames(stream))
                     foreach (var d in f.Damage)
                     {
-                        // A kick that pushes also makes a zero-damage call of its own, untraced, with a push force: the push, not the hit.
-                        if ((d.DamageType & CombatModel.KickDamage) == 0 || d.TraceValid == 0 || !f.Entities.TryGetValue(d.Attacker, out var a) || f.Classes.GetValueOrDefault(a.ClassId) != "player"
-                            || !f.Entities.TryGetValue(d.Victim, out var v) || f.Classes.GetValueOrDefault(v.ClassId) != "npc_orc_sword") continue;
+                        // A kick that pushes also makes a zero-damage call of its own, untraced, with a push force: the push, not the
+                        // hit. The jump attack's strike makes a traced one (its alwayspush): no kick asks nothing. The jump and
+                        // rush attacks' blows carry the kick's bit too: a kick's frame plays a kick, or no move at all.
+                        if ((d.DamageType & CombatModel.KickDamage) == 0 || d.TraceValid == 0 || d.Damage == 0
+                            || MoveLayers(f).Keys.Select(Replay.InputTimeline.Family).ToList() is var moves && moves.Count > 0 && !moves.Contains("kick") || !f.Entities.TryGetValue(d.Attacker, out var a) || f.Classes.GetValueOrDefault(a.ClassId) != "player"
+                            || !f.Entities.TryGetValue(d.Victim, out var v) || f.Classes.GetValueOrDefault(v.ClassId) != "npc_orc_sword"
+                            ) continue;
                         var victim = new Party("npc_orc_sword", "", [], 0, $"#{d.Victim}", f.Models.GetValueOrDefault(v.ModelIndex, ""));
                         var kicker = new Party("player", "", [clips.Kick.Clip], 0, $"#{d.Attacker}");
                         float lab = combat.PlayerAsks(kicker, victim, null, kick: true, d.HealthBefore);
@@ -87,5 +102,19 @@ internal static class DamageCalibration
                     }
         }
         return results;
+    }
+
+    /// <summary>The player's first-person move clips playing in a frame (any move family), with their cycles.</summary>
+    static Dictionary<string, float> MoveLayers(RecordedFrame f)
+    {
+        var layers = new Dictionary<string, float>();
+        var view = f.ClientView;
+        if (!view.Flags.HasFlag(ClientViewFlags.ViewmodelLayers)) return layers;
+        var vm = f.Entities.FirstOrDefault(kv => f.Classes.GetValueOrDefault(kv.Value.ClassId) == "viewmodel");
+        if (f.Sequences.GetValueOrDefault(vm.Value.ModelIndex) is not { } names) return layers;
+        foreach (var l in view.ViewmodelLayers)
+            if (l.Weight > 0 && l.Sequence >= 0 && l.Sequence < names.Length && Replay.InputTimeline.Family(names[l.Sequence]) is not null)
+                layers[names[l.Sequence]] = l.Cycle;
+        return layers;
     }
 }

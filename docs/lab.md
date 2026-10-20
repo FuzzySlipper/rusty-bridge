@@ -135,17 +135,60 @@ the lab plays `build.json` again.
   after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
 - **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press in its second half starts A again
   at once; one at cycle 0.32 did nothing, one at 0.60 played A two ticks later (`PlayerSword.FastEndOpen`, 0.5).
-- **Attack in the air (the jump attack):** attack pressed in the air holds the neutral power attack's idle at once,
-  with no wind-up, and the release is the power attack. The donor also plays `layer_combo_sword_fall_noshield_jump_in`
-  over it, which the lab doesn't yet (#10144). Every press #10131 read as "power after a kick" was a jump: 126588 and
-  128150 pressed mid-jump (`IN_JUMP`, the `jump_in` clip, rising), and the three taps late in a kick (cycle 0.84 to
-  1.00) all came in a jump that began during the kick. A press in the air during a kick before about cycle 0.75 did
-  nothing (`PlayerSword.KickAttackOpen`); on the ground a tap during a kick does nothing.
+- **Attack in the air:** below, "The jump attack". Every press #10131 read as "power after a kick" was a jump: 126588
+  and 128150 pressed mid-jump (`IN_JUMP`, the `jump_in` clip, rising), and the three taps late in a kick (cycle 0.84
+  to 1.00) all came in a jump that began during the kick. A press in the air during a kick before about cycle 0.75
+  did nothing (`PlayerSword.KickAttackOpen`); on the ground a tap during a kick does nothing.
+- **No parry in the air:** block pressed mid-jump (128149, held 4 ticks) played no parry, and the attack pressed a tick
+  later made the jump's power attack (#10144).
 - **Not explained** (one case each): a tap released a tick after its wind-up began played nothing (127146; pressed as
   a kick ended); two presses during A (cycles 0.21 and 0.71) didn't chain B (120884, 120893).
 - **A parried blow doesn't stop the swing.** The donor plays `layer_bounce_*` on none of the 23 player blows its
   orcs parried or blocked in the arena recordings, and chains and kicks on after them. The lab played a bounce
   there until #10131, which cut off the hand fights' chains.
+
+### The jump attack
+
+The game's Leaping Attack (Jump+Power Strike), the `combat` skill's level 3 (`combat_vertical_attack`; its description
+is `skilldesc_combat_3` in `resource/mm_itemnames_english.txt`). Recorded in `l01_a-v16-jump-attack*` (#10144; the
+`jump-attack` and `jump-attack-basic` scenarios, docs/recording.md): 34 jumps with a click 0.1 or 0.3 s in, held 0.06,
+0.15, 0.4 or 1 s, with every skill module and with a new game's.
+- **The wait:** attack pressed in a jump plays nothing at first. 8 or 9 ticks later (8.4 on average, 31 presses;
+  `PlayerSword.AirDelay`, 0.125 s) the move begins. A press let go after 4 or 5 ticks is dropped (13 taps, with or
+  without the skill); one let go after 8 still made it (128150; `AirHoldMin`, 0.1 s between them).
+- **Just after landing:** a press counts as one in the jump until about 0.35 s after touching down
+  (`PlayerSword.Landing`): taps up to 16 ticks after were dropped, from 30 ticks they were ordinary presses (126664,
+  128223).
+- **Without the skill:** the move is the neutral power attack's hold (the donor shows `combo_sword_fall_*_jump_in`
+  for a tick or two over it), and the release is the power attack, at once if attack was let go already.
+- **With it, in the air:** the jump attack winds up (`layer_combo_sword_fall_noshield_jump_in`, 0.3 s), holds
+  (`_idle`, played through once, 4 ticks, before a release counts) and strikes on release (`_out`, 1.03 s, still in
+  the air). Its hit window is 2107 to 2190 (0.03–0.27: it has no 2186), and it asks HitPow 2: 16 on the body, 48 on the
+  head, as recorded.
+  - Released early in the wind-up (cycles 0.1 to 0.2, six presses) it is the neutral power attack instead; released
+    at 0.9 (one) the wind-up plays out and strikes (`LeapReleaseOpen`, 0.5 between them).
+  - Landing while it winds up or holds cuts it short (`_cancel`, 0.3 s), then the neutral power attack's hold, or
+    its release if attack was let go.
+- **The body's jump:** the donor's jumps from flat ground rise 41 to 42 units (1.06 m) and land 0.84 s later (ten of
+  them; a few rose 34 units in 0.74 s). The lab's body jumped as high in 0.65 s (6.5 m/s against gravity 20), so it
+  landed before the donor's strikes; `player.json` now has 5.05 m/s and 12 m/s² (1.06 m, 0.84 s). The rest of the
+  body's movement is #10159's.
+
+### The rush attack
+
+The game's Charge (Sprint+Power Strike), the `combat` skill's level 1 (`combat_rush_attack`; `skilldesc_combat_1`).
+Recorded in `l01_a-v16-rush-attack` (the `rush-attack` scenario): a power attack charged and then sprinted with, or
+sprinted and then charged.
+- **The rush:** with the module, a charge released from its hold while the body sprints plays
+  `layer_combo_sword_rush_noshield` (2 s) instead of the power attack, 7 of 7. It strikes twice: 2186 to 2190 (cycles
+  0.09–0.17) and 2107 to 2190 (0.47–0.57; its blows landed at 0.466 and 0.48, before that part's 2186). The parts ask
+  HitPow 0.5 and 1.5 (12 on the head and 12 on the body, as recorded). Each window hits once (`LabCombat` settles a
+  swing by its window).
+- **A short press while sprinting** winds up (`bigslash_L_in`) and, let go before the hold, plays nothing: 6 of 6, no
+  fast attack.
+- **Sprinting needs 3 to start:** asked with 2.52 to 2.82 stamina the body only ran, and the sprint began the tick
+  stamina reached 3.00; once going it went on below (`StaminaRules.NeededForSprint`). A press then is an ordinary
+  one (12895: a fast attack).
 
 ### Kicks
 
@@ -173,6 +216,7 @@ so a new kick needs F to go down again. Kicks cut into charges and swings. In th
 | Regeneration | 0.06 every 0.12 s | `player_stamina_add_value`, `player_stamina_add_interval` |
 | Sprinting | −2 a second while moving | ConVar `mm_player_stamina_megasprint_cost_per_second` |
 | A kick may start with | 3 | ConVar `mm_player_stamina_needed_for_kick` |
+| A sprint may start with | 3 | measured (#10144, "The rush attack"); it goes on below |
 | A kick costs | 3 when it lands on an NPC, otherwise 1 | `stamina_kick_npc`, `stamina_kick_all` in the settings |
 
 The ConVars' defaults are in server.dll; no content file holds them.
@@ -183,7 +227,8 @@ refused a kick the donor made (116732, at 1.06 or 0.84).
 
 Sprint is the command's action byte +0x95 (Wire `PlayerActions.Sprint`): running ticks with it set have a median
 speed of 229 units/s, against 195 for all running ticks. The lab's body sprints with the sprint key or the replayed
-action, and drains stamina while moving. What empty stamina does to the sprint isn't measured, so it doesn't stop it.
+action, from 3 stamina, and drains it while moving; the sprint stops at 0 (not measured: the recordings stopped
+sprinting first).
 
 ## Calibration
 
@@ -191,16 +236,18 @@ action, and drains stamina while moving. What empty stamina does to the sprint i
 
 | Move | Recorded player blows inside the lab's window (±0.06) | Clip rate, lab against donor |
 | --- | --- | --- |
-| Fast attack A, window 0.33–0.78 | 87 of 87 (cycles 0.28–0.76) | 3.67 against 3.50 cycles/s |
-| Fast attack B, window 0.50–0.83 | 9 of 9 (cycles 0.56–0.72) | 2.75 against 2.70 cycles/s |
+| Fast attack A, window 0.33–0.78 | 91 of 91 (cycles 0.28–0.76) | 3.67 against 3.50 cycles/s |
+| Fast attack B, window 0.50–0.83 | 12 of 12 (cycles 0.53–0.72) | 2.75 against 2.71 cycles/s |
 | Fast attack C, window 0.50–0.83 | 6 of 6 (cycles 0.57–0.74) | 2.75 against 2.70 cycles/s |
 | Fast attack D, window 0.42–0.75 | 5 of 5 (cycles 0.52–0.70) | 2.75 against 2.72 cycles/s |
 | Fast attack E, window 0.55–0.91 | 6 of 6 (cycles 0.53–0.80) | 3.00 against 2.93 cycles/s |
-| Power attack, window 0.13–0.22 | 31 of 31 (cycles 0.13–0.18) | 1.03 against 1.01 cycles/s |
+| Power attack, window 0.13–0.22 | 41 of 41 (cycles 0.11–0.18) | 1.03 against 1.01 cycles/s |
 | Power attack B, window 0.11–0.21 | 1 of 1 (cycle 0.17) | 0.87 against 0.86 cycles/s |
 | Power attack R, window 0.19–0.42 | none recorded | 1.06 against 1.13 cycles/s |
 | Power attacks T (0.13–0.73) and L (0.04–0.25) | none recorded | not seen playing long enough to measure |
 | Kick, window 0.36–0.42 | 70 of 70 (cycles 0.38–0.41) | 1.20 against 1.18 cycles/s |
+| Jump attack's strike, window 0.03–0.27 | 2 of 2 (cycles 0.13–0.16) | 1.00 against 0.99 cycles/s |
+| Rush attack, windows 0.09–0.17 and 0.47–0.57 | 4 of 4 (cycles 0.09–0.49) | 0.51 against 0.50 cycles/s |
 
 **A blow belongs to the newest move.** A kick can start while a power
 attack's layer is still fading out under it. Credited to the first layer
@@ -211,15 +258,18 @@ at about cycle 0.45, after its hit window has closed. The hand-played fights
 show kicks cutting into charges and swings anywhere, so the lab's kick may cut
 off any move but another kick or a broken parry.
 
-**Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast and power
-attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
+**Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast, power, jump
+and rush attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
 recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
 whose `HitPow` comes from `first_basic.qct` like the others', and with the recording's player strength (from v16, its
-`extra_damage` level; docs/combat.md, "The player's strength"). 179 of 182 agree:
+`extra_damage` level; docs/combat.md, "The player's strength"). 187 of 190 agree:
 - **Fast attacks:** A 69 of 71, B 8 of 8, C 3 of 3, D 2 of 2, E 2 of 2. The chained-slash recording's player has
   `extra_damage` 3, strength 6: its blows ask four times a new game's.
-- **Power attacks:** 31 of 32, and the one `B_out` blow.
-- **Kicks:** 63 of 63.
+- **Power attacks:** 35 of 36, and the one `B_out` blow.
+- **Kicks:** 63 of 63. The jump and rush attacks' blows carry the kick's damage bit too (they always push), and the
+  jump attack's strike makes a zero-damage push call of its own: a kick is a blow whose frame plays a kick or no move.
+- **The jump and rush attacks:** 1 of 1 and 3 of 3, the rush's second part by its clip's cycle (docs/combat.md). Most of
+  their recorded blows struck an orc whose health didn't fall, which the calibration leaves out with the dead.
 - **The differences:**
   - two blows on an orc not yet alert (×3) at the start of the chained-slash recording;
   - a critical (×2), which the lab doesn't roll;
@@ -317,11 +367,25 @@ of 46 began together. After #10131 it began 21 and 35 fast attacks to the donor'
   quick draw (`layer_sword_noshield_quickdraw`): the sword was away, and the donor ignored 30 attack presses and two
   kick requests. The replay now feeds the lab's sword no attack, block or kick while the donor's view model shows no
   layer but the quick draw (`ReplayTick.Armed`). The lab doesn't put its sword away (#10148, quick draw).
-- **The jump attack:** above, "Attack in the air".
+- **The jump attack:** above, "Attack in the air" and "The jump attack". Its rules from #10144 (the wait, the
+  landing window, no parry in the air) keep both fights where #10142 left them.
 - **When A begins:** above.
 
 What's left: the direction after B (126828: R, the lab B), the unexplained tap and chain (above), and a finishing
 move (`layer_behead_*_out`, 129270) the lab plays as the neutral power attack.
+
+**The movement attacks (#10144)**, replayed from their scenarios with the recordings' builds:
+
+| Recording | What | Begun together, lab |
+| --- | --- | --- |
+| `l01_a-v16-jump-attack-hold` (0.4 s holds) | jump attacks' strikes | 6 of 7, lab 6 |
+| | power attacks | 5 of 5, lab 6 |
+| `l01_a-v16-jump-attack` (0.06, 0.15, 1 s holds, and drops) | power attacks | 15 of 15, lab 16 |
+| `l01_a-v16-jump-attack-basic` (the same, without the skill) | power attacks | 16 of 16, lab 16 |
+| `l01_a-v16-rush-attack` | rushes | 6 of 6, lab 6 |
+
+A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
+the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
 - **Movement:** commands run at 1000, about 1400 on a diagonal, and 150 for the slow walk while charging or guarding.
   The replay scales them against a run. The lab's body averages 4.20 against the donor's 4.69 m/s, and 2.78 against 1.68.
 - **Jumps:** all 12 came through.
@@ -421,8 +485,7 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - combos (`layer_combo_*`), the finishing moves (`layer_behead_*`), the jump attack's fall clip and damage, and the
-    quick draw;
+  - the other combos (huge slash, trample, disarm: #10145), the finishing moves (`layer_behead_*`), and the quick draw;
   - the shield-holding moves.
-- **Stamina:** what empty stamina does to the sprint, and the costs of parrying, blocking and dodging
+- **Stamina:** what empty stamina does to the sprint (the lab stops it at 0), and the costs of parrying, blocking and dodging
   (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.

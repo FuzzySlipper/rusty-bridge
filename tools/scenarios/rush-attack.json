@@ -1,0 +1,217 @@
+{
+  "description": "Rush attacks (#10144), the game's 'Charge' (Sprint+Power Strike, combat_rush_attack): the short sword with every skill module against an orc with 1000 health, a new one for each rush, from 360 units, every key held through console lines. Three each of: charge (+attack 1 s), then +forward +sprint and release 0.6 s later; sprint 0.6 s, then +attack held 1 s or 0.3 s; and a run without sprint after a 1 s charge.",
+  "seconds": 170,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    {
+      "repeat": 3,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        {
+          "wait": 0.3
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 1000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 360
+        },
+        {
+          "wait": 0.4
+        },
+        "+attack",
+        {
+          "wait": 1.0
+        },
+        "+forward",
+        "+sprint",
+        {
+          "wait": 0.6
+        },
+        "-attack",
+        {
+          "wait": 1.5
+        },
+        "-sprint",
+        "-forward",
+        "-attack",
+        {
+          "wait": 3.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        {
+          "wait": 0.3
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 1000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 360
+        },
+        {
+          "wait": 0.4
+        },
+        "+forward",
+        "+sprint",
+        {
+          "wait": 0.6
+        },
+        "+attack",
+        {
+          "wait": 1.0
+        },
+        "-attack",
+        {
+          "wait": 1.5
+        },
+        "-sprint",
+        "-forward",
+        "-attack",
+        {
+          "wait": 3.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        {
+          "wait": 0.3
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 1000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 360
+        },
+        {
+          "wait": 0.4
+        },
+        "+forward",
+        "+sprint",
+        {
+          "wait": 0.6
+        },
+        "+attack",
+        {
+          "wait": 0.3
+        },
+        "-attack",
+        {
+          "wait": 1.5
+        },
+        "-sprint",
+        "-forward",
+        "-attack",
+        {
+          "wait": 3.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        {
+          "wait": 0.3
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 1000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 360
+        },
+        {
+          "wait": 0.4
+        },
+        "+attack",
+        {
+          "wait": 1.0
+        },
+        "+forward",
+        {
+          "wait": 0.6
+        },
+        "-attack",
+        {
+          "wait": 1.5
+        },
+        "-sprint",
+        "-forward",
+        "-attack",
+        {
+          "wait": 3.5
+        }
+      ]
+    }
+  ]
+}

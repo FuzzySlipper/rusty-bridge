@@ -102,6 +102,8 @@ internal interface IReplayBody
     /// <param name="jumpHeld">Jump is held: the recorded command still has it.</param>
     /// <param name="crouchHeld">Duck is held.</param>
     (Vector3 Feet, bool Jumped, bool Grounded) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds);
+    /// <summary>Raises the body <paramref name="metres"/> where it stands, at rest: it falls from there.</summary>
+    void Lift(float metres);
     void End();
 }
 
@@ -181,6 +183,9 @@ internal static class CombatReplay
                 if (combat.Sword.SwingStarted) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
                 if (driveBody)
                 {
+                    // A recorded teleport (a scenario's setpos: over a metre in a tick) that raises the donor raises the
+                    // lab's body as far, to fall as the donor does; the lab's arena has no ground but its floor.
+                    if (lastDonor is Vector3 was && Vector3.Distance(t.Feet, was) > 1 && t.Feet.Y - was.Y > .1f) body!.Lift(t.Feet.Y - was.Y);
                     var (feet, jumped, onGround) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds);
                     if (t.Move != Vector2.Zero && t.Seconds > 0 && lastDonor is Vector3 d0 && lastLab is Vector3 l0)
                     {

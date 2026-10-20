@@ -7,13 +7,16 @@ namespace DarkMessiah.Lab.Calibration;
 /// One move of the player's sword against recorded donor fights: where its blows landed in its clip, and how fast
 /// the donor played the clip, next to the lab's hit window and clip timing.
 /// </summary>
-/// <param name="Inside">Recorded blows landing within the lab's window (widened by <see cref="SwordCalibration.Slack"/>).</param>
+/// <param name="Inside">Recorded blows landing within one of the lab's windows (widened by <see cref="SwordCalibration.Slack"/>).</param>
 /// <param name="DonorCyclesPerSecond">The donor's cycle rate for the clip, from consecutive frames while it played; NaN when unseen.</param>
+/// <param name="LaterWindows">The windows after the first, of a move that strikes in parts.</param>
 internal sealed record MoveCalibration(string Clip, float Open, float Close, IReadOnlyList<float> Blows, int Inside,
-    float LabCyclesPerSecond, float DonorCyclesPerSecond)
+    float LabCyclesPerSecond, float DonorCyclesPerSecond, IReadOnlyList<(float Open, float Close)>? LaterWindows = null)
 {
+    string Later => string.Concat((LaterWindows ?? []).Select(w => FormattableString.Invariant($", {w.Open:0.00}–{w.Close:0.00}")));
+
     public override string ToString() =>
-        FormattableString.Invariant($"{Clip}: window {Open:0.00}–{Close:0.00}, {Inside} of {Blows.Count} recorded blows inside") +
+        FormattableString.Invariant($"{Clip}: window {Open:0.00}–{Close:0.00}{Later}, {Inside} of {Blows.Count} recorded blows inside") +
         (Blows.Count > 0 ? FormattableString.Invariant($" (cycles {Blows.Min():0.00}–{Blows.Max():0.00})") : "") +
         FormattableString.Invariant($"; plays {LabCyclesPerSecond:0.00}/s, donor {DonorCyclesPerSecond:0.00}/s");
 }
@@ -64,8 +67,8 @@ internal static class SwordCalibration
             var b = blows[m.Clip];
             var r = rates[m.Clip];
             float donor = r.Count == 0 ? float.NaN : r.Order().ElementAt(r.Count / 2);
-            return new MoveCalibration(m.Clip, m.Open, m.Close, b, b.Count(c => c >= m.Open - Slack && c <= m.Close + Slack),
-                m.Seconds > 0 ? 1 / m.Seconds : float.NaN, donor);
+            return new MoveCalibration(m.Clip, m.Open, m.Close, b, b.Count(c => m.Windows.Any(w => c >= w.Open - Slack && c <= w.Close + Slack)),
+                m.Seconds > 0 ? 1 / m.Seconds : float.NaN, donor, m.Later);
         }).ToList();
     }
 }

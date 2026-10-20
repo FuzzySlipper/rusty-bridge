@@ -184,20 +184,81 @@ while (air.Cycle < PlayerSword.KickAttackOpen) air.Step(Tick, false, false, fals
 air.Step(Tick, true, false, false, airborne: true);
 air.Step(Tick, false, false, false, airborne: true);
 Check(air.Move == SwordMove.Power && air.Clip.Clip == "power" && air.SwingStarted, "in the air, one late in the kick releases the neutral power attack at once (the jump attack)");
+// Attack in a jump (#10144): nothing until held 0.125 s, a shorter press dropped; then without the jump attack's
+// skill the neutral power attack's hold, with it the jump attack.
 var jump = new PlayerSword(clips) { FastDelay = 0 };
-jump.Step(Tick, true, false, false, airborne: true);
-Check(jump.Move == SwordMove.Charge && jump.Clip.Clip == "hold", "attack pressed in the air holds the power attack at once, no wind-up");
+for (int i = 0; i < 4; i++) jump.Step(Tick, true, false, false, airborne: true);
+Check(jump.Move == SwordMove.Ready, "attack pressed in the air does nothing at first");
+for (int i = 0; i < 4; i++) jump.Step(Tick, false, false, false, airborne: true);
+Check(jump.Move == SwordMove.Ready, "and let go within 0.1 s it is dropped");
+for (int i = 0; i < 9; i++) jump.Step(Tick, true, false, false, airborne: true);
+Check(jump.Move == SwordMove.Charge && jump.Clip.Clip == "hold", "held 0.125 s, it holds the neutral power attack, no wind-up");
 jump.Step(Tick, false, false, false, airborne: true);
-Check(jump.Move == SwordMove.Power && jump.Clip.Clip == "power", "and a quick release is the power attack, not a fast one");
+Check(jump.Move == SwordMove.Power && jump.Clip.Clip == "power", "and its release is the power attack, not a fast one");
+jump = new PlayerSword(clips) { FastDelay = 0 };
+for (int i = 0; i < 7; i++) jump.Step(Tick, true, false, false, airborne: true);
+jump.Step(Tick, false, false, false, airborne: true);
+Check(jump.Move == SwordMove.Ready, "held longer than 0.1 s and let go, it waits");
+jump.Step(Tick, false, false, false, airborne: true);
+Check(jump.Move == SwordMove.Power, "and is the power attack at 0.125 s");
+var landing = new PlayerSword(clips) { FastDelay = 0 };
+landing.Step(Tick, false, false, false, airborne: true);
+landing.Step(Tick, true, false, false);
+landing.Step(Tick, false, false, false);
+Check(landing.Move == SwordMove.Ready, "a tap while the landing plays counts as one in the air: dropped");
+var leapClips = clips with { Leap = new LeapClips(M("leap-in", .3f), M("leap-idle", 2f / 30, true), M("leap-out", 1, open: .03f, close: .27f), M("leap-cancel", .3f)) };
+var leap = new PlayerSword(leapClips) { FastDelay = 0, CanLeap = true };
+for (int i = 0; i < 9; i++) leap.Step(Tick, true, false, false, airborne: true);
+Check(leap.Move == SwordMove.Leap && leap.Clip.Clip == "leap-in", "with combat_vertical_attack the press winds up the jump attack");
+for (int i = 0; i < 30 && leap.Clip.Clip == "leap-in"; i++) leap.Step(Tick, true, false, false, airborne: true);
+Check(leap.Clip.Clip == "leap-idle", "held, it holds the jump attack's pose");
+leap.Step(Tick, false, false, false, airborne: true);
+Check(leap.Move == SwordMove.Leap, "the pose plays once before the release strikes");
+for (int i = 0; i < 6 && leap.Move == SwordMove.Leap; i++) leap.Step(Tick, false, false, false, airborne: true);
+Check(leap.Move == SwordMove.LeapOut && leap.SwingStarted, "then it strikes, still in the air");
+for (int i = 0; i < 8; i++) leap.Step(Tick, false, false, false, airborne: true);
+Check(leap.Traced, "and its strike traces the blade");
+leap = new PlayerSword(leapClips) { FastDelay = 0, CanLeap = true };
+for (int i = 0; i < 10; i++) leap.Step(Tick, true, false, false, airborne: true);
+leap.Step(Tick, false, false, false, airborne: true);
+Check(leap.Move == SwordMove.Power && leap.Clip.Clip == "power", "released early in the wind-up it is the neutral power attack");
+leap = new PlayerSword(leapClips) { FastDelay = 0, CanLeap = true };
+for (int i = 0; i < 20; i++) leap.Step(Tick, true, false, false, airborne: true);
+leap.Step(Tick, true, false, false);
+Check(leap.Move == SwordMove.LeapCancel, "landing while held cuts the jump attack short");
+for (int i = 0; i < 20; i++) leap.Step(Tick, true, false, false);
+Check(leap.Move == SwordMove.Charge && leap.Clip.Clip == "hold", "to the neutral power attack's hold");
+
+// The rush attack (#10144): sprinting, a charge released from its hold rushes with combat_rush_attack; one released
+// before its hold plays nothing.
+var rushClips = clips with { Rush = new MoveClip("rush", 2, false, .085f, .17f, Later: [(.49f, .57f)]) };
+var rush = new PlayerSword(rushClips) { FastDelay = 0, CanRush = true };
+for (int i = 0; i < 40; i++) rush.Step(Tick, true, false, false, sprinting: true);
+rush.Step(Tick, false, false, false, sprinting: true);
+Check(rush.Move == SwordMove.Rush && rush.SwingStarted, "a charge released while sprinting is the rush attack");
+var windows = new HashSet<int>();
+for (int i = 0; i < 130 && rush.Move == SwordMove.Rush; i++) { rush.Step(Tick, false, false, false); if (rush.Traced) windows.Add(rush.Window); }
+Check(windows.SetEquals([0, 1]), $"and strikes twice: windows {string.Join(", ", windows)}");
+rush = new PlayerSword(rushClips) { FastDelay = 0, CanRush = false };
+for (int i = 0; i < 40; i++) rush.Step(Tick, true, false, false, sprinting: true);
+rush.Step(Tick, false, false, false, sprinting: true);
+Check(rush.Move == SwordMove.Power, "without combat_rush_attack it is the power attack");
+rush = new PlayerSword(rushClips) { FastDelay = 0, CanRush = true };
+for (int i = 0; i < 6; i++) rush.Step(Tick, true, false, false, sprinting: true);
+rush.Step(Tick, false, false, false, sprinting: true);
+Check(rush.Move == SwordMove.Ready, "released before its hold while sprinting, nothing plays");
 
 // A build without combat_parry (#10140's gate) doesn't parry: holding block does nothing.
 var noParry = new PlayerSword(clips) { FastDelay = 0,  CanParry = false };
 for (int i = 0; i < 12; i++) noParry.Step(Tick, false, true, false);
 Check(noParry.Move == SwordMove.Ready, "without combat_parry, holding block doesn't parry");
+var airParry = new PlayerSword(clips) { FastDelay = 0 };
+for (int i = 0; i < 6; i++) airParry.Step(Tick, false, true, false, airborne: true);
+Check(airParry.Move == SwordMove.Ready, "nor in the air (#10144)");
 
 // Stamina: Dark Messiah's numbers, a kick's threshold and cost, sprint's drain and the regeneration.
 var stamina = new PlayerStamina(StaminaRules.Shipped);
-for (int i = 0; i < 60; i++) stamina.Step(Tick, sprinting: true);
+for (int i = 0; i < 60; i++) stamina.Step(Tick, sprintAsked: true);
 Check(MathF.Abs(stamina.Value - 7) < .01f, FormattableString.Invariant($"sprinting drains 2 a second: 9 → {stamina.Value:0.00}"));
 stamina = new PlayerStamina(StaminaRules.Shipped);
 stamina.Kicked(npc: true);
@@ -207,8 +268,15 @@ stamina.Kicked(npc: false);
 Check(stamina.Value == 3 && stamina.MayKick, "a kick on an NPC costs 3, one that lands on none 1; 3 left may still kick");
 stamina.Kicked(npc: false);
 Check(!stamina.MayKick, "under 3 it may not");
-for (int i = 0; i < 120; i++) stamina.Step(Tick, sprinting: false);
+for (int i = 0; i < 120; i++) stamina.Step(Tick, sprintAsked: false);
 Check(MathF.Abs(stamina.Value - (2 + 16 * .06f)) < .07f, FormattableString.Invariant($"it regains 0.06 every 0.12 s: {stamina.Value:0.00} after 2 s"));
+// A sprint starts only with 3 (#10144), and once going runs on below it.
+stamina.Step(Tick, sprintAsked: true);
+Check(!stamina.Sprinting, FormattableString.Invariant($"with {stamina.Value:0.00} a sprint doesn't start"));
+for (int i = 0; i < 60 && stamina.Value < 3; i++) stamina.Step(Tick, sprintAsked: false);
+stamina.Step(Tick, sprintAsked: true);
+for (int i = 0; i < 20; i++) stamina.Step(Tick, sprintAsked: true);
+Check(stamina.Sprinting && stamina.Value < 3, FormattableString.Invariant($"from 3 it does, and goes on below: {stamina.Value:0.00}"));
 
 // The donor's A begins about 0.04 s after the release (#10142): the arm stays in the wind-up until then.
 var late = new PlayerSword(clips);
@@ -458,7 +526,12 @@ host.Call(engine =>
     // The chained-slash scenario's recording (#10143) is an experiment, not a fight to replay as one, but its blows
     // calibrate C, D and E.
     string chainedSlash = Path.Combine(recordings, "experiments", "l01_a-v16-chained-slash.rbrec");
-    string[] calibrated = File.Exists(chainedSlash) ? [.. found, chainedSlash] : found;
+    // The movement attacks (#10144): jumps with and without combat_vertical_attack, and rushes.
+    string jumpAttack = Path.Combine(recordings, "experiments", "l01_a-v16-jump-attack.rbrec"),
+        jumpHold = Path.Combine(recordings, "experiments", "l01_a-v16-jump-attack-hold.rbrec"),
+        jumpBasic = Path.Combine(recordings, "experiments", "l01_a-v16-jump-attack-basic.rbrec"),
+        rushAttack = Path.Combine(recordings, "experiments", "l01_a-v16-rush-attack.rbrec");
+    string[] calibrated = [.. found, .. new[] { chainedSlash, jumpAttack, jumpHold, jumpBasic, rushAttack }.Where(File.Exists)];
     var calibration = SwordCalibration.Measure(calibrated, real);
     foreach (var move in calibration) Console.WriteLine($"  {move}");
     foreach (var move in calibration.Where(m => m.Blows.Count >= 10))
@@ -556,6 +629,20 @@ host.Call(engine =>
             $"{report.Name}: the lab chains C, D and E with the donor, each move as its own clip ({together} of {donorMoves})");
     }
     else Console.WriteLine("skip the chained-slash replay: no local/recordings/experiments/l01_a-v16-chained-slash.rbrec");
+
+    // The jump and rush attacks replayed: the lab begins the donor's movement attacks with it.
+    foreach (var (path, families) in new[] { (jumpAttack, new[] { "power attack" }), (jumpHold, new[] { "jump attack", "power attack" }), (jumpBasic, new[] { "power attack" }), (rushAttack, new[] { "rush attack" }) })
+    {
+        if (!File.Exists(path)) { Console.WriteLine($"skip the {Path.GetFileName(path)} replay: no local/recordings/experiments/{Path.GetFileName(path)}"); continue; }
+        var report = CombatReplay.Run(combat, path, product);
+        foreach (var line in report.Lines().Take(10)) Console.WriteLine($"  {line}");
+        foreach (var family in families)
+        {
+            var m = report.Moves.GetValueOrDefault(family);
+            Check(m.Donor > 0 && m.Together * 10 >= m.Donor * 8 && m.Lab <= m.Donor + 2,
+                $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
+        }
+    }
 
     string stats = Path.Combine(recordings, "experiments", "l01_a-v15-stats.rbrec");
     if (File.Exists(stats))

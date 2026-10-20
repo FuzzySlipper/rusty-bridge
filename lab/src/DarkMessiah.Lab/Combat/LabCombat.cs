@@ -58,7 +58,8 @@ internal sealed class LabCombat : IDisposable
     readonly CombatModel model;
     readonly List<(SwingTrace Trace, double Until)> recent = [];
     double now;
-    int settledSwing = -1;
+    // The swing window last settled (a hit, or a kick decided: SwingKey), and the last swing that hit or missed outright.
+    int settledSwing = -1, decidedSwing = -1;
     double deadSeconds;
 
     internal LabCombat(IEngineContext engine, DonorContent donor, CombatTuning tuning)
@@ -85,7 +86,7 @@ internal sealed class LabCombat : IDisposable
     internal CharacterBuild? Build { get; private set; }
 
     /// <summary>
-    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry, the chained slash).
+    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry, the chained slash, the jump and rush attacks).
     /// </summary>
     internal void Rebuild(CharacterBuild build)
     {
@@ -93,6 +94,8 @@ internal sealed class LabCombat : IDisposable
         Stamina.Retune(staminaRules.For(build));
         Sword.CanParry = build.Has("combat_parry");
         Sword.ChainLength = build.Has("combat_chained_slash") ? 5 : 2;
+        Sword.CanLeap = build.Has("combat_vertical_attack");
+        Sword.CanRush = build.Has("combat_rush_attack");
     }
 
     /// <summary>The authored build the lab plays (<c>build.json</c>), as last applied; replays play the recording's for their length.</summary>
@@ -142,24 +145,24 @@ internal sealed class LabCombat : IDisposable
     /// <param name="orcPose">In a replay, the recorded orc the lab's follows this step instead of fighting on its own.</param>
     /// <param name="move">The movement input (side, forward): it picks a power attack's direction.</param>
     /// <param name="grounded">The body is on the ground: Dark Messiah doesn't kick in the air.</param>
-    /// <param name="sprinting">The body sprints this step, which drains stamina.</param>
+    /// <param name="sprinting">Sprint is held while the body moves: it sprints, draining stamina, once there is enough to start.</param>
     internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
         OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false)
     {
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
-        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded);
+        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting);
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
-        if (Sword.Traced && settledSwing != Sword.Swing)
+        if (Sword.Traced && settledSwing != SwingKey)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
             else Swing(tick, eye, feet);
         }
-        else if (Sword.Move is SwordMove.Fast or SwordMove.Power && settledSwing != Sword.Swing && Sword.Clip.Traced && Sword.Cycle > Sword.Clip.Close)
+        else if (Sword.Swinging && Sword.Move != SwordMove.Kick && decidedSwing != Sword.Swing && Sword.Clip.Traced && Sword.Cycle > Sword.Clip.LastClose)
         {
-            settledSwing = Sword.Swing;
+            decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
         }
         foreach (var blow in blows) OrcStrikes(tick, blow, feet);
@@ -172,7 +175,8 @@ internal sealed class LabCombat : IDisposable
         var targets = Orc.Targets();
         var contacts = targets.Count == 0 ? [] : sweep.Sweep(start, end, Radius, targets);
         if (contacts.Count == 0) { Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, start, end, null, "none")); return; }
-        settledSwing = Sword.Swing;
+        settledSwing = SwingKey;
+        decidedSwing = Sword.Swing;
         var c = contacts[0];
         var orc = Orc.Party();
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
@@ -200,9 +204,13 @@ internal sealed class LabCombat : IDisposable
         Message = Orc.Alive ? FormattableString.Invariant($"Hit for {asked:0.##}") : "The orc falls";
     }
 
+    /// <summary>The swing and its hit window now: each window of a move that strikes in parts hits once.</summary>
+    int SwingKey => Sword.Swing * 4 + Math.Max(0, Sword.Window);
+
     void Kick(ulong tick, Vector3 eye, Vector3 forward)
     {
-        settledSwing = Sword.Swing;
+        settledSwing = SwingKey;
+        decidedSwing = Sword.Swing;
         Vector3 toOrc = Orc.Feet + Vector3.UnitY * 1.0f - eye;
         Vector3 flat = toOrc with { Y = 0 };
         bool reaches = Orc.Alive && flat.Length() <= Tuning.KickRange && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(flat)) > .5f;
@@ -321,7 +329,7 @@ internal sealed class LabCombat : IDisposable
         OrcStats = default;
         LastBlow = null;
         Message = "";
-        settledSwing = -1;
+        settledSwing = decidedSwing = -1;
     }
 
     public void Dispose()

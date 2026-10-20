@@ -315,6 +315,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded);
     }
 
+    void IReplayBody.Lift(float metres) =>
+        player.Place(player.Position + Vector3.UnitY * metres, player.LookState.YawRadians * 180 / MathF.PI);
+
     void IReplayBody.End() => ResetLab();
 
     private void ResetLab()

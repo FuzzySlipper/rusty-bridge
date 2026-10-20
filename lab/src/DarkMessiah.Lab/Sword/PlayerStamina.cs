@@ -12,11 +12,13 @@ namespace DarkMessiah.Lab.Sword;
 /// <item><c>scripts/mm_game_settings.txt</c>: a kick costs <c>stamina_kick_npc</c> (3) when it lands on an NPC,
 /// <c>stamina_kick_all</c> (1) otherwise;</item>
 /// <item>server.dll's ConVar defaults, which no content file holds: a kick needs
-/// <c>mm_player_stamina_needed_for_kick</c> (3), and sprinting costs <c>mm_player_stamina_megasprint_cost_per_second</c> (2).</item>
+/// <c>mm_player_stamina_needed_for_kick</c> (3), and sprinting costs <c>mm_player_stamina_megasprint_cost_per_second</c> (2);</item>
+/// <item>measured (#10144, <c>l01_a-v16-rush-attack</c>): a sprint starts only with <see cref="NeededForSprint"/> (3). Asked
+/// with 2.52 to 2.82 the body ran, and the sprint began the tick stamina reached 3.00; once going it went on below.</item>
 /// </list>
 /// </summary>
 internal sealed record StaminaRules(float Max, float AddValue, float AddInterval, float NeededForKick, float SprintCostPerSecond, float KickNpc, float KickOther,
-    float DoubleSprintMax = 12)
+    float DoubleSprintMax = 12, float NeededForSprint = 3)
 {
     internal const string PlayerModel = "models/npc/player/player_basic.mdl";
     /// <summary>The shipped values, for content that doesn't have them.</summary>
@@ -44,8 +46,8 @@ internal sealed record StaminaRules(float Max, float AddValue, float AddInterval
 /// <summary>
 /// The player's stamina, as the hand-played fights bear it out (docs/lab.md, "Stamina"): it starts full, sprinting
 /// while moving drains it, otherwise it regains <see cref="StaminaRules.AddValue"/> each
-/// <see cref="StaminaRules.AddInterval"/>; a kick may start only with <see cref="StaminaRules.NeededForKick"/>, and
-/// costs once it has landed or missed.
+/// <see cref="StaminaRules.AddInterval"/>; a sprint may start only with <see cref="StaminaRules.NeededForSprint"/>, a kick
+/// only with <see cref="StaminaRules.NeededForKick"/>, which it costs once it has landed or missed.
 /// </summary>
 internal sealed class PlayerStamina(StaminaRules rules)
 {
@@ -63,9 +65,14 @@ internal sealed class PlayerStamina(StaminaRules rules)
     internal float Value { get; private set; } = rules.Max;
     internal bool MayKick => Value >= Rules.NeededForKick;
 
-    internal void Step(float seconds, bool sprinting)
+    /// <summary>The body sprints: asked to while moving, and started with the stamina for it.</summary>
+    internal bool Sprinting { get; private set; }
+
+    /// <param name="sprintAsked">Sprint is held while the body moves.</param>
+    internal void Step(float seconds, bool sprintAsked)
     {
-        if (sprinting)
+        Sprinting = sprintAsked && Value > 0 && (Sprinting || Value >= Rules.NeededForSprint);
+        if (Sprinting)
         {
             Value = MathF.Max(0, Value - Rules.SprintCostPerSecond * seconds);
             return;
@@ -79,6 +86,7 @@ internal sealed class PlayerStamina(StaminaRules rules)
 
     internal void Reset()
     {
+        Sprinting = false;
         Value = Rules.Max;
         regained = 0;
     }

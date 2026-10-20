@@ -58,7 +58,7 @@ static class Scenario
             foreach (var step in plan.Setup) Setup(control, step!, wirePath);
             Console.WriteLine($"{DateTime.Now:HH:mm:ss} recording {plan.Seconds:F0} s to {outPath}");
             var recording = Task.Run(() => record(outPath, plan.Seconds));
-            if (plan.Play is { } play && !hand) Play(play, control, agent, plan.Seconds);
+            if (plan.Play is { } play && !hand) Play(play, control, agent, plan.Seconds, wirePath);
             else Console.WriteLine(hand ? "hand-played: no scripted input" : "no scripted input");
             int result = recording.Result;
             Console.WriteLine($"{DateTime.Now:HH:mm:ss} done");
@@ -72,7 +72,8 @@ static class Scenario
         finally { Console.SetOut(console); }
     }
 
-    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance)
+    /// <param name="height">Units above the NPC's feet to put the player (4 stands it on level ground; more drops it).</param>
+    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance, float height = 4)
     {
         using var reader = new WireReader(wirePath);
         var snap = new WireSnapshot();
@@ -87,8 +88,8 @@ static class Scenario
         (dx, dy) = d > 1 ? (dx / d, dy / d) : (Math.Cos(npc.Yaw * Math.PI / 180), Math.Sin(npc.Yaw * Math.PI / 180));
         double x = npc.OriginX + dx * distance, y = npc.OriginY + dy * distance;
         double yaw = Math.Atan2(-dy, -dx) * 180 / Math.PI;
-        Console.WriteLine(FormattableString.Invariant($"  approach {cls} #{npc.Index} at ({npc.OriginX:F0} {npc.OriginY:F0} {npc.OriginZ:F0}) from {distance:F0} units"));
-        return (FormattableString.Invariant($"setpos {x:F1} {y:F1} {npc.OriginZ + 4:F1}"), FormattableString.Invariant($"setang 0 {yaw:F1} 0"));
+        Console.WriteLine(FormattableString.Invariant($"  approach {cls} #{npc.Index} at ({npc.OriginX:F0} {npc.OriginY:F0} {npc.OriginZ:F0}) from {distance:F0} units, {height:F0} up"));
+        return (FormattableString.Invariant($"setpos {x:F1} {y:F1} {npc.OriginZ + height:F1}"), FormattableString.Invariant($"setang 0 {yaw:F1} 0"));
     }
 
     static Process? Game() => Process.GetProcessesByName("mm").FirstOrDefault();
@@ -136,13 +137,14 @@ static class Scenario
     /// <summary>
     /// A setup step: a console line, <c>{"wait": seconds}</c>, or <c>{"approach": "npc_orc_sword", "distance": 60}</c>,
     /// which finds the nearest living entity of that class on the Wire and puts the player that many units in front of
-    /// it, facing it (spawned NPCs land where the view pointed, which isn't always in reach).
+    /// it, facing it (spawned NPCs land where the view pointed, which isn't always in reach); <c>"height"</c> puts it
+    /// that many units above the NPC's feet (default 4), to drop from.
     /// </summary>
     static void Setup(TapControl control, JsonNode step, string wirePath)
     {
         if (step is JsonObject o && o["approach"] is { } target)
         {
-            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60);
+            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60, (float?)o["height"] ?? 4);
             Setup(control, setpos, wirePath);
             Setup(control, setang, wirePath);
             return;
@@ -161,9 +163,11 @@ static class Scenario
     /// <summary>
     /// The scripted input, through the playtest agent's desktop lease: <c>{"click": button, "ms": n}</c>,
     /// <c>{"hold": ["F", "W"], "ms": n}</c> (keys by letter, digit or name, or virtual-key code), <c>{"wait": s}</c>,
-    /// <c>{"repeat": n, "steps": [...]}</c>, and console lines.
+    /// <c>{"repeat": n, "steps": [...]}</c>, <c>{"approach": ...}</c> as in the setup, and console lines. A key held
+    /// across a click goes as a console line (<c>+forward</c>, <c>+jump</c>, <c>+sprint</c>, then <c>-forward</c>...):
+    /// the agent plays its steps one after another.
     /// </summary>
-    static void Play(JsonArray play, TapControl control, string agent, double seconds)
+    static void Play(JsonArray play, TapControl control, string agent, double seconds, string wirePath)
     {
         using var http = new HttpClient { BaseAddress = new Uri(agent), Timeout = TimeSpan.FromSeconds(30) };
         var lease = http.PostAsJsonAsync("/v1/lease", new { holder = "rbwire-scenario", instance = "", ttl_ms = (int)Math.Min(600_000, seconds * 1000 + 30_000) })
@@ -185,6 +189,13 @@ static class Scenario
                 if (clock.Elapsed.TotalSeconds > seconds) throw new Stop("the recording is over");
                 if (step is JsonValue v && v.TryGetValue(out string? line)) { Guard(); control.Command(line); Console.WriteLine($"  exec {line}"); }
                 else if (step!["wait"] is { } wait) Thread.Sleep(TimeSpan.FromSeconds((double)wait));
+                else if (step["approach"] is not null)
+                {
+                    Guard();
+                    // No one left to approach ends the input, not the recording.
+                    try { Setup(control, step, wirePath); }
+                    catch (InvalidOperationException e) { throw new Stop(e.Message); }
+                }
                 else if (step["repeat"] is { } n) for (int i = 0; i < (int)n; i++) Steps(step["steps"]!.AsArray());
                 else if (step["click"] is { } button) Input(new { kind = "click", button = (int)button, ms = (int?)step["ms"] ?? 100 });
                 else if (step["hold"] is JsonArray keys) Input(new { kind = "hold", keys = keys.Select(k => Key(k!)).ToArray(), ms = (int?)step["ms"] ?? 150 });

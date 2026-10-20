@@ -117,13 +117,16 @@ public sealed class CombatModel(CombatData data)
     /// attack's .qct events. Null past the last entry: an animation can strike
     /// more often than its table has parts, and those strikes ask for nothing.
     /// An attack taken from the attacker's recent past (its stream has moved
-    /// on) is its first part.
+    /// on) is its first part. A player's attack in parts goes by its clip's
+    /// cycle instead (<see cref="CombatData.PlayerPart"/>).
     /// </summary>
     AttackEvent? Event(Party attacker, AttackData? attack)
     {
         if (attack is null) return null;
         bool playing = attack.Name.Equals(attacker.Sequence, StringComparison.OrdinalIgnoreCase);
-        int part = playing && !attacker.IsPlayer ? data.Part(attacker.Model, attacker.Sequence, attacker.Cycle) : 0;
+        // A player's swing in parts (the rush attack) is the part at its clip's cycle, which the party carries for it.
+        int part = attacker.IsPlayer ? attack.Events.Count > 1 ? data.PlayerPart(attack.Name, attacker.Cycle) : 0
+            : playing ? data.Part(attacker.Model, attacker.Sequence, attacker.Cycle) : 0;
         return part < attack.Events.Count ? attack.Events[part] : null;
     }
 

@@ -283,6 +283,12 @@ entry *L* + 1 of a per-level table in the player's +0x2B28. The table is `player
 - **`CombatData.PlayerStrength`** reads the table. The stat block is found by its key: a missing brace flattens the
   file's blocks, and the per-class starting builds' `skills` blocks come first.
 
+
+**A player's swing in parts.** The rush attack (`layer_combo_sword_rush_noshield`, two `.qct` events, HitPow 0.5 and
+1.5) strikes twice. An NPC's part is its last part event (2102, 2139) at the blow's cycle, but the rush's second
+blows landed at cycles 0.466 and 0.48, before its 2139 (0.53) and its second 2186 (0.49): its part is the last 2107 at
+the clip's cycle instead (`CombatData.PlayerPart`, #10144). A recorded player's party carries the main sequence's
+cycle, so the lab's calibration passes the view-model layer's.
 ## Scores
 
 The first model measured its tables from `l01_a-parrybot` and

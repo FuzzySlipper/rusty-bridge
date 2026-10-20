@@ -123,11 +123,18 @@ front, and input would land in them.
 (`dotnet publish wire/RustyBridge.Wire.Cli -c Release -o C:\Users\agent\rusty-bridge\rbwire`):
 - `description`, `seconds` (default 60), `launch` (the game's arguments; default the `rb_start` ones);
 - `setup`: console lines, `{"wait": seconds}`, and `{"approach": "npc_goblin", "distance": 60}`, which puts the player
-  that many units in front of the nearest living NPC of that class on the Wire, facing it. NPCs spawned with
-  `mm_npc_create` land where the view points, often out of reach;
+  that many units in front of the nearest living NPC of that class on the Wire, facing it (`"height"`: that many
+  units above the NPC's feet, default 4, to drop from). NPCs spawned with `mm_npc_create` land where the view points,
+  often out of reach: set the position and view first;
 - `play`: console lines, `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
-  digits, `SPACE`, `SHIFT`, `CTRL`, `ALT`, `ESC`, `ENTER`, `TAB` or virtual-key codes), `{"wait": seconds}` and
-  `{"repeat": n, "steps": [...]}`.
+  digits, `SPACE`, `SHIFT`, `CTRL`, `ALT`, `ESC`, `ENTER`, `TAB` or virtual-key codes), `{"wait": seconds}`,
+  `{"repeat": n, "steps": [...]}`, and `approach` as in the setup (with no NPC left to approach, the input stops and
+  the recording carries on).
+- **Keys held across other input:** the agent plays its steps one after another, so a key held while clicking goes as
+  console lines: `+forward`, `+jump`, `+sprint`, `+attack`, then `-attack`, `-sprint`... (`rush-attack` holds every key
+  that way).
+- **`--reuse` and toggles:** `god` toggles, so a scenario that sends it run on a game that already had it turns it off;
+  the player died in one such run and the game stopped ticking. Run those on a fresh launch.
 
 To add one, copy a file, change its setup and play, publish, and run it. Recordings of skills or items other than
 the arena's go in `local/recordings/experiments/` (the lab's replays of `local/recordings` expect fights).
@@ -135,6 +142,9 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | Scenario | Setup | Play |
 | --- | --- | --- |
 | `chained-slash` | every skill (all at their maximum level), the short sword, one orc with 1000 health, approached | 20 bursts of 8 quick clicks, then 3 kicks |
+| `jump-attack` | every skill (`combat_vertical_attack`, the Leaping Attack, among them), the short sword, one orc with 1000 health | from 80 units, `+jump` then a click 0.1 or 0.3 s later, held 0.06, 0.15 or 1 s (three each); drops from 200 units up with the same holds (two each) |
+| `jump-attack-basic` | the same with a new game's skills | the same |
+| `rush-attack` | every skill (`combat_rush_attack`, the Charge, among them), the short sword, a new orc with 1000 health for each rush | from 360 units, three each: a 1 s charge, then `+forward +sprint` and the release 0.6 s later; a sprint, then a 1 s or 0.3 s hold; a run after a charge |
 | `daggers-goblin` | the short sword in hand, the kryss daggers given, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
 | `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
 

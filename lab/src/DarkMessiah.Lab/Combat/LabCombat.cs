@@ -46,6 +46,8 @@ internal sealed class LabCombat : IDisposable
 {
     internal const string Set = "lab.combat";
     const string PlayerModel = "models/npc/player/player_basic.mdl";
+    /// <summary>Source's head hit group.</summary>
+    const int HeadGroup = 1;
     /// <summary>The trace's radius, metres: the donor's trace is a ray (docs/combat.md, "Contacts").</summary>
     const float Radius = .05f * SourceSpace.MetresPerUnit;
     const double ShowSeconds = 1.2;
@@ -60,6 +62,7 @@ internal sealed class LabCombat : IDisposable
     double now;
     // The swing window last settled (a hit, or a kick decided: SwingKey), and the last swing that hit or missed outright.
     int settledSwing = -1, decidedSwing = -1;
+    bool canFatality = true;
     double deadSeconds;
 
     internal LabCombat(IEngineContext engine, DonorContent donor, CombatTuning tuning)
@@ -96,6 +99,8 @@ internal sealed class LabCombat : IDisposable
         Sword.ChainLength = build.Has("combat_chained_slash") ? 5 : 2;
         Sword.CanLeap = build.Has("combat_vertical_attack");
         Sword.CanRush = build.Has("combat_rush_attack");
+        canFatality = build.Has("combat_fatality");
+        Sword.CanWhirl = build.Has("combat_trample");
     }
 
     /// <summary>The authored build the lab plays (<c>build.json</c>), as last applied; replays play the recording's for their length.</summary>
@@ -118,6 +123,8 @@ internal sealed class LabCombat : IDisposable
 
     /// <summary>The player's stamina: sprinting drains it, a kick needs and costs it.</summary>
     internal PlayerStamina Stamina { get; }
+    /// <summary>The player's adrenaline: landed blows fill it, a full gauge makes the next power strike the Fatality.</summary>
+    internal PlayerAdrenaline Adrenaline { get; } = new();
     internal FirstPerson FirstPerson { get; }
     internal Orc Orc { get; }
     internal float PlayerHealth { get; private set; }
@@ -146,16 +153,19 @@ internal sealed class LabCombat : IDisposable
     /// <param name="move">The movement input (side, forward): it picks a power attack's direction.</param>
     /// <param name="grounded">The body is on the ground: Dark Messiah doesn't kick in the air.</param>
     /// <param name="sprinting">Sprint is held while the body moves: it sprints, draining stamina, once there is enough to start.</param>
+    /// <param name="crouched">The body crouches (duck held).</param>
     internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
-        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false)
+        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false)
     {
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
-        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting);
+        Sword.Fatal = canFatality && Adrenaline.Full;
+        Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
-        if (Sword.Traced && settledSwing != SwingKey)
+        if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
+        else if (Sword.Traced && settledSwing != SwingKey)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
             else Swing(tick, eye, feet);
@@ -197,12 +207,44 @@ internal sealed class LabCombat : IDisposable
         }
         int? group = struck == Struck.Body ? targets[0].Model.Hitboxes[c.Hitbox].Group : null;
         float asked = PlayerAsks(player, orc, group, kick: false, Orc.Health);
+        // The blow's .qct event gives adrenaline; the Fatality spends it, and a head blow of a cutting move kills.
+        var hit = model.EventOf(player);
+        Adrenaline.Gain(hit?.Adrenaline ?? 0);
+        if (Sword.Move == SwordMove.Fatality) Adrenaline.Spend();
+        if (hit?.CutsHead == true && group == HeadGroup) asked = MathF.Max(asked, Orc.Health);
         Orc.Damage(asked);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
         Message = Orc.Alive ? FormattableString.Invariant($"Hit for {asked:0.##}") : "The orc falls";
     }
+
+    /// <summary>
+    /// The Whirlwind's blow: its clip has no hit events, and the recorded one landed the tick it began (240 on the orc
+    /// 55 units in front: HitPow 30). The lab strikes the orc within <see cref="WhirlwindReach"/> as it begins, on its body.
+    /// </summary>
+    void Whirl(ulong tick, Vector3 eye, Vector3 feet)
+    {
+        settledSwing = SwingKey;
+        decidedSwing = Sword.Swing;
+        Vector3 flat = (Orc.Feet - feet) with { Y = 0 };
+        if (!Orc.Alive || flat.Length() > WhirlwindReach)
+        {
+            Player = Player with { Missed = Player.Missed + 1 };
+            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, eye, null, "none"));
+            return;
+        }
+        var player = new Party("player", "", [Sword.Clip.Clip], 0, "#1", PlayerModel);
+        float asked = PlayerAsks(player, Orc.Party(), 0, kick: false, Orc.Health);
+        Orc.Damage(asked);
+        Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
+        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
+        Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, 0));
+        Message = Orc.Alive ? FormattableString.Invariant($"Whirlwind for {asked:0.##}") : "The orc falls";
+    }
+
+    /// <summary>How far the Whirlwind reaches, metres: authored (the one recorded blow struck at 1.4 m).</summary>
+    internal const float WhirlwindReach = 2f;
 
     /// <summary>The swing and its hit window now: each window of a move that strikes in parts hits once.</summary>
     int SwingKey => Sword.Swing * 4 + Math.Max(0, Sword.Window);
@@ -322,6 +364,7 @@ internal sealed class LabCombat : IDisposable
     {
         Sword.Reset();
         Stamina.Reset();
+        Adrenaline.Reset();
         Orc.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();

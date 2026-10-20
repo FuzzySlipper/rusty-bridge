@@ -190,6 +190,38 @@ sprinted and then charged.
   stamina reached 3.00; once going it went on below (`StaminaRules.NeededForSprint`). A press then is an ordinary
   one (12895: a fast attack).
 
+### Adrenaline, the Fatality and the Whirlwind
+
+Recorded in `l01_a-v16-adrenaline*`, `-fatality*`, `-whirlwind` and `-disarm` (#10145; the scenarios of the same
+names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-crit`, `-slowmo`) and hand2's behead.
+- **The gauge** (`PlayerAdrenaline`): each blow that takes health gives its `.qct` event's `adrenalineadd` (a fast
+  attack 0.5, a power attack 3, the jump and rush attacks 1, a disarm 8), up to 20 (the Wire's `MaxAdrenaline`): 159
+  of 162 landed blows fill it as the lab's does (`AdrenalineCalibration`; the three are a power attack's layer
+  fading under a fast attack, and a kick that gave 0.5). A swing that lands nothing gives nothing, and the gauge
+  didn't fall in 12 s standing.
+- **The Fatality** (the game's: "Once your Adrenaline bar is full, your next Power Strike becomes a Fatality";
+  `combat_huge_slash` and `combat_fatality`, the combat skill's level 0): with the gauge full, a charge released from
+  its hold plays `layer_combo_sword_huge_noshield` (2.1 s) instead of the power attack (`PlayerSword.Fatal`): none of
+  the 25 recorded releases at full was the power attack (22 huge slashes, 2 beheads, 1 Whirlwind).
+  A quick release is still a fast attack. It strikes twice (2186–2190 at 0.14–0.22 and 0.40–0.48, HitPow 30: 240 on
+  the body, 720 on the head) and a head blow cuts the head off (`cutheadflag`): it killed orcs of 100000 health
+  (`AttackEvent.CutsHead`). A landed huge slash empties the gauge; one that strikes nothing leaves it full.
+- **The behead:** twice the Fatality was `layer_behead_sword_noshield_out` instead (hand2 129273; the first
+  `adrenaline` run), each time a killing blow, but a huge slash on an orc set to 40 health didn't behead. Not
+  explained; the lab plays the huge slash (the replays count both as the Fatality).
+- **The Whirlwind** (the game's: Crouch+Adrenaline+Power Strike; `combat_trample`, the combat skill's level 3):
+  crouched with the gauge full, the release played `layer_combo_sword_trample_noshield` (1.9 s) and its blow landed
+  the tick it began: 240 on the orc 55 units in front (HitPow 30). Its clip has no hit events; the lab strikes the orc
+  within `LabCombat.WhirlwindReach` (2 m, authored) as it begins. It left the gauge full (one case). Two other crouched
+  releases at full played the huge slash: not explained, so the lab's Whirlwind replay begins 2 where the donor began 1.
+  The slow motion its `.qct` asks for (×0.5 for 2.5 s) is #10147's.
+- **Disarm** (Power Strike on a stunned enemy's arm, `combat_disarm`, level 2): not reproduced. Pairs of power strikes
+  (the first stunning, `chancetostun` 0.8) gave a fast attack second: the second press came while the first played.
+  It needs the orc's stun (#10152) and a recorded disarm; the clip (`layer_combo_sword_disarm_noshield`, 1.6 s, HitPow
+  0, `disarmflag`) has no hit window.
+- **An orc getting up takes ×2:** four blows on an orc in `StandUp_*` asked twice the lab's, the only unexplained
+  doubles (one of them the old `l01_a-layers` fast attack). The lab's orc is never down (#10152).
+
 ### Kicks
 
 A press of F asks for a kick, and stands while F is held. The kick starts on the first step the body may kick: no
@@ -248,6 +280,7 @@ sprinting first).
 | Kick, window 0.36–0.42 | 70 of 70 (cycles 0.38–0.41) | 1.20 against 1.18 cycles/s |
 | Jump attack's strike, window 0.03–0.27 | 2 of 2 (cycles 0.13–0.16) | 1.00 against 0.99 cycles/s |
 | Rush attack, windows 0.09–0.17 and 0.47–0.57 | 4 of 4 (cycles 0.09–0.49) | 0.51 against 0.50 cycles/s |
+| Huge slash (the Fatality), windows 0.14–0.22 and 0.40–0.48 | 13 of 13 (cycles 0.15–0.45) | 0.48 against 0.47 cycles/s |
 
 **A blow belongs to the newest move.** A kick can start while a power
 attack's layer is still fading out under it. Credited to the first layer
@@ -262,17 +295,19 @@ off any move but another kick or a broken parry.
 and rush attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
 recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
 whose `HitPow` comes from `first_basic.qct` like the others', and with the recording's player strength (from v16, its
-`extra_damage` level; docs/combat.md, "The player's strength"). 187 of 190 agree:
+`extra_damage` level; docs/combat.md, "The player's strength"). 269 of 289 agree:
 - **Fast attacks:** A 69 of 71, B 8 of 8, C 3 of 3, D 2 of 2, E 2 of 2. The chained-slash recording's player has
   `extra_damage` 3, strength 6: its blows ask four times a new game's.
 - **Power attacks:** 35 of 36, and the one `B_out` blow.
 - **Kicks:** 63 of 63. The jump and rush attacks' blows carry the kick's damage bit too (they always push), and the
   jump attack's strike makes a zero-damage push call of its own: a kick is a blow whose frame plays a kick or no move.
+- **The Fatality and the Whirlwind:** the huge slash 11 of 13, the Whirlwind 1 of 1.
 - **The jump and rush attacks:** 1 of 1 and 3 of 3, the rush's second part by its clip's cycle (docs/combat.md). Most of
   their recorded blows struck an orc whose health didn't fall, which the calibration leaves out with the dead.
 - **The differences:**
   - two blows on an orc not yet alert (×3) at the start of the chained-slash recording;
-  - a critical (×2), which the lab doesn't roll;
+  - criticals (×2), which the lab doesn't roll: the runs with every skill have `critical_hit` 2, and roll them often;
+  - four blows on an orc getting up (×2, above);
   - a blow in a recording before Wire v11 asking twice the lab's, most likely a critical. Neither the critical byte
     nor the orc's alert level is on the Wire before v11.
 - **Kick push calls:** a kick that pushes also makes a zero-damage, untraced call for the push, which isn't a blow and
@@ -383,6 +418,13 @@ move (`layer_behead_*_out`, 129270) the lab plays as the neutral power attack.
 | `l01_a-v16-jump-attack` (0.06, 0.15, 1 s holds, and drops) | power attacks | 15 of 15, lab 16 |
 | `l01_a-v16-jump-attack-basic` (the same, without the skill) | power attacks | 16 of 16, lab 16 |
 | `l01_a-v16-rush-attack` | rushes | 6 of 6, lab 6 |
+| `l01_a-v16-fatality` | Fatalities | 11 of 11, lab 11 |
+| | power attacks | 44 of 44, lab 44 |
+| `l01_a-v16-whirlwind` | Whirlwinds | 1 of 1, lab 2 |
+| | power attacks | 15 of 15, lab 15 |
+
+Replays hold the lab's adrenaline to the recording's each tick (`ReplayTick.Adrenaline`): the donor also fills it on
+blows the lab doesn't follow.
 
 A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
 the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
@@ -485,7 +527,7 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
-  - the other combos (huge slash, trample, disarm: #10145), the finishing moves (`layer_behead_*`), and the quick draw;
+  - the disarm (above), the behead's trigger, and the quick draw;
   - the shield-holding moves.
 - **Stamina:** what empty stamina does to the sprint (the lab stops it at 0), and the costs of parrying, blocking and dodging
   (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.

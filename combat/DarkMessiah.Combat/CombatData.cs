@@ -4,10 +4,12 @@ namespace DarkMessiah.Combat;
 
 /// <summary>
 /// One contact of an attack: its damage factor (HitPow), whether it breaks a parry, how far its sweep reaches
-/// (`range`, Source units) and how the attacker moves through it (`AttackMove`: 1 in place, more for lunges, jumps
-/// and kicks; 0 when not given).
+/// (`range`, Source units), how the attacker moves through it (`AttackMove`: 1 in place, more for lunges, jumps
+/// and kicks; 0 when not given), the adrenaline it gives the player when it lands (`adrenalineadd`), and whether a
+/// blow on the head cuts it off (`cutheadflag`: the huge slash's head blows killed an orc of 100000 health).
 /// </summary>
-public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0)
+public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
+    bool CutsHead = false)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
@@ -231,7 +233,8 @@ public sealed class CombatData
     // An event block inherits nothing from its attack: the game reads each into a fresh move (default range 120).
     static AttackEvent Event(KeyValues b) =>
         new(b.Number("HitPow") ?? 1, (b.Number("breakparade") ?? 0) > 0 || (b.Number("forcebreakparade") ?? 0) > 0,
-            b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0));
+            b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0), b.Number("adrenalineadd") ?? 0,
+            (b.Number("cutheadflag") ?? 0) > 0);
 
     public WeaponData? Weapon(string model)
     {

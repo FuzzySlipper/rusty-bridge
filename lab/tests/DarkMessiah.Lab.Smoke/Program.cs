@@ -248,6 +248,31 @@ for (int i = 0; i < 6; i++) rush.Step(Tick, true, false, false, sprinting: true)
 rush.Step(Tick, false, false, false, sprinting: true);
 Check(rush.Move == SwordMove.Ready, "released before its hold while sprinting, nothing plays");
 
+// The Fatality and the Whirlwind (#10145): with the gauge full a charge released from its hold is the huge slash, or
+// crouched with combat_trample the Whirlwind; a quick release is still a fast attack.
+var fatalClips = clips with { Fatality = new MoveClip("huge", 2.1f, false, .14f, .22f, Later: [(.4f, .48f)]), Whirlwind = M("whirl", 1.9f) };
+var fatal = new PlayerSword(fatalClips) { FastDelay = 0, Fatal = true, CanWhirl = true };
+for (int i = 0; i < 40; i++) fatal.Step(Tick, true, false, false);
+fatal.Step(Tick, false, false, false);
+Check(fatal.Move == SwordMove.Fatality && fatal.SwingStarted, "with the gauge full a power strike is the Fatality's huge slash");
+fatal = new PlayerSword(fatalClips) { FastDelay = 0, Fatal = true, CanWhirl = true };
+for (int i = 0; i < 40; i++) fatal.Step(Tick, true, false, false, crouched: true);
+fatal.Step(Tick, false, false, false, crouched: true);
+Check(fatal.Move == SwordMove.Whirlwind, "crouched, the Whirlwind");
+fatal = new PlayerSword(fatalClips) { FastDelay = 0, Fatal = true, CanWhirl = false };
+for (int i = 0; i < 40; i++) fatal.Step(Tick, true, false, false, crouched: true);
+fatal.Step(Tick, false, false, false, crouched: true);
+Check(fatal.Move == SwordMove.Fatality, "without combat_trample, crouched is still the huge slash");
+fatal = new PlayerSword(fatalClips) { FastDelay = 0, Fatal = true };
+for (int i = 0; i < 6; i++) fatal.Step(Tick, true, false, false);
+fatal.Step(Tick, false, false, false);
+Check(fatal.Move == SwordMove.Fast, "and a quick release is a fast attack");
+var gauge = new PlayerAdrenaline();
+for (int i = 0; i < 7; i++) gauge.Gain(3);
+Check(gauge.Full && gauge.Value == 20, "the gauge fills by each blow's adrenalineadd, to 20");
+gauge.Spend();
+Check(gauge.Value == 0, "and a landed Fatality empties it");
+
 // A build without combat_parry (#10140's gate) doesn't parry: holding block does nothing.
 var noParry = new PlayerSword(clips) { FastDelay = 0,  CanParry = false };
 for (int i = 0; i < 12; i++) noParry.Step(Tick, false, true, false);
@@ -427,8 +452,8 @@ host.Call(engine =>
     var real = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
     Check(real.Charges.Count == 5 && real.Charge(PowerDirection.L).Out.Clip == "layer_bigslash_sword_noshield_L_out" && real.FastB.Traced,
         $"the first-person model has the neutral and four directional power attacks, and B's own hit window ({real.FastB.Open:0.00}–{real.FastB.Close:0.00})");
-    Check(real.Moves.All(m => m.Traced) && MathF.Abs(real.Charge(PowerDirection.B).Out.Open - .105f) < .01f && MathF.Abs(real.Charge(PowerDirection.B).Out.Close - .21f) < .01f,
-        FormattableString.Invariant($"every move has a hit window; B's and T's, with no 2186/2190, run 2107–2110 (B {real.Charge(PowerDirection.B).Out.Open:0.00}–{real.Charge(PowerDirection.B).Out.Close:0.00})"));
+    Check(real.Moves.Where(m => m != real.Whirlwind).All(m => m.Traced) && MathF.Abs(real.Charge(PowerDirection.B).Out.Open - .105f) < .01f && MathF.Abs(real.Charge(PowerDirection.B).Out.Close - .21f) < .01f,
+        FormattableString.Invariant($"every move but the Whirlwind has a hit window; B's and T's, with no 2186/2190, run 2107–2110 (B {real.Charge(PowerDirection.B).Out.Open:0.00}–{real.Charge(PowerDirection.B).Out.Close:0.00})"));
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
@@ -531,7 +556,10 @@ host.Call(engine =>
         jumpHold = Path.Combine(recordings, "experiments", "l01_a-v16-jump-attack-hold.rbrec"),
         jumpBasic = Path.Combine(recordings, "experiments", "l01_a-v16-jump-attack-basic.rbrec"),
         rushAttack = Path.Combine(recordings, "experiments", "l01_a-v16-rush-attack.rbrec");
-    string[] calibrated = [.. found, .. new[] { chainedSlash, jumpAttack, jumpHold, jumpBasic, rushAttack }.Where(File.Exists)];
+    // Adrenaline and its moves (#10145): the gauge filled by power strikes, the Fatality, the Whirlwind and disarm tries.
+    string[] adrenalineRuns = [.. new[] { "adrenaline", "adrenaline-first", "fatality", "fatality-first", "whirlwind", "disarm" }
+        .Select(n => Path.Combine(recordings, "experiments", $"l01_a-v16-{n}.rbrec")).Where(File.Exists)];
+    string[] calibrated = [.. found, .. new[] { chainedSlash, jumpAttack, jumpHold, jumpBasic, rushAttack }.Where(File.Exists), .. adrenalineRuns];
     var calibration = SwordCalibration.Measure(calibrated, real);
     foreach (var move in calibration) Console.WriteLine($"  {move}");
     foreach (var move in calibration.Where(m => m.Blows.Count >= 10))
@@ -563,6 +591,12 @@ host.Call(engine =>
     foreach (var d in damage.Where(d => !d.Agrees)) Console.WriteLine($"    {d}");
     Check(damage.Count >= 20 && damage.Count(d => d.Agrees) >= damage.Count * 8 / 10 && damage.All(d => d.Agrees || d.Reason != "unexplained"),
         $"the lab's damage matches recorded blows ({damage.Count(d => d.Agrees)} of {damage.Count}), and every difference has a known reason");
+    var adrenaline = AdrenalineCalibration.Measure(calibrated, combat);
+    foreach (var byMove in adrenaline.GroupBy(a => a.Move))
+        Console.WriteLine($"  adrenaline {byMove.Key}: {byMove.Count(a => a.Agrees)} of {byMove.Count()} landed blows fill the gauge as the lab's does");
+    foreach (var a in adrenaline.Where(a => !a.Agrees).Take(12)) Console.WriteLine($"    {a}");
+    Check(adrenaline.Count >= 20 && adrenaline.Count(a => a.Agrees) >= adrenaline.Count * 9 / 10,
+        $"each landed blow fills the gauge by its adrenalineadd ({adrenaline.Count(a => a.Agrees)} of {adrenaline.Count})");
     // Phase timing reaches the fight through its owner: a retuned windup lengthens the fast attack's play.
     var slower = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed,
         combat.Tuning with { Phases = combat.Tuning.Phases with { Fast = new MovePhases(2, 1, 1) } });
@@ -631,7 +665,9 @@ host.Call(engine =>
     else Console.WriteLine("skip the chained-slash replay: no local/recordings/experiments/l01_a-v16-chained-slash.rbrec");
 
     // The jump and rush attacks replayed: the lab begins the donor's movement attacks with it.
-    foreach (var (path, families) in new[] { (jumpAttack, new[] { "power attack" }), (jumpHold, new[] { "jump attack", "power attack" }), (jumpBasic, new[] { "power attack" }), (rushAttack, new[] { "rush attack" }) })
+    string Experiment(string name) => Path.Combine(recordings, "experiments", $"l01_a-v16-{name}.rbrec");
+    foreach (var (path, families) in new[] { (Experiment("fatality"), new[] { "fatality", "power attack" }), (Experiment("whirlwind"), new[] { "whirlwind", "power attack" }),
+        (jumpAttack, new[] { "power attack" }), (jumpHold, new[] { "jump attack", "power attack" }), (jumpBasic, new[] { "power attack" }), (rushAttack, new[] { "rush attack" }) })
     {
         if (!File.Exists(path)) { Console.WriteLine($"skip the {Path.GetFileName(path)} replay: no local/recordings/experiments/{Path.GetFileName(path)}"); continue; }
         var report = CombatReplay.Run(combat, path, product);

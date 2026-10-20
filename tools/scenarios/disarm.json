@@ -1,0 +1,54 @@
+{
+  "description": "Disarm (#10145; the game's 'Power Strike on a stunned enemy's arm', combat_disarm): every skill module, the short sword, one orc with 1000 health approached, then pairs of power strikes: the first stuns (chancetostun 0.8), the second follows at once. Fourteen pairs.",
+  "seconds": 110,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    {
+      "repeat": 14,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 0.35
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        }
+      ]
+    }
+  ]
+}

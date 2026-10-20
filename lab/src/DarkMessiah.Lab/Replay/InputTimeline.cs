@@ -24,9 +24,11 @@ namespace DarkMessiah.Lab.Replay;
 /// <param name="Sprint">v14: the command's sprint action (Arkane's byte +0x95) with movement.</param>
 /// <param name="Armed">The donor's player has a weapon in hand: its view model plays a layer other than the quick
 /// draw (v9 and later; true without layers). With none in hand the donor ignores attack, block and kick.</param>
+/// <param name="Adrenaline">From v7, the donor player's adrenaline this tick (and its maximum): the replay holds the
+/// lab's gauge to it, since the donor also fills it on blows the lab doesn't follow.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
-    bool Armed = true);
+    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -68,7 +70,8 @@ internal sealed class InputTimeline
     /// <summary>
     /// The move family a first-person clip plays: Dark Messiah's fast attacks (A to E), its power attacks' releases (the
     /// neutral one and the directional T, B, L and R ones), its kicks, the jump attack's strike (<c>combo_*_fall_*_out</c>)
-    /// and the rush attack (<c>combo_*_rush_*</c>). Null for anything else (charges, idles, parries, movement).
+    /// the rush attack (<c>combo_*_rush_*</c>) and the Fatality (<c>combo_*_huge_*</c>, <c>behead_*_out</c>) and the Whirlwind (<c>combo_*_trample_*</c>). Null for
+    /// anything else (charges, idles, parries, movement).
     /// </summary>
     internal static string? Family(string clip) =>
         clip.Contains("fastattack", StringComparison.Ordinal) && !clip.EndsWith("_end", StringComparison.Ordinal) ? "fast attack"
@@ -76,6 +79,8 @@ internal sealed class InputTimeline
         : clip.Contains("kick", StringComparison.Ordinal) ? "kick"
         : clip.Contains("_fall_", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "jump attack"
         : clip.Contains("combo_sword_rush", StringComparison.Ordinal) ? "rush attack"
+        : clip.Contains("combo_sword_huge", StringComparison.Ordinal) || clip.Contains("behead", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "fatality"
+        : clip.Contains("combo_sword_trample", StringComparison.Ordinal) ? "whirlwind"
         : null;
 
     /// <param name="moves">The lab's first-person clips (fast, power, kick); the donor's moves are their families' clips, variants included.</param>
@@ -166,7 +171,8 @@ internal sealed class InputTimeline
                     kickHeld = now2.Item2.HasFlag(PlayerActions.Kick);
                     sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
-                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed));
+                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
+                    f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

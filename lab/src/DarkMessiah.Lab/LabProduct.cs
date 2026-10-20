@@ -129,7 +129,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
             combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
-                move: frame.Movement, grounded: player.Motion.Grounded, sprinting: frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero);
+                move: frame.Movement, grounded: player.Motion.Grounded, sprinting: frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero,
+                crouched: player.Motion.Stance == CharacterStance.Crouched);
             kickPending = attackPending = blockPending = false;
             scene.Step(delta, cubes.PrepareStep());
         }

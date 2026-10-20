@@ -1,0 +1,355 @@
+{
+  "description": "The Fatality and the Whirlwind (#10145): every skill module, the short sword, a new orc with 100000 health for each of six cycles, approached before each strike, keys held through console lines. Each cycle fills the gauge with ten power strikes (3 each, capped at 20), then strikes at full: crouched (+duck: the Whirlwind), on an orc set to 40 health first (does a killing Fatality behead?), or standing.",
+  "seconds": 230,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword"
+  ],
+  "play": [
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "+duck",
+        {
+          "wait": 0.4
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        },
+        "-duck",
+        {
+          "wait": 0.3
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "ent_fire npc_orc_sword addoutput \"health 40\"",
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "+duck",
+        {
+          "wait": 0.4
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        },
+        "-duck",
+        {
+          "wait": 0.3
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "ent_fire npc_orc_sword addoutput \"health 40\"",
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        }
+      ]
+    },
+    {
+      "repeat": 1,
+      "steps": [
+        "ent_remove_all npc_orc_sword",
+        "setpos 0 -2400 0",
+        "setang 15 90 0",
+        {
+          "wait": 0.5
+        },
+        "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+        {
+          "wait": 1.5
+        },
+        "ent_fire npc_orc_sword addoutput \"health 100000\"",
+        {
+          "wait": 0.3
+        },
+        {
+          "repeat": 10,
+          "steps": [
+            {
+              "approach": "npc_orc_sword",
+              "distance": 55
+            },
+            {
+              "wait": 0.3
+            },
+            "+attack",
+            {
+              "wait": 0.9
+            },
+            "-attack",
+            {
+              "wait": 1.6
+            }
+          ]
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.3
+        },
+        "+attack",
+        {
+          "wait": 0.9
+        },
+        "-attack",
+        {
+          "wait": 1.6
+        }
+      ]
+    }
+  ]
+}

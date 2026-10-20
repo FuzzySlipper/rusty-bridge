@@ -289,6 +289,10 @@ entry *L* + 1 of a per-level table in the player's +0x2B28. The table is `player
 blows landed at cycles 0.466 and 0.48, before its 2139 (0.53) and its second 2186 (0.49): its part is the last 2107 at
 the clip's cycle instead (`CombatData.PlayerPart`, #10144). A recorded player's party carries the main sequence's
 cycle, so the lab's calibration passes the view-model layer's.
+
+**A victim getting up takes ×2.** Four player blows on an orc in a `StandUp_*` sequence asked twice what the rest of
+the model asks (a fast attack, a power attack, two huge slashes; no critical byte), and no other blow doubled
+(#10145). The lab's calibration names it; the model doesn't apply it yet (knockdowns are #10152).
 ## Scores
 
 The first model measured its tables from `l01_a-parrybot` and

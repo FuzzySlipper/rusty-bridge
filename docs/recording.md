@@ -144,6 +144,10 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `chained-slash` | every skill (all at their maximum level), the short sword, one orc with 1000 health, approached | 20 bursts of 8 quick clicks, then 3 kicks |
 | `jump-attack` | every skill (`combat_vertical_attack`, the Leaping Attack, among them), the short sword, one orc with 1000 health | from 80 units, `+jump` then a click 0.1 or 0.3 s later, held 0.06, 0.15 or 1 s (three each); drops from 200 units up with the same holds (two each) |
 | `jump-attack-basic` | the same with a new game's skills | the same |
+| `adrenaline` | every skill, the short sword, one orc with 100000 health | seven power strikes to fill the gauge, then one at full, six times from 55 or 130 units; three crouched; taps; 12 s standing |
+| `fatality` | every skill, the short sword, a new orc with 100000 health for each of six cycles | ten power strikes, then one at full: crouched, on an orc set to 40 health, or standing |
+| `whirlwind` | the same, crouched (`+duck`) through each of three cycles | twelve power strikes |
+| `disarm` | every skill, the short sword, one orc with 1000 health | fourteen pairs of power strikes (none disarmed: the second press came while the first played) |
 | `rush-attack` | every skill (`combat_rush_attack`, the Charge, among them), the short sword, a new orc with 1000 health for each rush | from 360 units, three each: a 1 s charge, then `+forward +sprint` and the release 0.6 s later; a sprint, then a 1 s or 0.3 s hold; a run after a charge |
 | `daggers-goblin` | the short sword in hand, the kryss daggers given, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
 | `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |

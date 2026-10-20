@@ -120,6 +120,9 @@ public sealed class CombatModel(CombatData data)
     /// on) is its first part. A player's attack in parts goes by its clip's
     /// cycle instead (<see cref="CombatData.PlayerPart"/>).
     /// </summary>
+    /// <summary>The attack event a party's blow is (its part's `.qct` entry); null when it is none.</summary>
+    public AttackEvent? EventOf(Party attacker) => Event(attacker, Attack(attacker));
+
     AttackEvent? Event(Party attacker, AttackData? attack)
     {
         if (attack is null) return null;

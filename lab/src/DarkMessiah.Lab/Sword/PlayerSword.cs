@@ -4,7 +4,7 @@ using DarkMessiah.Shared;
 namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
-internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush }
+internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -99,8 +99,11 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 /// <param name="FastEnd">The recovery after an A or an E nothing chains onto, <c>layer_fastattack_*_end</c>.</param>
 /// <param name="Leap">The jump attack's clips (the game's Leaping Attack); null when the model has none.</param>
 /// <param name="Rush">The rush attack (the game's Charge, <c>layer_combo_sword_rush_noshield</c>, two strikes); null when the model has none.</param>
+/// <param name="Fatality">The Fatality's huge slash (<c>layer_combo_sword_huge_noshield</c>, two strikes); null when the model has none.</param>
+/// <param name="Whirlwind">The Whirlwind (<c>layer_combo_sword_trample_noshield</c>: no hit events, it strikes as it starts); null when none.</param>
 internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain, MoveClip FastEnd,
-    MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null, MoveClip? Rush = null)
+    MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null, MoveClip? Rush = null, MoveClip? Fatality = null,
+    MoveClip? Whirlwind = null)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
 
@@ -113,7 +116,8 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     internal MoveClip Power => Charges[PowerDirection.Neutral].Out;
 
     /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release, the kick, the jump attack's strike and the rush.</summary>
-    internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush }];
+    internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush },
+        .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }];
 
     /// <summary>The power attack's clips for <paramref name="direction"/>, the neutral ones when the model has none for it.</summary>
     internal PowerClips Charge(PowerDirection direction) => Charges.GetValueOrDefault(direction) ?? Charges[PowerDirection.Neutral];
@@ -147,7 +151,9 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
                 ? new LeapClips(C("layer_combo_sword_fall_noshield_jump_in"), C("layer_combo_sword_fall_noshield_idle", loop: true),
                     C("layer_combo_sword_fall_noshield_out"), C("layer_combo_sword_fall_noshield_cancel"))
                 : null,
-            model.Clips.ContainsKey("layer_combo_sword_rush_noshield") ? C("layer_combo_sword_rush_noshield") : null);
+            model.Clips.ContainsKey("layer_combo_sword_rush_noshield") ? C("layer_combo_sword_rush_noshield") : null,
+            model.Clips.ContainsKey("layer_combo_sword_huge_noshield") ? C("layer_combo_sword_huge_noshield") : null,
+            model.Clips.ContainsKey("layer_combo_sword_trample_noshield") ? C("layer_combo_sword_trample_noshield") : null);
     }
 }
 
@@ -177,6 +183,9 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 /// to the neutral power attack's hold. Otherwise the press holds the neutral power attack, released as it (at once if
 /// let go already). Late in a kick (from <see cref="KickAttackOpen"/>)
 /// a press in the air cuts the kick short the same way;</item>
+/// <item>with the adrenaline gauge full (<see cref="Fatal"/>), a charge released from its hold is the Fatality's huge
+/// slash (<c>layer_combo_sword_huge_noshield</c>) instead of the power attack, or crouched with <c>combat_trample</c>
+/// (<see cref="CanWhirl"/>) the Whirlwind (<c>layer_combo_sword_trample_noshield</c>);</item>
 /// <item>while sprinting, a charge released from its hold is the rush attack with <c>combat_rush_attack</c>
 /// (<see cref="CanRush"/>; the game's Charge, Sprint+Power Strike), and one released before its hold plays nothing;</item>
 /// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release), from the ground;</item>
@@ -217,7 +226,7 @@ internal sealed class PlayerSword(SwordClips clips)
     /// <summary>The hit window this step's cycles overlap (the rush attack has two), or -1.</summary>
     internal int Window => Swinging ? Clip.WindowAt(stepFrom, Cycle) : -1;
     /// <summary>A move that swings or kicks plays: its hit window may be open.</summary>
-    internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush;
+    internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush or SwordMove.Fatality or SwordMove.Whirlwind;
     /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
     internal float TraceCycle => Window is int w and >= 0 ? Math.Clamp(Cycle, Clip.Windows[w].Open, Clip.Windows[w].Close) : Cycle;
     float stepFrom;
@@ -241,6 +250,13 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool CanLeap { get; set; }
     /// <summary>The build has <c>combat_rush_attack</c> (the combat skill's level 1, the game's Charge).</summary>
     internal bool CanRush { get; set; }
+    /// <summary>
+    /// The adrenaline gauge is full and the build has <c>combat_fatality</c> (every build: the combat skill's level 0):
+    /// the next power strike is the Fatality (<see cref="PlayerAdrenaline"/>; the caller sets it each step).
+    /// </summary>
+    internal bool Fatal { get; set; }
+    /// <summary>The build has <c>combat_trample</c> (the combat skill's level 3, the game's Whirlwind).</summary>
+    internal bool CanWhirl { get; set; }
     /// <summary>A kick was asked for and hasn't started: it starts on the first step it may.</summary>
     internal bool KickWanted => kickWanted;
 
@@ -296,8 +312,9 @@ internal sealed class PlayerSword(SwordClips clips)
     /// <param name="mayKick">The body may kick now: on the ground, with the stamina for it.</param>
     /// <param name="airborne">The body is in the air: attack makes the jump attack, or the neutral power attack.</param>
     /// <param name="sprinting">The body sprints: a charge's release is the rush attack, or nothing.</param>
+    /// <param name="crouched">The body crouches: with a full gauge a charge's release is the Whirlwind.</param>
     internal void Step(float seconds, bool attackHeld, bool blockHeld, bool kickHeld, Vector2 move = default, bool mayKick = true, bool airborne = false,
-        bool sprinting = false)
+        bool sprinting = false, bool crouched = false)
     {
         SwingStarted = false;
         landed = airborne ? 0 : landed + seconds;
@@ -364,6 +381,8 @@ internal sealed class PlayerSword(SwordClips clips)
                     if (Clip == charge.Hold)
                     {
                         if (sprinting && CanRush && clips.Rush is { } rush) Play(SwordMove.Rush, rush, swing: true);
+                        else if (Fatal && crouched && CanWhirl && clips.Whirlwind is { } whirl) Play(SwordMove.Whirlwind, whirl, swing: true);
+                        else if (Fatal && clips.Fatality is { } fatality) Play(SwordMove.Fatality, fatality, swing: true);
                         else Play(SwordMove.Power, charge.Out, swing: true);
                     }
                     else if (sprinting) Play(SwordMove.Ready, clips.Idle);

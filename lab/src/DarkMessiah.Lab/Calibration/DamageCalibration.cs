@@ -76,6 +76,8 @@ internal static class DamageCalibration
                     : d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0 ? "a critical (×2): the lab rolls none"
                     : d.VictimAlert is int alert && alert <= settings.NotAlertedLevel && d.VictimNpcState != CombatModel.NotAlertedExemptState
                         ? $"the orc wasn't alert (×{settings.NotAlertedMultiplier:0.#}): the lab's always is"
+                    : d.Victim.Sequence.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase) && MathF.Abs(d.Requested - 2 * lab) < .01f
+                        ? $"the orc was getting up ({d.Victim.Sequence}): ×2, and the lab's orc is never down"
                     : d.VictimAlert is null ? "before Wire v11: neither the critical byte nor the orc's alert level is on the Wire"
                     : "unexplained";
                 results.Add(new DamageComparison(d.Tick, Path.GetFileNameWithoutExtension(path), move, kick ? null : d.HitGroup, d.Requested, lab, reason));
@@ -105,7 +107,7 @@ internal static class DamageCalibration
     }
 
     /// <summary>The player's first-person move clips playing in a frame (any move family), with their cycles.</summary>
-    static Dictionary<string, float> MoveLayers(RecordedFrame f)
+    internal static Dictionary<string, float> MoveLayers(RecordedFrame f)
     {
         var layers = new Dictionary<string, float>();
         var view = f.ClientView;

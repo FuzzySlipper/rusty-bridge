@@ -31,7 +31,8 @@ animation as the blow arrived, pose parameters included. Since v14 the
 player's input carries its user commands as the server received them: the
 movement, the buttons and Arkane's action bytes, the kick among them. Since v15 each tick carries the
 player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn, and since v16
-each skill's level. A control file beside the Wire holds the donor
+each skill's level. Since v17 each tick carries the melee sweeps the server ran: the start, direction and range of each
+ray it swept for a swing. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
@@ -80,6 +81,8 @@ at 72), then:
 - at 194,400, the 232-byte client view (80 bytes in v8)
 - at 194,632, the 48-byte player input (16 bytes in v12 and v13)
 - at 194,680, the 112-byte player stats (80 in v15; below, "The player's stats")
+- at 194,792 (v17), the melee sweeps: `count` u32, `dropped` u32, then up to 32 sweep records of 56 bytes (below, "The
+  melee sweep")
 
 Entities:
 
@@ -342,6 +345,7 @@ docs/combat.md has the pipeline. Where its factors come from:
   - **On the Wire:** the damage record's `attacker_critical`, read when `TakeDamage` arrives inside the routine.
   - **The rates (#10146):** the chance is 2 × `player_dexterity_{critical_hit + 1}` plus the short sword's `WCritHit`
     (0): 2% for a new game, 12% at level 2. Recorded: 1 of 45 and 13 of 111 power blows (docs/combat.md).
+- **The player's trace:** its own sweep of rays across the swing (below, "The melee sweep"; Wire v17 records each).
 - **Not alerted:** × `mul_damages_Npc_Not_alerted` (settings global `0x2279D1A0`+0x430) when
   `abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level` (+0x434) and `[npc+0x1A5C] != 3`. The
   record's `victim_alert` and `victim_npc_state` carry both.
@@ -461,8 +465,8 @@ it differs from 1. `rbwire info` groups calls by source and caller.
 
 ## The melee sweep
 
-Nothing here is hooked; these are the addresses behind the reach model (docs/combat.md, "Reach"), found
-2026-10-19 in `server.dll` (image base 0x22000000) by disassembly and checked live.
+The addresses behind the reach model (docs/combat.md, "Reach") and the player's swings, found 2026-10-19 in
+`server.dll` (image base 0x22000000) by disassembly and checked live. From v17 the tap hooks the sweep (below).
 
 | Address | What |
 | --- | --- |
@@ -496,6 +500,49 @@ arguments while the parry bot fought two orcs and a ghoul. It isn't committed.
 - **The ghoul:** called from +0x3B2275 with 50, `baseattacklength`'s default, since its `.qct` gives none.
 - **Type:** both used type 0.
 - **The field at rest:** the ghoul's `+0x11FC` read 120 throughout, the move default, which the unarmed branch doesn't use.
+
+**The hook (v17, #10179).** The sweep's player and NPC paths meet at +0x3CB5C8 with the start at `[esp+0x2C]` and the
+direction at `[esp+0x38]`, before it reads the type (`[esp+0xBA8]`) to pick the box: `mov ecx,[cvar slot]` there (6
+bytes, the slot's address relocated) becomes a jump to a stub that records the sweep and performs the instruction. The
+hook checks those 6 bytes, the relocated slot, and the next instruction (`mov eax,[esp+0xBA8]`), and stays off if they
+differ. Each sweep (56 bytes):
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `tick` i32 | |
+| 4 | `attacker` u16 | the routine's `this` (ebp), edict index |
+| 6 | `type` u8 | the type argument (`[esp+0xBA8]`): the box size above |
+| 7 | `flags` u8 | 1: the player held an entity at +0x2388 |
+| 8 | `start` 3 × f32 | `[esp+0x2C]` |
+| 20 | `direction` 3 × f32 | `[esp+0x38]`, unit |
+| 32 | `range` f32 | the length argument (`[esp+0xBA0]`) |
+| 36 | `view_angles` 3 × f32 | the player's angles at +0x1F88; zero for an NPC |
+| 48 | `caller` u32 | the return address's RVA |
+| 52 | `attacker_serial` u32 | |
+
+**What it shows for the player** (`l01_a-v17-chained-slash`, `-fatality`; `rbwire info` groups them by caller):
+- **The swing's rays** come from the resolver (+0x3B200E, type 0, range 120, so a box of 1.5 units). A tick sweeps
+  several rays, 7° to 11° apart, fanned across the arc the swing covered since the last tick, until one meets something.
+- **The start** is 9 units above the client's eye (virtual +0x2D8, `EyePosition`); **the angles at +0x1F88** equal the
+  client's view: the arc isn't camera sway.
+- **The arc** is a line in each clip's cycle, in a tilted plane: side = a + b × cycle and up = tilt × side, against
+  the view. Fits over the two recordings (residuals 3° to 7°):
+
+  | Clip | a | b | tilt |
+  | --- | --- | --- | --- |
+  | `fastattack_A` | −107.7 | 215.7 | −0.17 |
+  | `fastattack_B` | 189.7 | −301.3 | 0 |
+  | `fastattack_C` | −139.4 | 221.2 | 0.46 |
+  | `fastattack_D` | 104.2 | −163.5 | −0.45 |
+  | `fastattack_E` | −148.1 | 218.3 | −0.17 |
+  | `bigslash_out` | −111.2 | 805.3 | −0.78 |
+
+  The huge slash's few rays lie between 0° and 31° left, tilted −0.95. Where the arc comes from (an animation the
+  sweep's direction virtual +0x2DC turns the view by) isn't read; the lab takes the arcs (docs/lab.md, "The blade's
+  trace").
+- **Before each attack** a type-2 ray (box 3) of range 100 goes straight ahead from +0x432A13, and types 7 and 8 come
+  from +0x42F1E2 and +0x42ECC0: checks, not blows.
+- **The NPCs** sweep through the same resolver: an orc's at its attack's `range` (70), a ghoul's at 50 from +0x3B2275.
 
 ## The victim's pose
 

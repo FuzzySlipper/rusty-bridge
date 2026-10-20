@@ -265,6 +265,8 @@ int Info(string path)
     var names = new EventNames();
     var slowCallers = new Dictionary<(SlowTimeSource source, uint caller), (int calls, float factor, float duration)>();
     long slowDropped = 0, slowTicks = 0;
+    var sweepCallers = new Dictionary<(uint caller, byte type, string attacker), (int sweeps, float range)>();
+    long sweepDropped = 0;
     float adrenalineMax = float.NaN;
     var links = new HashSet<(string, string)>();
     double? firstWall = null, lastWall = null;
@@ -311,6 +313,13 @@ int Info(string path)
             foreach (var (what, index) in new[] { ("weapon", st.Weapon), ("shield", st.Shield), ("helmet", st.Helmet), ("ring", st.Ring), ("armor", st.Armor) })
                 if (index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var item))
                     itemsSeen.Add($"{what} {f.Classes.GetValueOrDefault(item.ClassId, "?")}");
+        }
+        sweepDropped += f.SweepDropped;
+        foreach (var s in f.Sweeps)
+        {
+            string who = f.Entities.TryGetValue(s.Attacker, out var a) ? f.Classes.GetValueOrDefault(a.ClassId, "?") : "?";
+            var c = sweepCallers.GetValueOrDefault((s.Caller, s.Type, who));
+            sweepCallers[(s.Caller, s.Type, who)] = (c.sweeps + 1, s.Range);
         }
         slowDropped += f.SlowTimeDropped;
         foreach (var b in f.SlowTime)
@@ -379,6 +388,12 @@ int Info(string path)
         Console.WriteLine($"slow motion calls: {slowCallers.Values.Sum(c => c.calls)}, {slowDropped} dropped; by caller:");
         foreach (var ((source, caller), c) in slowCallers.OrderByDescending(kv => kv.Value.calls))
             Console.WriteLine($"  {source,-7} {WireSlowTime.CallerName(caller)}  {c.calls,4} calls  last x{c.factor:F2} for {c.duration:F2} s");
+    }
+    if (sweepCallers.Count > 0 || sweepDropped > 0)
+    {
+        Console.WriteLine($"melee sweeps: {sweepCallers.Values.Sum(c => c.sweeps)}, {sweepDropped} dropped; by caller, type and attacker:");
+        foreach (var ((caller, type, who), c) in sweepCallers.OrderByDescending(kv => kv.Value.sweeps))
+            Console.WriteLine($"  {WireSlowTime.CallerName(caller)}  type {type}  {who,-16} {c.sweeps,5} sweeps  range {c.range:F0}");
     }
     if (inputFrames > 0)
         Console.WriteLine($"input: {inputFrames} frames; presses " +

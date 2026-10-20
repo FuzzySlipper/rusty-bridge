@@ -35,12 +35,15 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(16, (int)Marshal.OffsetOf<WirePlayerInput>(nameof(WirePlayerInput.ForwardMove)));
         Assert.Equal(WireLayout.ClientViewOffset + 232, WireLayout.InputOffset);
         Assert.Equal(112, Marshal.SizeOf<WirePlayerStats>());
+        Assert.Equal(56, Marshal.SizeOf<WireSweep>());
         Assert.Equal(80, (int)Marshal.OffsetOf<WirePlayerStats>(nameof(WirePlayerStats.SkillLevels)));
         Assert.Equal(28, (int)Marshal.OffsetOf<WirePlayerStats>(nameof(WirePlayerStats.SkillPoints)));
         Assert.Equal(36, (int)Marshal.OffsetOf<WirePlayerStats>(nameof(WirePlayerStats.Weapon)));
         Assert.Equal(48, (int)Marshal.OffsetOf<WirePlayerStats>(nameof(WirePlayerStats.WeaponSerial)));
         Assert.Equal(WireLayout.InputOffset + 48, WireLayout.StatsOffset);
-        Assert.Equal(25_523_456, WireLayout.FileBytes);
+        Assert.Equal(WireLayout.StatsOffset + 112, WireLayout.SweepsOffset);
+        Assert.Equal(48, (int)Marshal.OffsetOf<WireSweep>(nameof(WireSweep.Caller)));
+        Assert.Equal(25_753_856, WireLayout.FileBytes);
     }
 
     [Fact]

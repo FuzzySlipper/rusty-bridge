@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 16;
+const uint32_t kVersion = 17;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -19,6 +19,7 @@ const uint32_t kMaxDamage = 64;      // damage records per slot
 const uint32_t kMaxDefense = 32;     // defense records per slot
 const uint32_t kMaxLayers = 256;     // overlay layer records per slot
 const uint32_t kMaxSlowTime = 16;    // bullet-time setter calls per slot
+const uint32_t kMaxSweeps = 32;      // v17: melee sweeps per slot
 
 #pragma pack(push, 4)
 
@@ -327,8 +328,32 @@ struct PlayerStats {
     uint8_t skill_levels[32];
 };
 
+// v17: one melee sweep (server.dll+0x3CB310), as the hook at +0x3CB5C8 sees it once the routine has its start and
+// direction (docs/wire.md, "Melee sweeps"): a box of the type's half-size swept from start along direction for range.
+struct Sweep {
+    int32_t tick;
+    uint16_t attacker;          // edict index of the attacker (the routine's this), kNoEntity if none
+    uint8_t type;               // the call's type argument: picks the box's half-size ConVar (0 collision_inc_size_ray ...)
+    uint8_t flags;              // kSweepHeadEntity: the player held the entity at +0x2388 (its aim follows its frame)
+    float start[3];             // the sweep's start (the player's: virtual +0x2D8)
+    float direction[3];         // its direction, unit (the player's: AngleVectors of virtual +0x2DC)
+    float range;                // the call's range argument
+    float view_angles[3];       // the player's angles at +0x1F88 (pitch, yaw, roll); zero for an NPC
+    uint32_t caller;            // server.dll RVA of the return address, or kCallerOutside
+    uint32_t attacker_serial;
+};
+
+const uint8_t kSweepHeadEntity = 1;
+
+struct SweepBlock {
+    uint32_t count;
+    uint32_t dropped;
+    Sweep records[kMaxSweeps];
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(Sweep) == 56, "Sweep layout");
 static_assert(sizeof(PlayerStats) == 112, "PlayerStats layout");
 static_assert(sizeof(PlayerInput) == 48, "PlayerInput layout");
 static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
@@ -351,7 +376,8 @@ const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
 const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
 const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
 const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15 (80 bytes; 112 from v16)
-const uint32_t kSlotBytes = kStatsOffset + sizeof(PlayerStats);
+const uint32_t kSweepsOffset = kStatsOffset + sizeof(PlayerStats);   // v17
+const uint32_t kSlotBytes = kSweepsOffset + sizeof(SweepBlock);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 // The control file, rustybridge.control beside the Wire: a reader holds the

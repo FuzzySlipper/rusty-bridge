@@ -56,7 +56,7 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 | Fast or power | whether the wind-up (`layer_bigslash_*_in`) has played: a release from the held idle is a power attack (see "The player's moves") |
 | Stamina | `player_basic.qct`'s `skills` block, `stamina_kick_npc`/`stamina_kick_all` in the settings, and server.dll's ConVar defaults (see "The player's moves") |
 | The kick's contact | no events in its clip. `combat.json` sets cycles 0.36–0.42; recorded kicks land at 0.38–0.41 |
-| How far the blade reaches, and where | the move's `.qct` `range` (120 units when it gives none). The trace runs from just above the eye along the view, turned by the move's arc (`combat.json` `swingArcs`, calibrated against the donor's traces; see "The blade's trace") |
+| How far the blade reaches, and where | the move's `.qct` `range` (120 units when it gives none). Rays from 9 units above the eye along the view, turned by the move's arc (`combat.json` `swingArcs`, fitted to the donor's recorded sweeps), a sphere of 1.5 units; see "The blade's trace" |
 | What a swing struck | the shared `HitSweep` through the orc's hit boxes and its items' hulls: the same measure as the mirror's Shadow contacts |
 | The orc's verdict, damage, the player's parry | `CombatModel` (docs/combat.md): the same rules scored against recordings |
 | The kick's damage | the settings' `kick_damage` (1) |
@@ -254,26 +254,33 @@ aren't slowed.
 
 ### The blade's trace
 
-What a swing strikes is a ray traced each step its hit window is open (#10177):
-- **The donor's rays:** every recorded player trace (663, from 22 recordings) starts about 9 units above the recorded
-  eye and runs level, sweeping across the view as the swing plays, not toward the first-person blade: fast attack A
-  from 33° right at cycle 0.30, through the centre at 0.50, to 43° left at 0.75; B back the other way; the power attack
-  within 20° of the centre. They reach 119 to 130 units.
-- **The lab's:** it traced from the eye toward its first-person blade's tip, which sits low and to the side of the
-  camera: 42° to 69° off the view and 22° to 69° down (B 60° up), so it struck legs where the donor struck heads, or
-  nothing. Now it traces from `LabCombat.TraceRise` (9 units) above the eye along the view turned by the move's arc:
-  `combat.json` `swingArcs`, a side and an up angle at the window's opening and close, linear between (fast A −32° to
-  43°; B 20° to −48°; the power attacks −5° to 20°, up 6° to −8°; the jump attack's strike a 21° to −39° chop; C, D and
-  E alternate as A and B, E from 27° to −32°), for the move's `.qct` range (120 units).
-- **The replay's orc carries the recording's kit** (`OrcPose.Kit`, the items the recorded orc owns from Wire v10): no
-  recorded orc has had a shield, so a followed orc shows and traces only its cleaver. The lab's own orc keeps its
-  shield.
+What a swing strikes is what the donor's sweep would (#10177, #10179; docs/wire.md, "The melee sweep"):
+- **The donor's rays (Wire v17):** each tick of a swing, server.dll sweeps a box of 1.5 units from 9 units above the
+  eye, 120 units long, along several rays 7° to 11° apart that fan across the arc the swing covered since the last
+  tick, stopping at the first contact. The arc is a line in the clip's cycle, in a tilted plane: fast A from 37°
+  right to 61° left over its window, B back from 39° left to 60° right, C and E like A, D like B, the power attack
+  from 7° right to 66° left and 52° down. The player's own angles equal the client's view, so the arc isn't camera
+  sway.
+- **The lab's:** `combat.json` `swingArcs` holds each clip's side and up angle at its window's opening and close,
+  from those fits (the directional power attacks, the jump attack and the rush keep #10177's averages; no v17
+  recording has them). Each step `LabCombat` traces from `TraceRise` above the eye along rays at most 10°
+  (`RayStepDegrees`) apart from where the last step left the arc to where it is now, a sphere of 1.5 units, the
+  move's `.qct` range long; the first contact is the blow.
+- **Checked against the donor's rays** (`SweepCalibration`): 76 of 89 recorded ticks lie within 10° of the lab's arc
+  (fast attacks 37 of 38; the power attack 37 of 47, whose short, steep window the per-tick cycle samples coarsely;
+  the huge slash 2 of 4).
+- **The lab's first-person blade** was the trace's old guide: its tip sits low and to the side of the camera (42° to
+  69° off the view, 22° to 69° down), which struck legs where the donor struck heads.
+- **The replay's orc carries the recording's kit** (`OrcPose.Kit`, from Wire v10's owners): no recorded orc has had
+  a shield, so a followed orc shows and traces only its cleaver. The lab's own orc keeps its shield.
 - **A head cut needs a Fatality:** the power attack has `cutheadflag` too, but its head blows never killed; a
-  Fatality's head blow turned an orc of 100000 health into a ragdoll. The lab kills on the Fatality's only.
-- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the parry bot 8 of
-  16 (was 7), hand1 6 of 10 (was 1), hand2 10 of 31 (3), the fatality run 10 of 27 (0). Most remaining differences are
-  the hit group (head against chest or arm): an arc is an average, and each donor ray varies (the power attack's from
-  20° right to 32° left). Matching each needs the donor's trace rule from server.dll's melee routine.
+  Fatality's head blow turned an orc of 100000 health into a ragdoll.
+- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the parry bot 9 of
+  16 (#10177: 8), ghoul2 4 of 6 (1), hand1 4 of 10 (6), hand2 11 of 31 (10), the fatality run 13 of 27 (10), the
+  Whirlwind run 4 of 10 (1). With the aim matching the donor's rays, what still differs is the orc: the lab poses it
+  from states streamed every few ticks, between which it plays on (#10098), and the swing's start a tick or two off;
+  the mirror, posing victims as the blows found them, meets the donor's traces 53 of 53. Replays keep holding the
+  adrenaline gauge to the recording's (its own runs within 1 on 11% to 100% of a replay's ticks).
 
 ### Criticals
 

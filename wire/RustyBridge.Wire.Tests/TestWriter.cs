@@ -78,6 +78,10 @@ sealed unsafe class TestWriter : IDisposable
         *(WireClientView*)((byte*)s + WireLayout.ClientViewOffset) = _client;
         *(WirePlayerInput*)((byte*)s + WireLayout.InputOffset) = _input;
         *(WirePlayerStats*)((byte*)s + WireLayout.StatsOffset) = _stats;
+        *(uint*)((byte*)s + WireLayout.SweepsOffset) = (uint)_sweeps.Length;
+        *(uint*)((byte*)s + WireLayout.SweepsOffset + 4) = 0;
+        _sweeps.CopyTo(new Span<WireSweep>((byte*)s + WireLayout.SweepsOffset + 8, _sweeps.Length));
+        _sweeps = Array.Empty<WireSweep>();
         _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
         s->LayerCount = (uint)_layers.Length;
         _layers = Array.Empty<WireLayer>();
@@ -93,6 +97,9 @@ sealed unsafe class TestWriter : IDisposable
     public void Client(WireClientView view) => _client = view;
     public void Input(WirePlayerInput input) => _input = input;
     public void Stats(WirePlayerStats stats) => _stats = stats;
+    /// <summary>Melee sweeps for the next frame written by <see cref="FrameEntities"/>.</summary>
+    public void Sweeps(params WireSweep[] sweeps) => _sweeps = sweeps;
+    WireSweep[] _sweeps = Array.Empty<WireSweep>();
     WirePlayerStats _stats = WirePlayerStats.None;
     WirePlayerInput _input = WirePlayerInput.None;
     WireClientView _client = WireClientView.None;

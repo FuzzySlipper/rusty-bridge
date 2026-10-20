@@ -44,6 +44,11 @@ public sealed class WireSnapshot
     public WirePlayerInput Input = WirePlayerInput.None;
     /// <summary>v15: the player's stats and equipment.</summary>
     public WirePlayerStats Stats = WirePlayerStats.None;
+    /// <summary>v17: the melee sweeps since the previous frame.</summary>
+    public int SweepCount;
+    public uint SweepDropped;
+    public readonly WireSweep[] Sweeps = new WireSweep[WireLayout.MaxSweeps];
+    public ReadOnlySpan<WireSweep> SweepSpan => Sweeps.AsSpan(0, SweepCount);
 }
 
 /// <summary>
@@ -128,6 +133,9 @@ public sealed unsafe class WireReader : IDisposable
         snapshot.ClientView = *(WireClientView*)(slot + WireLayout.ClientViewOffset);
         snapshot.Input = *(WirePlayerInput*)(slot + WireLayout.InputOffset);
         snapshot.Stats = *(WirePlayerStats*)(slot + WireLayout.StatsOffset);
+        int sweeps = (int)Math.Min(*(uint*)(slot + WireLayout.SweepsOffset), (uint)WireLayout.MaxSweeps);
+        snapshot.SweepDropped = *(uint*)(slot + WireLayout.SweepsOffset + 4);
+        new ReadOnlySpan<WireSweep>(slot + WireLayout.SweepsOffset + 8, sweeps).CopyTo(snapshot.Sweeps);
         snapshot.WallSeconds = header->WallSeconds;
         snapshot.Player = header->Player;
 
@@ -138,6 +146,7 @@ public sealed unsafe class WireReader : IDisposable
         snapshot.DefenseCount = defense;
         snapshot.LayerCount = layers;
         snapshot.SlowTimeCount = slow;
+        snapshot.SweepCount = sweeps;
         return true;
     }
 

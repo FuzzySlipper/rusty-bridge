@@ -37,7 +37,7 @@ function recording(frames, version = 6) {
   u32(0x45524252); u32(0x31303043); u32(version); u32(0);
   record(1, () => { u32(1); f32(0.015); str('l01_a'); });
   ['npc_orc_sword', 'prop_ragdoll', 'player'].forEach((name, id) => record(2, () => { u16(id); str(name); }));
-  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null, stats = null }, i) => record(4, () => {
+  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null, stats = null, sweeps = [] }, i) => record(4, () => {
     u32(i); u32(0); u32(tick); f32(tick * 0.015); u8(1);           // frame, tick, curtime, key flag
     u32(entities.length);
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
@@ -88,6 +88,10 @@ function recording(frames, version = 6) {
       u16(stats?.weapon ?? 0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0);
       for (let i = 0; i < 8; i++) u32(0);
       if (version >= 16) for (let i = 0; i < 32; i++) u8(stats?.skills?.[i] ?? 0);  // v16: skill levels
+    }
+    if (version >= 17) {                                             // v17: the melee sweeps
+      u32(0); u32(sweeps.length);
+      for (const s of sweeps) { u32(tick); u16(1); u8(s.type); u8(0); for (const x of [...s.start, ...s.direction, s.range, 0, 90, 0]) f32(x); u32(s.caller); u32(1); }
     }
   }));
   return new Uint8Array(bytes).buffer;
@@ -216,6 +220,18 @@ test('v16: the skill levels after the stats', () => {
   const s = rec.frames[0].stats;
   assert.deepEqual(s.skills.slice(0, 4), [1, 0, 0, 3]);
   assert.match(vm.runInContext(`statsText(${JSON.stringify(s)})`, context), /skills combat 1 extra_damage 3$/);
+});
+
+test('v17: the melee sweeps after the stats', () => {
+  const sweep = { type: 0, start: [1, 2, 64], direction: [0, 1, 0], range: 120, caller: 0x411c55 };
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 0, pressed: 0 }, stats: { stamina: 9, maxStamina: 9, mana: 20, maxMana: 20, modules: [0, 0] }, sweeps: [sweep] },
+    { tick: 11, entities: [player, orc], wall: 1.1, input: { buttons: 0, pressed: 0 } },
+  ], 17));
+  const s = rec.frames[0].sweeps[0];
+  assert.deepEqual([s.attacker, s.type, s.range, s.caller], [1, 0, 120, 0x411c55]);
+  assert.equal(JSON.stringify([s.start, s.direction, s.viewAngles]), '[[1,2,64],[0,1,0],[0,90,0]]');
+  assert.equal(rec.frames[1].sweeps.length, 0);
 });
 
 test('v13: a blow carries the victim\'s animation as it arrived', () => {

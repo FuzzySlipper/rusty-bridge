@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 16) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 16).`);
+  if (version < 1 || version > 17) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 17).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
   const DAMAGE_BYTES = version < 5 ? 128 : version < 13 ? 152 : 360, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
@@ -366,6 +366,17 @@ function parseRecording(buf) {
           if (version >= 16) fr.stats.skills = Array.from({ length: SKILLS.length }, (_, i) => v.getUint8(p + 80 + i));
         }
         p += version >= 16 ? 112 : 80;
+      }
+      if (version >= 17) {
+        // v17: the melee sweeps since the previous frame (56-byte records): attacker, type, start, direction, range.
+        const n = v.getInt32(p + 4, true);
+        p += 8;
+        fr.sweeps = [];
+        for (let i = 0; i < n; i++, p += 56) {
+          const f3 = (o) => [0, 1, 2].map((k) => v.getFloat32(p + o + 4 * k, true));
+          fr.sweeps.push({ tick: v.getInt32(p, true), attacker: v.getUint16(p + 4, true), type: v.getUint8(p + 6), flags: v.getUint8(p + 7),
+                           start: f3(8), direction: f3(20), range: v.getFloat32(p + 32, true), viewAngles: f3(36), caller: v.getUint32(p + 48, true) });
+        }
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }

@@ -40,62 +40,62 @@
   "swingArcs": {
     "layer_fastattack_sword_noshield_A": {
       "side": [
-        -32,
-        43
+        -36.5,
+        60.5
       ],
       "up": [
-        6,
-        -6
+        6.2,
+        -10.3
       ]
     },
     "layer_fastattack_sword_noshield_B": {
       "side": [
-        20,
-        -48
+        39.0,
+        -60.4
       ],
       "up": [
-        0,
-        0
+        0.0,
+        -0.0
       ]
     },
     "layer_fastattack_sword_noshield_C": {
       "side": [
-        -32,
-        43
+        -28.8,
+        44.2
       ],
       "up": [
-        0,
-        0
+        -13.2,
+        20.3
       ]
     },
     "layer_fastattack_sword_noshield_D": {
       "side": [
-        20,
-        -48
+        35.5,
+        -18.4
       ],
       "up": [
-        0,
-        0
+        -16.0,
+        8.3
       ]
     },
     "layer_fastattack_sword_noshield_E": {
       "side": [
-        27,
-        -32
+        -28.0,
+        50.6
       ],
       "up": [
-        0,
-        0
+        4.8,
+        -8.6
       ]
     },
     "layer_bigslash_sword_noshield_out": {
       "side": [
-        -5,
-        20
+        -6.5,
+        66.0
       ],
       "up": [
-        6,
-        -8
+        5.1,
+        -51.5
       ]
     },
     "layer_bigslash_sword_noshield_T_out": {
@@ -140,12 +140,12 @@
     },
     "layer_combo_sword_huge_noshield": {
       "side": [
-        0,
-        5
+        5,
+        30
       ],
       "up": [
-        -1,
-        -5
+        -4.8,
+        -28.5
       ]
     },
     "layer_combo_sword_fall_noshield_out": {

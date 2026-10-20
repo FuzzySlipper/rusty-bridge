@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 16;
+    public const uint Version = 17;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -19,6 +19,7 @@ public static class WireLayout
     public const int MaxDefense = 32;
     public const int MaxLayers = 256;
     public const int MaxSlowTime = 16;
+    public const int MaxSweeps = 32;
     public const ushort NoEntity = 0xFFFF;
 
     public const int ClassesOffset = 256;
@@ -33,7 +34,9 @@ public static class WireLayout
     public static readonly int InputOffset = ClientViewOffset + Marshal.SizeOf<WireClientView>();
     /// <summary>v15: the player's stats and equipment, after the input.</summary>
     public static readonly int StatsOffset = InputOffset + Marshal.SizeOf<WirePlayerInput>();
-    public static readonly int SlotBytes = StatsOffset + Marshal.SizeOf<WirePlayerStats>();
+    /// <summary>v17: the melee sweeps since the previous frame (count, dropped, then the records), after the stats.</summary>
+    public static readonly int SweepsOffset = StatsOffset + Marshal.SizeOf<WirePlayerStats>();
+    public static readonly int SlotBytes = SweepsOffset + 8 + MaxSweeps * Marshal.SizeOf<WireSweep>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -200,6 +203,30 @@ public enum SlowTimeSource : byte
     Setter = 0,
     /// <summary>The static request (server.dll+0x147560): Start is a delay, and the game stores Duration × Factor.</summary>
     Request = 1,
+}
+
+/// <summary>
+/// One melee sweep (Wire v17), mirroring <c>wire::Sweep</c>: the box server.dll+0x3CB310 sweeps from Start along Direction for
+/// Range, as its hook at +0x3CB5C8 caught it (docs/wire.md, "Melee sweeps"). Type picks the box's half-size ConVar.
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireSweep
+{
+    public int Tick;
+    public ushort Attacker;
+    public byte Type;
+    /// <summary><see cref="HeadEntity"/>: the player held the entity at +0x2388, whose frame turns its aim.</summary>
+    public byte Flags;
+    public float StartX, StartY, StartZ;
+    public float DirectionX, DirectionY, DirectionZ;
+    public float Range;
+    /// <summary>The player's angles at +0x1F88 (pitch, yaw, roll); zero for an NPC.</summary>
+    public float ViewPitch, ViewYaw, ViewRoll;
+    /// <summary>The server.dll RVA the sweep returns to, or <see cref="WireSlowTime.CallerOutside"/>.</summary>
+    public uint Caller;
+    public uint AttackerSerial;
+
+    public const byte HeadEntity = 1;
 }
 
 /// <summary>One bullet-time call (Wire v7): the slow motion asked for and the server.dll RVA that asked.</summary>

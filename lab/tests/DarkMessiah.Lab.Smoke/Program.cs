@@ -639,6 +639,18 @@ host.Call(engine =>
     foreach (var c in slowTimes) Console.WriteLine($"  slow motion: {c}");
     Check(slowTimes.Count(c => c.Cause == "Fatality kill") >= 3 && slowTimes.All(c => c.Agrees),
         $"the lab asks the donor's slow motion: on each Fatality kill and as the Whirlwind begins, none on other kills ({slowTimes.Count(c => c.Agrees)} of {slowTimes.Count})");
+    // The blade's arcs against the donor's recorded sweeps (Wire v17, #10179).
+    string[] sweepRuns = [.. new[] { "chained-slash", "fatality" }.Select(n => Path.Combine(recordings, "experiments", $"l01_a-v17-{n}.rbrec")).Where(File.Exists)];
+    if (sweepRuns.Length > 0)
+    {
+        var sweeps = SweepCalibration.Measure(sweepRuns, combat.Tuning, real);
+        foreach (var byClip in sweeps.GroupBy(s => s.Clip))
+            Console.WriteLine(FormattableString.Invariant($"  sweeps {byClip.Key}: {byClip.Count(s => s.Off <= 10)} of {byClip.Count()} within 10° of the lab's arc (worst {byClip.Max(s => s.Off):0.#}°)"));
+        foreach (var s in sweeps.Where(s => s.Off > 10).Take(8)) Console.WriteLine($"    {s}");
+        Check(sweeps.Count >= 30 && sweeps.Count(s => s.Off <= 10) >= sweeps.Count * 8 / 10,
+            $"the lab's swing arcs follow the donor's recorded sweeps within 10° ({sweeps.Count(s => s.Off <= 10)} of {sweeps.Count})");
+    }
+    else Console.WriteLine("skip the sweep calibration: no local/recordings/experiments/l01_a-v17-*.rbrec");
     var adrenaline = AdrenalineCalibration.Measure(calibrated, combat);
     foreach (var byMove in adrenaline.GroupBy(a => a.Move))
         Console.WriteLine($"  adrenaline {byMove.Key}: {byMove.Count(a => a.Agrees)} of {byMove.Count()} landed blows fill the gauge as the lab's does");

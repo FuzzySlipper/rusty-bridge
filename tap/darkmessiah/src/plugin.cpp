@@ -338,6 +338,9 @@ static uint32_t g_defenseCount, g_defenseDropped, g_defenseTotal;
 // Bullet-time setter calls since the last frame.
 static wire::SlowTime g_pendingSlowTime[wire::kMaxSlowTime];
 static uint32_t g_slowTimeCount, g_slowTimeDropped, g_slowTimeTotal;
+// Melee sweeps since the last frame (v17).
+static wire::Sweep g_pendingSweeps[wire::kMaxSweeps];
+static uint32_t g_sweepCount, g_sweepDropped, g_sweepTotal;
 // The wall clock frames are stamped with (seconds since Load).
 static LARGE_INTEGER g_qpcStart, g_qpcFreq;
 
@@ -1228,6 +1231,14 @@ static void WireWrite() {
     WriteClientView((wire::ClientView*)(slotBase + wire::kClientViewOffset));
     WritePlayerInput((wire::PlayerInput*)(slotBase + wire::kInputOffset));
     WritePlayerStats((wire::PlayerStats*)(slotBase + wire::kStatsOffset));
+    {
+        wire::SweepBlock* sweeps = (wire::SweepBlock*)(slotBase + wire::kSweepsOffset);
+        memcpy(sweeps->records, g_pendingSweeps, g_sweepCount * sizeof(wire::Sweep));
+        sweeps->count = g_sweepCount;
+        sweeps->dropped = g_sweepDropped;
+        g_sweepCount = 0;
+        g_sweepDropped = 0;
+    }
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     s->wall_seconds = (double)(now.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;
@@ -1984,6 +1995,105 @@ static void RemoveRequestSlowTimeHook() {
     Log("slow-time request hook: removed");
 }
 
+// --- Melee sweep hook -------------------------------------------------------------
+// The melee sweep, server.dll+0x3CB310 (thiscall on the attacker, ebp from its
+// prologue on): a box swept from a start along a direction for a range
+// (docs/wire.md, "Melee damage" and "Melee sweeps"). Its player path takes the
+// start from virtual +0x2D8 and the direction from virtual +0x2DC; an NPC's is
+// level along its yaw. Both paths meet at +0x3CB5C8 with the start at
+// [esp+0x2C] and the direction at [esp+0x38], before it picks the box size from
+// the type argument: mov ecx,[0x22826918] (6 bytes, the address relocated),
+// followed by mov eax,[esp+0xBA8] (the type). The hook replaces the first with
+// a jump to a stub that records the sweep and performs it. Found from the
+// player's callers of the routine, which keep its trace at +0x2038.
+
+static const uint32_t kSweepSiteRva = 0x3CB5C8, kSweepCvarSlotRva = 0x826918;
+static const unsigned char kSweepNext[] = { 0x8B, 0x84, 0x24, 0xA8, 0x0B, 0x00, 0x00 };
+static const int kSweepStart = 0x2C, kSweepDirection = 0x38, kSweepReturn = 0xB98, kSweepRange = 0xBA0, kSweepType = 0xBA8;
+static const int kPlayerViewAngles = 0x1F88, kPlayerHeadEntity = 0x2388;
+static uint32_t g_sweepCvarSlot;          // the relocated address the original instruction reads
+static unsigned char* g_sweepResume;      // site + 6
+static unsigned char* g_sweepSite;
+static unsigned char g_sweepSaved[6];
+
+// regs: the stub's pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax); sp: the routine's esp at the site.
+static void __stdcall OnSweep(uint32_t* regs, unsigned char* sp) {
+    if (!g_streamOk) return;
+    __try {
+        ++g_sweepTotal;
+        if (g_sweepCount == wire::kMaxSweeps) { ++g_sweepDropped; return; }
+        void* attacker = (void*)regs[2];
+        wire::Sweep& w = g_pendingSweeps[g_sweepCount++];
+        w.tick = g_globals->tickcount;
+        w.attacker = IndexOrNone(attacker);
+        w.attacker_serial = SerialOf(attacker);
+        w.type = (uint8_t)(*(int*)(sp + kSweepType) & 0xFF);
+        w.flags = 0;
+        memcpy(w.start, sp + kSweepStart, sizeof w.start);
+        memcpy(w.direction, sp + kSweepDirection, sizeof w.direction);
+        w.range = *(float*)(sp + kSweepRange);
+        memset(w.view_angles, 0, sizeof w.view_angles);
+        const char* cls = w.attacker == wire::kNoEntity ? nullptr : ClassNameAt(w.attacker);
+        if (cls && strcmp(cls, "player") == 0) {
+            memcpy(w.view_angles, (char*)attacker + kPlayerViewAngles, sizeof w.view_angles);
+            if (*(void**)((char*)attacker + kPlayerHeadEntity)) w.flags |= wire::kSweepHeadEntity;
+        }
+        w.caller = CallerRva(*(unsigned char**)(sp + kSweepReturn));
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+    }
+}
+
+__declspec(naked) static void SweepHook() {
+    __asm {
+        pushad
+        pushfd
+        lea eax, [esp + 36]         // the routine's esp at the site
+        push eax
+        lea eax, [esp + 8]          // the pushad block
+        push eax
+        call OnSweep
+        popfd
+        popad
+        mov ecx, g_sweepCvarSlot    // the replaced instruction: mov ecx,[cvar slot]
+        mov ecx, [ecx]
+        jmp g_sweepResume
+    }
+}
+
+static void InstallSweepHook() {
+    if (!g_serverBase) return;
+    unsigned char* site = g_serverBase + kSweepSiteRva;
+    uint32_t slot = (uint32_t)(g_serverBase + kSweepCvarSlotRva);
+    if (site[0] != 0x8B || site[1] != 0x0D || *(uint32_t*)(site + 2) != slot || memcmp(site + 6, kSweepNext, sizeof kSweepNext) != 0) {
+        Log("sweep hook: unexpected bytes at server.dll+0x%X, not hooking", kSweepSiteRva);
+        return;
+    }
+    g_sweepCvarSlot = slot;
+    g_sweepResume = site + 6;
+    memcpy(g_sweepSaved, site, 6);
+    DWORD old;
+    VirtualProtect(site, 6, PAGE_EXECUTE_READWRITE, &old);
+    site[0] = 0xE9;
+    *(int32_t*)(site + 1) = (int32_t)((unsigned char*)&SweepHook - (site + 5));
+    site[5] = 0x90;
+    VirtualProtect(site, 6, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 6);
+    g_sweepSite = site;
+    Log("sweep hook: the melee sweep's start and direction at %p hooked", site);
+}
+
+static void RemoveSweepHook() {
+    if (!g_sweepSite) return;
+    DWORD old;
+    VirtualProtect(g_sweepSite, 6, PAGE_EXECUTE_READWRITE, &old);
+    memcpy(g_sweepSite, g_sweepSaved, 6);
+    VirtualProtect(g_sweepSite, 6, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), g_sweepSite, 6);
+    g_sweepSite = nullptr;
+    Log("sweep hook: removed");
+}
+
 // --- The plugin ----------------------------------------------------------------
 
 class RustyBridgePlugin {
@@ -2014,9 +2124,10 @@ public:
         InstallParryHook();
         InstallBulletTimeHook();
         InstallRequestSlowTimeHook();
+        InstallSweepHook();
         return true;
     }
-    virtual void Unload() { Log("Unload"); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); RemoveUsercmdHook(); ControlClose(); WireClose(); }
+    virtual void Unload() { Log("Unload"); RemoveSweepHook(); RemoveRequestSlowTimeHook(); RemoveBulletTimeHook(); RemoveParryHook(); RemoveDefenseHook(); RemoveDamageHook(); RemoveUsercmdHook(); ControlClose(); WireClose(); }
     virtual void Pause() { Log("Pause"); }
     virtual void UnPause() { Log("UnPause"); }
     virtual const char* GetPluginDescription() { return "Rusty Bridge tap"; }

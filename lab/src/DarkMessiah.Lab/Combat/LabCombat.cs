@@ -48,8 +48,11 @@ internal sealed class LabCombat : IDisposable
     const string PlayerModel = "models/npc/player/player_basic.mdl";
     /// <summary>Source's head hit group.</summary>
     const int HeadGroup = 1;
-    /// <summary>The trace's radius, metres: the donor's trace is a ray (docs/combat.md, "Contacts").</summary>
-    const float Radius = .05f * SourceSpace.MetresPerUnit;
+    /// <summary>
+    /// The trace's radius, metres: the player's sweep is a box of half-size <c>collision_inc_size_ray</c>, 1.5 units (its
+    /// type 0; docs/wire.md, "Melee sweeps"), swept as a sphere of that radius.
+    /// </summary>
+    const float Radius = 1.5f * SourceSpace.MetresPerUnit;
     const double ShowSeconds = 1.2;
 
     readonly IEngineContext engine;
@@ -190,9 +193,20 @@ internal sealed class LabCombat : IDisposable
 
     void Swing(ulong tick, Vector3 eye, Vector3 forward, Vector3 feet)
     {
-        var (start, end) = Aim(eye, forward);
+        // The donor sweeps several rays a tick, at most about 10° apart, across the arc the swing covered (#10179):
+        // from where the last step left it to where it is now, the first contact ending the swing for its target.
         var targets = Orc.Targets();
-        var contacts = targets.Count == 0 ? [] : sweep.Sweep(start, end, Radius, targets);
+        float from = Sword.TraceFromCycle, to = Sword.TraceCycle;
+        var (fromSide, _) = ArcAt(from);
+        var (toSide, _) = ArcAt(to);
+        int rays = Math.Clamp((int)MathF.Ceiling(MathF.Abs(toSide - fromSide) / RayStepDegrees), 1, 12);
+        Vector3 start = default, end = default;
+        List<HitContact> contacts = [];
+        for (int r = 1; r <= rays && contacts.Count == 0; r++)
+        {
+            (start, end) = Aim(eye, forward, from + (to - from) * r / rays);
+            if (targets.Count > 0) contacts = sweep.Sweep(start, end, Radius, targets);
+        }
         if (contacts.Count == 0) { Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, start, end, null, "none")); return; }
         settledSwing = SwingKey;
         decidedSwing = Sword.Swing;
@@ -244,21 +258,31 @@ internal sealed class LabCombat : IDisposable
     /// eye (<see cref="TraceRise"/>) along the view turned by the move's <see cref="SwingArc"/> at this point of its hit
     /// window, as far as the move's <c>.qct</c> range (120 units when it gives none).
     /// </summary>
-    internal (Vector3 Start, Vector3 End) Aim(Vector3 eye, Vector3 forward)
+    internal (Vector3 Start, Vector3 End) Aim(Vector3 eye, Vector3 forward, float cycle)
     {
         var clip = Sword.Clip;
-        var window = clip.Windows[Math.Max(0, Sword.Window)];
-        float fraction = window.Close > window.Open ? Math.Clamp((Sword.TraceCycle - window.Open) / (window.Close - window.Open), 0, 1) : 0;
-        var (side, up) = Tuning.SwingArcs?.GetValueOrDefault(clip.Clip)?.At(fraction) ?? (0, 0);
+        var (side, up) = ArcAt(cycle);
         var view = Vector3.Normalize(forward);
         var level = Vector3.Normalize(view with { Y = 0 });
         var left = Vector3.Cross(Vector3.UnitY, level);
         float pitch = MathF.Asin(Math.Clamp(view.Y, -1, 1)) + up * MathF.PI / 180, yaw = side * MathF.PI / 180;
         var direction = MathF.Cos(pitch) * (MathF.Cos(yaw) * level + MathF.Sin(yaw) * left) + MathF.Sin(pitch) * Vector3.UnitY;
-        float range = (model.EventOf(new Party("player", "", [clip.Clip], Sword.TraceCycle, "#1"))?.Range ?? AttackEvent.DefaultRange) * SourceSpace.MetresPerUnit;
+        float range = (model.EventOf(new Party("player", "", [clip.Clip], cycle, "#1"))?.Range ?? AttackEvent.DefaultRange) * SourceSpace.MetresPerUnit;
         var start = eye + Vector3.UnitY * TraceRise;
         return (start, start + direction * range);
     }
+
+    /// <summary>The move's arc at <paramref name="cycle"/> of its current hit window: side and up degrees against the view.</summary>
+    (float Side, float Up) ArcAt(float cycle)
+    {
+        var clip = Sword.Clip;
+        var window = clip.Windows[Math.Max(0, Sword.Window)];
+        float fraction = window.Close > window.Open ? Math.Clamp((cycle - window.Open) / (window.Close - window.Open), 0, 1) : 0;
+        return Tuning.SwingArcs?.GetValueOrDefault(clip.Clip)?.At(fraction) ?? (0, 0);
+    }
+
+    /// <summary>The widest gap between a step's rays: the donor's came 7° to 11° apart (Wire v17's sweeps).</summary>
+    internal const float RayStepDegrees = 10;
 
     /// <summary>
     /// How far above the recorded eye the donor's traces begin: 9 units (7 to 10 in the fatality run's), metres. The

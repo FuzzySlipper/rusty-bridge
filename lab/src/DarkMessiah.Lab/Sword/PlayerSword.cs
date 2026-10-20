@@ -229,6 +229,8 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush or SwordMove.Fatality or SwordMove.Whirlwind;
     /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
     internal float TraceCycle => Window is int w and >= 0 ? Math.Clamp(Cycle, Clip.Windows[w].Open, Clip.Windows[w].Close) : Cycle;
+    /// <summary>Where this step's swing came from in its hit window: the previous step's cycle, clamped into the window.</summary>
+    internal float TraceFromCycle => Window is int w and >= 0 ? Math.Clamp(stepFrom, Clip.Windows[w].Open, Clip.Windows[w].Close) : stepFrom;
     float stepFrom;
     /// <summary>Parrying: the guard is up (in, or held), which turns an orc's blow aside unless it breaks parries.</summary>
     internal bool Parrying => Move == SwordMove.Parry;

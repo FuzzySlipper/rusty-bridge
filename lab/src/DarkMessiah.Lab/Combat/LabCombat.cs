@@ -85,13 +85,14 @@ internal sealed class LabCombat : IDisposable
     internal CharacterBuild? Build { get; private set; }
 
     /// <summary>
-    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry).
+    /// Plays <paramref name="build"/>: stamina takes its maximum, and the sword its gated moves (the parry, the chained slash).
     /// </summary>
     internal void Rebuild(CharacterBuild build)
     {
         Build = build;
         Stamina.Retune(staminaRules.For(build));
         Sword.CanParry = build.Has("combat_parry");
+        Sword.ChainLength = build.Has("combat_chained_slash") ? 5 : 2;
     }
 
     /// <summary>The authored build the lab plays (<c>build.json</c>), as last applied; replays play the recording's for their length.</summary>
@@ -227,10 +228,14 @@ internal sealed class LabCombat : IDisposable
     /// victim it takes as alert (its orc always is) and without a critical (the lab rolls none). The damage
     /// calibration asks the same of recorded blows.
     /// </summary>
-    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth) => (kick
+    /// <param name="strength">The player's strength; null for the build's (<see cref="PlayerStrength"/>).</param>
+    internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null) => (kick
         ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false, VictimAlert: 3))
         : model.Damage(new DamageCase(0, victim, player, "weapon_arx_short_sword", group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3))) ?? 0;
+            WeaponModel: FirstPerson.SwordModel, VictimAlert: 3, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+
+    /// <summary>The player's strength, from the build's <c>extra_damage</c> level (<see cref="CombatData.PlayerStrength"/>).</summary>
+    internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
 
     void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet)
     {

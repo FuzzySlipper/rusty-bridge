@@ -150,6 +150,7 @@ int Dump()
         Console.WriteLine(FormattableString.Invariant($"  stats: stamina {st.Stamina:0.00}/{st.MaxStamina:0.##}, mana {st.Mana:0.0}/{st.MaxMana:0.#}, skill points {st.SkillPoints}; ") +
             $"weapon {Item(st.Weapon)}, shield {Item(st.Shield)}, helmet {Item(st.Helmet)}, ring {Item(st.Ring)}, armor {Item(st.Armor)}");
         Console.WriteLine($"  modules: {string.Join(", ", SkillModuleNames.Of(st.Modules).DefaultIfEmpty("none"))}");
+        Console.WriteLine($"  skills: {string.Join(", ", SkillNames.ByIndex.Select(n => (n, l: st.SkillLevel(n))).Where(x => x.l > 0).Select(x => $"{x.n} {x.l}").DefaultIfEmpty("all 0"))}");
     }
     if (snap.ClientView.Flags != ClientViewFlags.None)
     {
@@ -276,6 +277,7 @@ int Info(string path)
     PlayerActions lastActions = 0;
     float staminaLow = float.NaN, staminaHigh = float.NaN, manaLow = float.NaN, manaHigh = float.NaN;
     SkillModules modulesSeen = 0;
+    var skillsSeen = new int[SkillNames.ByIndex.Length];
     var itemsSeen = new SortedSet<string>(StringComparer.Ordinal);
     long statsFrames = 0;
     foreach (var f in RecordingReader.Frames(stream))
@@ -305,6 +307,7 @@ int Info(string path)
             manaLow = float.IsNaN(manaLow) ? st.Mana : MathF.Min(manaLow, st.Mana);
             manaHigh = float.IsNaN(manaHigh) ? st.Mana : MathF.Max(manaHigh, st.Mana);
             modulesSeen |= st.Modules;
+            for (int i = 0; i < skillsSeen.Length; i++) skillsSeen[i] = Math.Max(skillsSeen[i], st.SkillLevel(SkillNames.ByIndex[i]));
             foreach (var (what, index) in new[] { ("weapon", st.Weapon), ("shield", st.Shield), ("helmet", st.Helmet), ("ring", st.Ring), ("armor", st.Armor) })
                 if (index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var item))
                     itemsSeen.Add($"{what} {f.Classes.GetValueOrDefault(item.ClassId, "?")}");
@@ -387,6 +390,7 @@ int Info(string path)
     {
         Console.WriteLine(FormattableString.Invariant($"stats (v15): {statsFrames} frames; stamina {staminaLow:0.00}–{staminaHigh:0.00}, mana {manaLow:0.0}–{manaHigh:0.0}"));
         Console.WriteLine($"  modules: {string.Join(", ", SkillModuleNames.Of(modulesSeen).DefaultIfEmpty("none"))}");
+        Console.WriteLine($"  skills (v16, highest): {string.Join(", ", SkillNames.ByIndex.Select((n, i) => (n, l: skillsSeen[i])).Where(x => x.l > 0).Select(x => $"{x.n} {x.l}").DefaultIfEmpty("all 0"))}");
         Console.WriteLine($"  items: {string.Join(", ", itemsSeen.DefaultIfEmpty("none"))}");
     }
     if (links.Count > 0)

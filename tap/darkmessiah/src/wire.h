@@ -1,4 +1,4 @@
-// Wire v15: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v16: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 15;
+const uint32_t kVersion = 16;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -322,11 +322,14 @@ struct PlayerStats {
     uint16_t reserved2;
     uint32_t weapon_serial, shield_serial, helmet_serial, ring_serial, armor_serial;
     uint32_t reserved3[3];
+    // v16: each skill's level, in the game's skill table order (combat, projectile, stamina, extra_damage, ...;
+    // 26 used), from the int array m_skillLevel (+0x2AC8) points at
+    uint8_t skill_levels[32];
 };
 
 #pragma pack(pop)
 
-static_assert(sizeof(PlayerStats) == 80, "PlayerStats layout");
+static_assert(sizeof(PlayerStats) == 112, "PlayerStats layout");
 static_assert(sizeof(PlayerInput) == 48, "PlayerInput layout");
 static_assert(sizeof(ClientLayer) == 12, "ClientLayer layout");
 static_assert(sizeof(ClientView) == 232, "ClientView layout");
@@ -347,7 +350,7 @@ const uint32_t kLayersOffset = kDefenseOffset + kMaxDefense * sizeof(Defense);
 const uint32_t kSlowTimeOffset = kLayersOffset + kMaxLayers * sizeof(Layer);
 const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowTime);
 const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
-const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15
+const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15 (80 bytes; 112 from v16)
 const uint32_t kSlotBytes = kStatsOffset + sizeof(PlayerStats);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 

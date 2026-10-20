@@ -30,8 +30,13 @@ internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, 
 /// <item>from a recording (Wire v15, <see cref="FromRecording"/>): the modules and items the donor's player had.</item>
 /// </list>
 /// </summary>
-internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapon, string? OffHand, IReadOnlyList<string> Spells, string Source)
+/// <param name="SkillLevels">Each skill's level: the file's, or from Wire v16 the recording's (empty before v16, read as 0).</param>
+internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapon, string? OffHand, IReadOnlyList<string> Spells, string Source,
+    IReadOnlyDictionary<string, int> SkillLevels)
 {
+    /// <summary>A skill's level; 0 for one the build doesn't name.</summary>
+    internal int Level(string skill) => SkillLevels.GetValueOrDefault(skill);
+
     /// <summary>The weapons the lab can play now: the short sword. Others wait for #10148, shields for #10149.</summary>
     internal const string PlayableWeapon = "models/items/weapons/sword_short/sword_short.mdl";
 
@@ -39,6 +44,7 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
 
     public override string ToString() =>
         $"{Source}: {Modules.Count} modules ({string.Join(", ", Modules.Order(StringComparer.Ordinal))}), weapon {Weapon}, off-hand {OffHand ?? "none"}" +
+        (SkillLevels.Any(s => s.Value > 0) ? $", skills {string.Join(", ", SkillLevels.Where(s => s.Value > 0).OrderBy(s => s.Key, StringComparer.Ordinal).Select(s => $"{s.Key} {s.Value}"))}" : "") +
         (Spells.Count > 0 ? $", spells {string.Join(", ", Spells)}" : "");
 
     /// <summary>
@@ -76,16 +82,18 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
         Authored.Require(file.OffHand is null, P, "offHand", "the lab doesn't play a shield yet (#10149): use null.");
         foreach (var spell in file.Spells)
             Authored.Require(tables.Spells.ContainsKey(spell), P, $"spells.{spell}", $"isn't a spell in spells.txt ({string.Join(", ", tables.Spells.Keys.Order())}).");
-        return new CharacterBuild(modules, VpkIndex.Normalize(file.Weapon), file.OffHand is null ? null : VpkIndex.Normalize(file.OffHand), file.Spells, P);
+        return new CharacterBuild(modules, VpkIndex.Normalize(file.Weapon), file.OffHand is null ? null : VpkIndex.Normalize(file.OffHand), file.Spells, P,
+            new Dictionary<string, int>(file.Skills));
     }
 
     /// <summary>
     /// The donor player's build from a v15 recording's stats: the modules learned, and the weapon and shield in hand by
-    /// their entities' model paths (null when none). Spells known aren't on the Wire.
+    /// their entities' model paths (null when none); from v16 each skill's level. Spells known aren't on the Wire.
     /// </summary>
-    internal static CharacterBuild FromRecording(WirePlayerStats stats, string? weapon, string? offHand, string recording) =>
+    internal static CharacterBuild FromRecording(WirePlayerStats stats, uint version, string? weapon, string? offHand, string recording) =>
         new(SkillModuleNames.Of(stats.Modules).ToHashSet(StringComparer.Ordinal), weapon is null ? "none" : VpkIndex.Normalize(weapon),
-            offHand is null ? null : VpkIndex.Normalize(offHand), [], recording);
+            offHand is null ? null : VpkIndex.Normalize(offHand), [], recording,
+            version >= 16 ? SkillNames.ByIndex.ToDictionary(n => n, n => stats.SkillLevel(n)) : new Dictionary<string, int>());
 
     static bool Same(string a, string b) => VpkIndex.Normalize(a) == VpkIndex.Normalize(b);
 }

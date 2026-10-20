@@ -63,19 +63,23 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 /// The clips the player's sword moves play: the short sword without a shield. <see cref="Charges"/> holds the neutral
 /// power attack and each directional one the model has.
 /// </summary>
-/// <param name="Fast">The fast attack, <c>layer_fastattack_*_A</c>.</param>
-/// <param name="FastB">The chained second fast attack, <c>layer_fastattack_*_B</c>.</param>
-/// <param name="FastEnd">The recovery after an A nothing chains onto, <c>layer_fastattack_*_end</c>.</param>
-internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, MoveClip Fast, MoveClip FastB, MoveClip FastEnd,
+/// <param name="Chain">The fast attacks in the order they chain, <c>layer_fastattack_*_A</c> to <c>_E</c>.</param>
+/// <param name="FastEnd">The recovery after an A or an E nothing chains onto, <c>layer_fastattack_*_end</c>.</param>
+internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain, MoveClip FastEnd,
     MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
+
+    /// <summary>The fast attack a chain starts with, A.</summary>
+    internal MoveClip Fast => Chain[0];
+    /// <summary>The second, B.</summary>
+    internal MoveClip FastB => Chain[1];
 
     /// <summary>The neutral power attack's release.</summary>
     internal MoveClip Power => Charges[PowerDirection.Neutral].Out;
 
     /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release and the kick.</summary>
-    internal IEnumerable<MoveClip> Moves => [Fast, FastB, .. Charges.Values.Select(c => c.Out), Kick];
+    internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick];
 
     /// <summary>The power attack's clips for <paramref name="direction"/>, the neutral ones when the model has none for it.</summary>
     internal PowerClips Charge(PowerDirection direction) => Charges.GetValueOrDefault(direction) ?? Charges[PowerDirection.Neutral];
@@ -100,8 +104,7 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
                 C($"layer_bigslash_sword_noshield_{at}idle", loop: true), C($"layer_bigslash_sword_noshield_{at}out", attackSpeed) with { Phases = tuning.Phases.Power });
         }
         return new SwordClips(C("layer_sword_noshield_idle", loop: true), charges,
-            C("layer_fastattack_sword_noshield_A", attackSpeed) with { Phases = tuning.Phases.Fast },
-            C("layer_fastattack_sword_noshield_B", attackSpeed) with { Phases = tuning.Phases.Fast },
+            "ABCDE".Select(c => C($"layer_fastattack_sword_noshield_{c}", attackSpeed) with { Phases = tuning.Phases.Fast }).ToList(),
             C("layer_fastattack_sword_noshield_end", attackSpeed),
             C("layer_parry_sword_noshield_in"), C("layer_parry_sword_noshield_idle", loop: true), C("layer_parry_sword_noshield_out"),
             C("layer_sword_noshield_kick_medium") with { Open = tuning.KickWindow[0], Close = tuning.KickWindow[1], Phases = tuning.Phases.Kick },
@@ -118,8 +121,9 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
 /// <item>releasing it before the wind-up has played is a fast attack (<c>layer_fastattack_*_A</c>), from the held idle
 /// that power attack (<c>_out</c>): the directional wind-ups are longer than the neutral one;</item>
 /// <item>a press while A plays chains B (<c>_B</c>) when A ends, and winds up under it: still held when B ends, the
-/// charge goes on from there, its direction picked then. An A nothing chains onto recovers (<c>_end</c>), and a press
-/// in its second half starts A again at once;</item>
+/// charge goes on from there, its direction picked then. With <c>combat_chained_slash</c> the chain goes on through
+/// C, D and E (<see cref="ChainLength"/>). An A or an E nothing chains onto recovers (<c>_end</c>), and a press in its
+/// second half starts A again at once;</item>
 /// <item>a press late in a kick (from <see cref="KickAttackOpen"/>) released before the kick ends releases the neutral
 /// power attack at once; still held, the arm winds up when the kick ends;</item>
 /// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release);</item>
@@ -165,6 +169,11 @@ internal sealed class PlayerSword(SwordClips clips)
     /// is the module's name, not checked against the donor.
     /// </summary>
     internal bool CanParry { get; set; } = true;
+    /// <summary>
+    /// How many fast attacks chain: A and B without <c>combat_chained_slash</c>, A to E with it (the build sets it,
+    /// docs/lab.md, "Fast and power attacks").
+    /// </summary>
+    internal int ChainLength { get; set; } = 2;
     /// <summary>A kick was asked for and hasn't started: it starts on the first step it may.</summary>
     internal bool KickWanted => kickWanted;
 
@@ -221,13 +230,17 @@ internal sealed class PlayerSword(SwordClips clips)
                 if (!blockHeld) Play(SwordMove.ParryOut, clips.ParryOut);
                 else if (done && Clip == clips.ParryIn) Play(SwordMove.Parry, clips.ParryHold);
                 break;
-            case SwordMove.Fast when Clip == clips.Fast:
-                if (attackPressed) { chained = true; under = 0; }
-                if (done) { if (chained) PlayFast(clips.FastB); else Play(SwordMove.FastEnd, clips.FastEnd); }
-                break;
             case SwordMove.Fast:
-                // B: attack held through it goes on winding up, from the press under A or from now.
-                if (done) { if (attackHeld) Charge(move, float.IsNaN(under) ? 0 : under); else Play(SwordMove.Ready, clips.Idle); }
+                int at = ChainIndex();
+                // A press while one plays chains the next (one deep), up to the build's chain length; it also winds up under it.
+                if (attackPressed && !chained && at + 1 < Math.Min(ChainLength, clips.Chain.Count)) { chained = true; under = 0; }
+                if (!done) break;
+                if (chained) PlayFast(clips.Chain[at + 1]);
+                // A, and E (the last), recover when nothing chains onto them; the others go on winding up if attack is
+                // held, from the press under them or from now, or end ready.
+                else if (at == 0 || at == clips.Chain.Count - 1) Play(SwordMove.FastEnd, clips.FastEnd);
+                else if (attackHeld) Charge(move, float.IsNaN(under) ? 0 : under);
+                else Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.Kick:
                 kickAttack |= attackPressed && Cycle >= KickAttackOpen;
@@ -256,6 +269,12 @@ internal sealed class PlayerSword(SwordClips clips)
             Play(SwordMove.Charge, charge.In);
             Cycle = stepFrom = duration > 0 ? wound / duration : 0;
         }
+    }
+
+    int ChainIndex()
+    {
+        for (int i = 0; i < clips.Chain.Count; i++) if (ReferenceEquals(clips.Chain[i], Clip)) return i;
+        return 0;
     }
 
     void PlayFast(MoveClip clip)

@@ -24,7 +24,7 @@ internal sealed record StaminaRules(float Max, float AddValue, float AddInterval
 
     internal static StaminaRules From(DonorContent donor)
     {
-        float? Skill(string key) => donor.Number(PlayerModel, "skills", key);
+        float? Skill(string key) => donor.Combat.PlayerSkillNumber(key);
         var settings = donor.Combat.Settings;
         return Shipped with
         {

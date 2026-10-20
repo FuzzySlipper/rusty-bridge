@@ -1,4 +1,4 @@
-# Wire v15
+# Wire v16
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -30,11 +30,12 @@ ran its command with. Since v13 each damage record carries the victim's
 animation as the blow arrived, pose parameters included. Since v14 the
 player's input carries its user commands as the server received them: the
 movement, the buttons and Arkane's action bytes, the kick among them. Since v15 each tick carries the
-player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn. A control file beside the Wire holds the donor
+player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn, and since v16
+each skill's level. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v15 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
+v2–v16 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -57,7 +58,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 194,760 | Ring of slots |
+| 590,080 | 128 × 194,792 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -78,7 +79,7 @@ at 72), then:
 - at 193,888, up to 16 slow-time records of 32 bytes
 - at 194,400, the 232-byte client view (80 bytes in v8)
 - at 194,632, the 48-byte player input (16 bytes in v12 and v13)
-- at 194,680, the 80-byte player stats (v15; below, "The player's stats")
+- at 194,680, the 112-byte player stats (80 in v15; below, "The player's stats")
 
 Entities:
 
@@ -727,7 +728,7 @@ cycle; `InputButtons` notes the two buttons.
 ## The player's stats
 
 v15 streams the player's stats and equipment each tick, for the lab's stamina, skills and builds (Den
-`rusty-bridge/dark-messiah-inventory`). One 80-byte record per slot, after the input, read from `CMM_Player` after
+`rusty-bridge/dark-messiah-inventory`); v16 adds each skill's level. One 112-byte record per slot (80 in v15), after the input, read from `CMM_Player` after
 the frame, only when edict 1 is a `player`, inside a fault guard:
 
 | Offset | Field | Source |
@@ -740,6 +741,7 @@ the frame, only when edict 1 is a `player`, inside a fault guard:
 | 32 | reserved i32 | 0 |
 | 36 | `weapon`, `shield`, `helmet`, `ring`, `armor` u16, reserved u16 | `m_hActiveWeapon` (+0x18F0), `m_hActiveShield` (+0x18F4), `m_hActiveHelmet` (+0x18F8), `m_hActiveRing` (+0x18FC), `m_hActiveArmor` (+0x2250): edict indices, 0xFFFF for none |
 | 48 | their serials u32 × 5, 3 reserved u32 | |
+| 80 | `skill_levels` u8 × 32 | v16: each skill's level, in the game's skill table order (26 used, below), from the int array `m_skillLevel` (+0x2AC8) points at |
 
 **How the offsets were found (server.dll, image base 0x22000000).**
 - **The datadesc:** as for the buttons (above, "How the offsets were found"): `m_fStamina` (slot 0x227A14F8),
@@ -752,6 +754,12 @@ the frame, only when edict 1 is a `player`, inside a fault guard:
   name in a 37-entry table (0x2282BE80). That function finds the name's index *i* and tests bit *i* of two dwords at
   the player's +0x2AF0. The table is copied at start-up from 0x2279DF38, with two entries swapped (`combat_big_slash`
   and `combat_huge_slash` before `combat_chained_slash`); `SkillModules` and `SkillModuleNames` keep that order.
+- **The skill levels (v16):** a get-level function (+0x3E64D0) finds a skill's index in a 26-entry name table
+  (0x2282BF18, copied at start-up from 0x2279DFCC in the same order: `combat`, `projectile`, `stamina`, `extra_damage`,
+  `extra_health`, `critical_hit`, `extra_mana`, `adrenaline`, `fast_metabolism`, `poison_recovery`,
+  `mana_regeneration`, `stealth`, `mechanism`, `focus`, then the `magic_*` skills) and returns that int of the array
+  `*(player+0x2AC8)`. `backstab`, in `mm_skills_infos.txt`, isn't in the table. `SkillNames.ByIndex` keeps the order.
+  `mm_player_skills_grosbill 1` sets every skill to its maximum level (`l01_a-v16-chained-slash`).
 - **Left out:** `m_CurSpell` (+0x3CB0, a static table's) never left 0, even with a spell weapon in hand, and other
   classes write floats there. A spell is a weapon (`spell_fire_1`, `spell_air_3`...), so `weapon`'s class names it.
 

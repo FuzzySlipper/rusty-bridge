@@ -87,6 +87,7 @@ function recording(frames, version = 6) {
       u32(stats?.modules?.[0] ?? 0); u32(stats?.modules?.[1] ?? 0); u32(stats?.skillPoints ?? 0); u32(0);
       u16(stats?.weapon ?? 0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0xffff); u16(0);
       for (let i = 0; i < 8; i++) u32(0);
+      if (version >= 16) for (let i = 0; i < 32; i++) u8(stats?.skills?.[i] ?? 0);  // v16: skill levels
     }
   }));
   return new Uint8Array(bytes).buffer;
@@ -205,6 +206,16 @@ test('v15: the player\'s stats, modules by the game\'s bits', () => {
   assert.deepEqual([s.stamina, s.maxStamina, s.skillPoints, s.weapon, s.shield], [6.5, 9, 2, 7, null]);
   assert.equal(vm.runInContext(`statsText(${JSON.stringify(s)})`, context), 'stamina 6.50/9 · mana 40.0/100 · 2 skill points · modules combat_chained_slash inferno');
   assert.equal(vm.runInContext(`inputText(${JSON.stringify(rec.frames[0].input)})`, context), 'forward sprint · move 1000/0');
+});
+
+test('v16: the skill levels after the stats', () => {
+  const skills = [1, 0, 0, 3];
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 0, pressed: 0 }, stats: { stamina: 9, maxStamina: 9, mana: 20, maxMana: 20, modules: [0, 0], skills } },
+  ], 16));
+  const s = rec.frames[0].stats;
+  assert.deepEqual(s.skills.slice(0, 4), [1, 0, 0, 3]);
+  assert.match(vm.runInContext(`statsText(${JSON.stringify(s)})`, context), /skills combat 1 extra_damage 3$/);
 });
 
 test('v13: a blow carries the victim\'s animation as it arrived', () => {

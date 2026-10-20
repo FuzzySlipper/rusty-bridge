@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 15) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 15).`);
+  if (version < 1 || version > 16) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 16).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
   const DAMAGE_BYTES = version < 5 ? 128 : version < 13 ? 152 : 360, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
@@ -362,8 +362,10 @@ function parseRecording(buf) {
           fr.stats = { stamina: v.getFloat32(p + 4, true), maxStamina: v.getFloat32(p + 8, true), mana: v.getFloat32(p + 12, true), maxMana: v.getFloat32(p + 16, true),
                        modules: [v.getUint32(p + 20, true), v.getUint32(p + 24, true)], skillPoints: v.getInt32(p + 28, true),
                        weapon: item(36), shield: item(38), helmet: item(40), ring: item(42), armor: item(44) };
+          // v16: each skill's level, in the game's skill table order.
+          if (version >= 16) fr.stats.skills = Array.from({ length: SKILLS.length }, (_, i) => v.getUint8(p + 80 + i));
         }
-        p += 80;
+        p += version >= 16 ? 112 : 80;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }
@@ -847,10 +849,15 @@ const SKILL_MODULES = ["adrenaline_control", "fast_metabolism", "poison_resistan
   "combat_disarm", "combat_vertical_attack", "combat_shield_enabled", "combat_fatality", "combat_parry", "combat_big_slash",
   "combat_huge_slash", "combat_chained_slash", "lockpick", "wizard_eye", "telekynesis", "flame_arrow", "fireball", "cure_wounds",
   "lightning_bolt", "shrink", "magic_reflection", "firetrap", "inferno", "freeze", "charm", "detect_trap", "detect_secret"];
+// v16: the game's skill table, by index (docs/wire.md, "The player's stats").
+const SKILLS = ["combat", "projectile", "stamina", "extra_damage", "extra_health", "critical_hit", "extra_mana", "adrenaline",
+  "fast_metabolism", "poison_recovery", "mana_regeneration", "stealth", "mechanism", "focus", "magic_0", "magic_1", "magic_3",
+  "magic_5", "magic_6", "magic_7", "magic_8", "magic_9", "magic_11", "magic_12", "magic_13", "magic_15"];
 function statsText(stats) {
   const modules = SKILL_MODULES.filter((_, i) => stats.modules[i >> 5] & (1 << (i & 31)));
   return `stamina ${stats.stamina.toFixed(2)}/${stats.maxStamina} · mana ${stats.mana.toFixed(1)}/${stats.maxMana} · ${stats.skillPoints} skill points · ` +
-    `modules ${modules.length ? modules.join(" ") : "none"}`;
+    `modules ${modules.length ? modules.join(" ") : "none"}` +
+    (stats.skills ? ` · skills ${SKILLS.filter((_, i) => stats.skills[i]).map((n) => `${n} ${stats.skills[SKILLS.indexOf(n)]}`).join(" ") || "all 0"}` : "");
 }
 // v7: game time over wall time across the last half second, when it isn't 1.
 function timeScaleText(fi) {

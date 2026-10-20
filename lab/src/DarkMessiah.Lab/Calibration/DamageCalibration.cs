@@ -35,6 +35,16 @@ internal static class DamageCalibration
         {
             FightCases fight;
             using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
+            // From Wire v16 the recording says the player's extra_damage level, which sets its strength; before it
+            // the player had a new game's skills (level 0, strength 0).
+            int extraDamage = 0;
+            using (var stream = File.OpenRead(path))
+                foreach (var f in RecordingReader.Frames(stream))
+                {
+                    if (f.Version < 16) break;
+                    if (f.Stats.Valid != 0) { extraDamage = f.Stats.SkillLevel("extra_damage"); break; }
+                }
+            float strength = combat.Model.Data.PlayerStrength(extraDamage);
             foreach (var d in fight.Damage)
             {
                 // A swing that kills goes on to touch the body: those contacts ask nothing of a victim already at 0.
@@ -49,7 +59,7 @@ internal static class DamageCalibration
                 if (donorMove.Length == 0) donorMove = move ?? "";
                 if (move is null || !kick && d.Weapon != "weapon_arx_short_sword") continue;
                 var player = d.Attacker with { Layers = [move] };
-                float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore);
+                float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength);
                 string reason =
                     donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
                     : d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0 ? "a critical (×2): the lab rolls none"

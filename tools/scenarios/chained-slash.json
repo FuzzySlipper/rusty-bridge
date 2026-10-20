@@ -1,6 +1,6 @@
 {
-  "description": "The short sword with every skill module (combat_chained_slash among them) against one orc held still (ai_disable) in reach: long fast-attack chains, then kicks (#10143).",
-  "seconds": 60,
+  "description": "The short sword with every skill module (combat_chained_slash among them) against one orc with 1000 health, approached: 20 bursts of quick clicks, each a full A-E chain, then kicks (#10143). The orc fights (with ai_disable it counts as unaware, and its damage doesn't calibrate).",
+  "seconds": 90,
   "setup": [
     "sv_cheats 1",
     "god",
@@ -16,7 +16,7 @@
     {
       "wait": 2
     },
-    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
     {
       "wait": 0.5
     },
@@ -30,7 +30,7 @@
   ],
   "play": [
     {
-      "repeat": 10,
+      "repeat": 20,
       "steps": [
         {
           "repeat": 8,

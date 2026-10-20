@@ -8,19 +8,22 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 15;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+    public const uint Version = 16;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
                                         // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view;
                                         // v9: its camera and viewmodel animation; v10: 80-byte entities (parent, attachment, owner);
                                         // v11: 56-byte defense records (the NPC's defense state); v12: the player's input;
                                         // v13: 360-byte damage records (the victim's animation as the blow arrived);
                                         // v14: 48-byte player input (the user commands, the kick among Arkane's action bytes);
-                                        // v15: the player's stats (stamina, mana, skill modules, equipment) after the input
+                                        // v15: the player's stats (stamina, mana, skill modules, equipment) after the input;
+                                        // v16: the stats grow to 112 bytes with the skill levels
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, < 10 => 64, _ => Marshal.SizeOf<WireEntity>() };
     /// <summary>The player input record: 16 bytes in v12 and v13, the commands added from v14.</summary>
     public static int InputBytes(uint version) => version < 14 ? 16 : Marshal.SizeOf<WirePlayerInput>();
     public static int DamageBytes(uint version) => version < 5 ? 128 : version < 13 ? 152 : Marshal.SizeOf<WireDamage>();
+    /// <summary>The player stats record: 80 bytes in v15, the skill levels added from v16.</summary>
+    public static int StatsBytes(uint version) => version < 16 ? 80 : Marshal.SizeOf<WirePlayerStats>();
     public static int DefenseBytes(uint version) => version < 5 ? 32 : version < 11 ? 48 : Marshal.SizeOf<WireDefense>();
     public const int KeyframeInterval = 330;  // 5 s at 66 ticks/s
 
@@ -339,7 +342,7 @@ public static class RecordingReader
                         state.ClientView = view;
                     }
                     state.Input = version >= 12 ? Widen<WirePlayerInput>(r.ReadBytes(RecordingFormat.InputBytes(version)), WirePlayerInput.None) : WirePlayerInput.None;
-                    state.Stats = version >= 15 ? MemoryMarshal.Read<WirePlayerStats>(r.ReadBytes(Marshal.SizeOf<WirePlayerStats>())) : WirePlayerStats.None;
+                    state.Stats = version >= 15 ? Widen<WirePlayerStats>(r.ReadBytes(RecordingFormat.StatsBytes(version)), WirePlayerStats.None) : WirePlayerStats.None;
                     yield return state;
                     break;
             }

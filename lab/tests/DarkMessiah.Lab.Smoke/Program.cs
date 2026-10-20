@@ -27,7 +27,8 @@ MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
     new Dictionary<PowerDirection, PowerClips> { [PowerDirection.Neutral] = Charge(""), [PowerDirection.T] = Charge("T-", .7f), [PowerDirection.B] = Charge("B-"), [PowerDirection.L] = Charge("L-") },
-    M("fast", .3f, open: .33f, close: .78f), M("fast-b", .4f, open: .3f, close: .7f), M("fast-end", .5f),
+    [M("fast", .3f, open: .33f, close: .78f), M("fast-b", .4f, open: .3f, close: .7f), M("fast-c", .4f, open: .3f, close: .7f),
+     M("fast-d", .4f, open: .3f, close: .7f), M("fast-e", .37f, open: .3f, close: .7f)], M("fast-end", .5f),
     M("parry-in", .15f), M("parry-hold", 1, true), M("parry-out", .2f), M("kick", .8f, open: .36f, close: .42f), M("broken", .8f));
 const float Tick = 1f / 60;
 var sword = new PlayerSword(clips);
@@ -73,6 +74,32 @@ Check(sword.Move == SwordMove.Fast && sword.Clip.Clip == "fast-b" && sword.Swing
     $"a press while A plays chains B when A ends ({chain.Count(c => c == "fast")} steps of A)");
 for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) sword.Step(Tick, false, false, false);
 Check(sword.Move == SwordMove.Ready, "B unchained ends ready, with no recovery clip");
+
+// The chained slash (#10143): without it a press during B chains nothing; with it (ChainLength 5) presses run A to
+// E, one deep, and E ends in the recovery.
+List<string> Mash(PlayerSword s, int steps)
+{
+    var started = new List<string>();
+    for (int i = 0; i < steps; i++)
+    {
+        // A tap every 12 steps (0.2 s), as the scenario's bursts.
+        bool press = i % 12 < 4;
+        s.Step(Tick, press, false, false);
+        if (s.SwingStarted) started.Add(s.Clip.Clip);
+    }
+    return started;
+}
+var two = Mash(new PlayerSword(clips), 160);
+Check(two.SequenceEqual(["fast", "fast-b", "fast", "fast-b", "fast", "fast-b"]) || two.Take(2).SequenceEqual(["fast", "fast-b"]) && !two.Contains("fast-c"),
+    $"without the chained slash, mashing chains only A and B: {string.Join(" ", two)}");
+var five = new PlayerSword(clips) { ChainLength = 5 };
+var mashed = Mash(five, 120);
+Check(mashed.Take(5).SequenceEqual(["fast", "fast-b", "fast-c", "fast-d", "fast-e"]), $"with it, mashing chains A to E: {string.Join(" ", mashed)}");
+var afterE = new PlayerSword(clips) { ChainLength = 5 };
+Mash(afterE, 4);
+for (int i = 0; i < 200 && !(afterE.Clip.Clip == "fast-e"); i++) afterE.Step(Tick, i % 12 < 4, false, false);
+for (int i = 0; i < 30 && afterE.Move == SwordMove.Fast; i++) afterE.Step(Tick, i % 12 < 4, false, false);
+Check(afterE.Move == SwordMove.FastEnd, "a press during E chains nothing: E ends in the recovery");
 sword = new PlayerSword(clips);
 Tap(sword);
 for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) sword.Step(Tick, false, false, false);
@@ -175,7 +202,7 @@ Check(MathF.Abs(stamina.Value - (2 + 16 * .06f)) < .07f, FormattableString.Invar
 // Phase timing (review R10121-1): a fast attack's windup, active and recovery each scale its time; donor timing is ×1.
 float[] FastTiming(MovePhases p)
 {
-    var s = new PlayerSword(clips with { Fast = clips.Fast with { Phases = p } });
+    var s = new PlayerSword(clips with { Chain = [clips.Fast with { Phases = p }, .. clips.Chain.Skip(1)] });
     for (int i = 0; i < 3; i++) s.Step(Tick, true, false, false);
     s.Step(Tick, false, false, false);
     float t = 0, open = float.NaN, close = float.NaN;
@@ -300,6 +327,10 @@ host.Call(engine =>
     for (int i = 0; i < 20; i++) { combat.Step(Tick, step++, false, true, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); parries.Add(combat.Sword.Move); }
     Check(!parries.Contains(SwordMove.Parry), "a build without combat_parry can't parry in the fight");
     combat.Rebuild(file);
+    // The player's stat block is read, not defaulted: the first "skills" block in player_basic.qct is a starting build's.
+    Check(product.Donor.Combat.PlayerSkillNumber("player_stamina_base_max") == 9 && product.Donor.Combat.PlayerSkillNumber("player_strength_4") == 6
+        && product.Donor.Combat.PlayerStrength(3) == 6 && product.Donor.Combat.PlayerStrength(0) == 0,
+        "player_basic.qct's stat block reads: stamina 9, and extra_damage 3 gives player_strength_4, 6");
     var rules = combat.Stamina.Rules;
     Check(rules == StaminaRules.Shipped, $"stamina comes from player_basic.qct's skills, the settings and the ConVar defaults: {rules}");
     Check(MathF.Abs(combat.FirstPerson.AttackSpeed - 1.1f) < 1e-3f && MathF.Abs(orc.AttackSpeed - .8f) < 1e-3f,
@@ -404,7 +435,11 @@ host.Call(engine =>
     string recordings = Path.Combine(repo, "local", "recordings");
     var found = Directory.Exists(recordings) ? Directory.GetFiles(recordings, "*.rbrec") : [];
     if (found.Length == 0) { Console.WriteLine("skip calibration: no local/recordings"); return; }
-    var calibration = SwordCalibration.Measure(found, real);
+    // The chained-slash scenario's recording (#10143) is an experiment, not a fight to replay as one, but its blows
+    // calibrate C, D and E.
+    string chainedSlash = Path.Combine(recordings, "experiments", "l01_a-v16-chained-slash.rbrec");
+    string[] calibrated = File.Exists(chainedSlash) ? [.. found, chainedSlash] : found;
+    var calibration = SwordCalibration.Measure(calibrated, real);
     foreach (var move in calibration) Console.WriteLine($"  {move}");
     foreach (var move in calibration.Where(m => m.Blows.Count >= 10))
         Check(move.Inside >= move.Blows.Count * 8 / 10, $"{move.Clip}: recorded blows land inside the lab's window ({move.Inside} of {move.Blows.Count})");
@@ -429,7 +464,7 @@ host.Call(engine =>
     }
 
     // Damage (review R10121-2): every recorded player blow on an orc, asked again through the lab's own path.
-    var damage = DamageCalibration.Measure(found, combat, real);
+    var damage = DamageCalibration.Measure(calibrated, combat, real);
     foreach (var byMove in damage.GroupBy(d => d.Move))
         Console.WriteLine($"  damage {byMove.Key}: {byMove.Count(d => d.Agrees)} of {byMove.Count()} recorded blows ask what the lab asks");
     foreach (var d in damage.Where(d => !d.Agrees)) Console.WriteLine($"    {d}");
@@ -488,6 +523,17 @@ host.Call(engine =>
 
     // A v15 recording replays with the donor player's build (#10140): l01_a-v15-stats starts with the combat skill's
     // level 0 and the short sword, then learns every skill, which the replay notes but doesn't follow.
+    // The chained slash replayed (#10143): the recording's build has combat_chained_slash, so the lab chains A to E.
+    if (File.Exists(chainedSlash))
+    {
+        var report = CombatReplay.Run(combat, chainedSlash, product);
+        foreach (var line in report.Lines().Take(8)) Console.WriteLine($"  {line}");
+        int donorMoves = report.Clips!.Values.Sum(c => c.Donor), together = report.Clips.Values.Sum(c => c.Together);
+        Check(together >= donorMoves * 8 / 10 && "CDE".All(c => report.Clips.TryGetValue($"layer_fastattack_sword_noshield_{c}", out var m) && m.Lab > 0),
+            $"{report.Name}: the lab chains C, D and E with the donor, each move as its own clip ({together} of {donorMoves})");
+    }
+    else Console.WriteLine("skip the chained-slash replay: no local/recordings/experiments/l01_a-v16-chained-slash.rbrec");
+
     string stats = Path.Combine(recordings, "experiments", "l01_a-v15-stats.rbrec");
     if (File.Exists(stats))
     {

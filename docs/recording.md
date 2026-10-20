@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v15
+## Recording v16
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 15, reserved u32), then records until the end of the file. Each older
+= 16, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 15 | 80 bytes | 360 bytes | 56 bytes | |
+| 16 | 80 bytes | 360 bytes | 56 bytes | |
+| 15 | 80 | 360 | 56 | the skill levels (an 80-byte player stats record) |
 | 14 | 80 | 360 | 56 | the player stats |
 | 13 | 80 | 360 | 56 | the user commands (a 16-byte player input) |
 | 12 | 80 | 152 (no victim animation) | 56 | |
@@ -39,7 +40,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the 80-byte player stats |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the player stats: 80 bytes, 112 from v16 |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -133,17 +134,19 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 
 | Scenario | Setup | Play |
 | --- | --- | --- |
-| `chained-slash` | every skill module, the short sword, one orc held still (`ai_disable 1`) and approached | 10 bursts of 8 quick clicks, then 3 kicks |
+| `chained-slash` | every skill (all at their maximum level), the short sword, one orc with 1000 health, approached | 20 bursts of 8 quick clicks, then 3 kicks |
 | `daggers-goblin` | the short sword in hand, the kryss daggers given, a goblin with club and shield approached | taps, a power attack and a kick, 6 times |
 | `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
 
 **What the console can't stage:**
-- **Skills one by one:** only `mm_player_skills_grosbill 1` (every module) or none. `skills_set` and `skills_add`
+- **Skills one by one:** only `mm_player_skills_grosbill 1` (every skill at its maximum level) or none. `skills_set` and `skills_add`
   are item data keys, not commands; learning a skill is the character sheet's. Wire v15 records which modules the
   player had either way.
 - **Daggers and spells in hand:** `give` puts them in the inventory (the daggers' two entities are owned by the
   player), but `use`, `mm_previtem` and `mm_nextitem` don't equip them. That takes the inventory and belt UI, so play
   those with `--hand`. `give spell_fire_1` and `give spell_air_3` equip, but clicking them doesn't cast.
+- **A still NPC:** `ai_disable 1` holds it still, but it then counts as unaware (the not-alerted ×3 and more), so its
+  damage doesn't calibrate; `chained-slash` lets the orc fight.
 - **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down.
 
 ## A save past the ride

@@ -92,10 +92,13 @@ An invalid file is refused with the field and the reason, and the last build sta
 (`CharacterBuild.Has`) for a module:
 - **Stamina:** `double_sprint` (the `stamina` skill's level 1) raises the maximum to `player_stamina_double_sprint_max`
   (12), as the v15 recording shows after every skill was learned.
+- **Damage:** the `extra_damage` level sets the player's strength (docs/combat.md, "The player's strength").
+- **The chained slash:** `combat_chained_slash` chains C, D and E after B.
 - **The parry:** needs `combat_parry`. Every build has it, so this changes nothing yet; the gate is the module's
   name, not checked against the donor.
 
-**Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats.
+**Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats,
+and from v16 its skill levels.
 The report says what it was, and how often it changed later (the replay doesn't follow changes). After the replay
 the lab plays `build.json` again.
 
@@ -117,6 +120,11 @@ the lab plays `build.json` again.
 - **The chain:** a press while A plays chains `layer_fastattack_*_B`, which begins as A ends: 18 to 20 ticks after
   A in all 16 recorded chains. The press also winds up under A and B: still held when B ends, the charge goes on
   from there, its direction picked then. B ends ready.
+- **The chained slash (#10143):** with `combat_chained_slash` (the `combat` skill's level 1) the chain goes on through
+  C, D and E (`PlayerSword.ChainLength` 5; 2 without the module). In `l01_a-v16-chained-slash` (the `chained-slash`
+  scenario, docs/recording.md) each burst of quick clicks plays A, B, C, D, E, then `_end`: every next clip begins as
+  the last ends (20, 24, 26 and 24 ticks), a press queues one clip, more presses in it do nothing, and nothing chains
+  after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
 - **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press in its second half starts A again
   at once; one at cycle 0.32 did nothing, one at 0.60 played A two ticks later (`PlayerSword.FastEndOpen`, 0.5).
 - **Attack late in a kick:** a tap from about cycle 0.75 of the kick releases the neutral power attack at once
@@ -173,6 +181,9 @@ action, and drains stamina while moving. What empty stamina does to the sprint i
 | --- | --- | --- |
 | Fast attack A, window 0.33–0.78 | 87 of 87 (cycles 0.28–0.76) | 3.67 against 3.50 cycles/s |
 | Fast attack B, window 0.50–0.83 | 9 of 9 (cycles 0.56–0.72) | 2.75 against 2.70 cycles/s |
+| Fast attack C, window 0.50–0.83 | 6 of 6 (cycles 0.57–0.74) | 2.75 against 2.70 cycles/s |
+| Fast attack D, window 0.42–0.75 | 5 of 5 (cycles 0.52–0.70) | 2.75 against 2.72 cycles/s |
+| Fast attack E, window 0.55–0.91 | 6 of 6 (cycles 0.53–0.80) | 3.00 against 2.93 cycles/s |
 | Power attack, window 0.13–0.22 | 31 of 31 (cycles 0.13–0.18) | 1.03 against 1.01 cycles/s |
 | Power attack B, window 0.11–0.21 | 1 of 1 (cycle 0.17) | 0.87 against 0.86 cycles/s |
 | Power attack R, window 0.19–0.42 | none recorded | 1.06 against 1.13 cycles/s |
@@ -191,11 +202,14 @@ off any move but another kick or a broken parry.
 **Damage against recorded blows.** `DamageCalibration` takes every recorded player blow on an orc (fast and power
 attacks with the short sword, and kicks) and asks the lab's own damage path for it (`LabCombat.PlayerAsks`, with the
 recorded move and hit group). The lab asks with the donor's own clip, B and the directional power attacks included,
-whose `HitPow` comes from `first_basic.qct` like the others'. 167 of 169 agree:
-- **Fast attacks:** A 66 of 67, B 6 of 6.
+whose `HitPow` comes from `first_basic.qct` like the others', and with the recording's player strength (from v16, its
+`extra_damage` level; docs/combat.md, "The player's strength"). 179 of 182 agree:
+- **Fast attacks:** A 69 of 71, B 8 of 8, C 3 of 3, D 2 of 2, E 2 of 2. The chained-slash recording's player has
+  `extra_damage` 3, strength 6: its blows ask four times a new game's.
 - **Power attacks:** 31 of 32, and the one `B_out` blow.
 - **Kicks:** 63 of 63.
-- **The two differences:**
+- **The differences:**
+  - two blows on an orc not yet alert (×3) at the start of the chained-slash recording;
   - a critical (×2), which the lab doesn't roll;
   - a blow in a recording before Wire v11 asking twice the lab's, most likely a critical. Neither the critical byte
     nor the orc's alert level is on the Wire before v11.

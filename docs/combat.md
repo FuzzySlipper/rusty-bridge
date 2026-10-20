@@ -268,6 +268,21 @@ Every mismatch is put down to one of:
   was 1.00 throughout. The not-alerted rule, the player's critical and the difficulty multiplier
   never fired.
 
+## The player's strength
+
+The player's blow asks `(strength + WDmg) × HitPow × hit-group modifier`, like an NPC's. The player's strength
+comes from its `extra_damage` skill. The skill update (server.dll+0x419275) reads the skill's level *L* and stores
+entry *L* + 1 of a per-level table in the player's +0x2B28. The table is `player_strength_0` to `_4` from
+`player_basic.qct`'s stat block: 0, 0, 2, 3, 6. So a new game (level 0) has strength 0, and level 3 has 6.
+- **Same pattern:** `critical_hit` reads `player_dexterity_*`, `extra_health` `player_constitution_*`, and
+  `extra_mana` `player_intelligence_*`, each at *L* + 1.
+- **The evidence:** `l01_a-v16-chained-slash` (every skill at its maximum, Wire v16 records the levels) asks 5.6 for
+  the short sword's 1.4 on group 3, and 16.8 on the head: (2 + 6) × 0.7 × the group modifier. The lab's damage
+  calibration asks with the recording's strength and agrees on all its alert-orc blows. Every earlier recording had a
+  new game's skills, so strength 0.
+- **`CombatData.PlayerStrength`** reads the table. The stat block is found by its key: a missing brace flattens the
+  file's blocks, and the per-class starting builds' `skills` blocks come first.
+
 ## Scores
 
 The first model measured its tables from `l01_a-parrybot` and

@@ -95,7 +95,7 @@ public sealed class RecordingTests : IDisposable
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8)
         // + v8/v9: the client view (232) + v12/v14: the player's input (48).
-        Assert.Equal(534, recorder.Bytes - afterKey);
+        Assert.Equal(566, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -301,12 +301,14 @@ public sealed class RecordingTests : IDisposable
         writer.Client(client);
         writer.Input(new WirePlayerInput { Player = 1, Valid = 1, Buttons = InputButtons.Attack | InputButtons.Forward, Pressed = InputButtons.Attack,
             Commands = 2, ForwardMove = 450, SideMove = -450, CommandButtons = InputButtons.Attack | InputButtons.Forward, Actions = PlayerActions.Kick, CommandNumber = 1234 });
-        writer.Stats(new WirePlayerStats
+        var stats = new WirePlayerStats
         {
             Player = 1, Valid = 1, Stamina = 6.5f, MaxStamina = 9, Mana = 40, MaxMana = 100, SkillPoints = 2,
             Modules = SkillModules.CombatChainedSlash | SkillModules.Inferno, Weapon = 7, WeaponSerial = 0x123,
             Shield = WireLayout.NoEntity, Helmet = WireLayout.NoEntity, Ring = WireLayout.NoEntity, Armor = 9, ArmorSerial = 0x55,
-        });
+        };
+        unsafe { stats.SkillLevels[0] = 1; stats.SkillLevels[3] = 3; }
+        writer.Stats(stats);
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
         writer.SlowTime(new WireSlowTime { Tick = 10, Player = 1, PlayerSerial = 1, Source = SlowTimeSource.Request, Start = 151.2f, Duration = 2, Factor = 0.1f, Caller = 0x3B2447 });
         writer.FrameEntities(10,
@@ -328,13 +330,18 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(15u, f.Version);
+        Assert.Equal(16u, f.Version);
+        Assert.Equal((1, 3, 0), (f.Stats.SkillLevel("combat"), f.Stats.SkillLevel("extra_damage"), f.Stats.SkillLevel("backstab")));
+
+        // The same frame as a v15 recording wrote it: the stats stop before the skill levels.
+        var v15 = Assert.Single(RecordingReader.Frames(new MemoryStream(AsVersion(buffer.ToArray(), 15, 32))));
+        Assert.Equal((15u, 6.5f, 0), (v15.Version, v15.Stats.Stamina, v15.Stats.SkillLevel("extra_damage")));
         Assert.Equal((6.5f, 9f, 40f, 100f, 2), (f.Stats.Stamina, f.Stats.MaxStamina, f.Stats.Mana, f.Stats.MaxMana, f.Stats.SkillPoints));
         Assert.Equal(["combat_chained_slash", "inferno"], SkillModuleNames.Of(f.Stats.Modules));
         Assert.Equal(((ushort)7, 0x123u, WireLayout.NoEntity, (ushort)9), (f.Stats.Weapon, f.Stats.WeaponSerial, f.Stats.Shield, f.Stats.Armor));
 
         // The same frame as a v14 recording wrote it: no stats after the input.
-        var v14 = Assert.Single(RecordingReader.Frames(new MemoryStream(AsVersion14(buffer.ToArray()))));
+        var v14 = Assert.Single(RecordingReader.Frames(new MemoryStream(AsVersion(buffer.ToArray(), 14, System.Runtime.InteropServices.Marshal.SizeOf<WirePlayerStats>()))));
         Assert.Equal(14u, v14.Version);
         Assert.Equal(0, v14.Stats.Valid);
         Assert.Equal(WireLayout.NoEntity, v14.Stats.Weapon);
@@ -470,13 +477,13 @@ public sealed class RecordingTests : IDisposable
         Assert.Equal(((short)31, (short)1, 0.6f, 0.9f), Assert.Single(d.VictimOverlays));
     }
 
-    /// <summary>A current recording as v14 wrote it: each frame without its stats.</summary>
-    static byte[] AsVersion14(byte[] current)
+    /// <summary>A current recording as an older version wrote it: each frame without its last <paramref name="tail"/> bytes.</summary>
+    static byte[] AsVersion(byte[] current, uint version, int tail)
     {
-        int stats = System.Runtime.InteropServices.Marshal.SizeOf<WirePlayerStats>();
+        int stats = tail;
         var output = new MemoryStream();
         output.Write(current, 0, 16);
-        BitConverter.GetBytes(14u).CopyTo(output.GetBuffer(), 8);
+        BitConverter.GetBytes(version).CopyTo(output.GetBuffer(), 8);
         for (int at = 16; at < current.Length;)
         {
             byte kind = current[at];

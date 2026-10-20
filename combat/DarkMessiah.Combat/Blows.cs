@@ -45,7 +45,7 @@ public sealed record ParryCase(int Tick, Party Attacker, DefenseResult Donor, in
 /// <param name="VictimAlert">From Wire v11: an NPC victim's alert level, and its state, which the not-alerted multiplier reads; null before.</param>
 public sealed record DamageCase(int Tick, Party Victim, Party Attacker, string Weapon, int? HitGroup, uint DamageType, int WeaponFlags,
     float Requested, float HealthBefore, float HealthAfter, bool Defended, int Contact = 0, string WeaponModel = "",
-    int? VictimAlert = null, int VictimNpcState = 0, bool AttackerCritical = false)
+    int? VictimAlert = null, int VictimNpcState = 0, bool AttackerCritical = false, float PlayerStrength = 0)
 {
     public float Applied => HealthBefore - HealthAfter;
     public override string ToString() =>

@@ -152,7 +152,9 @@ public sealed class CombatModel(CombatData data)
         if (Event(c.Attacker, attack) is not AttackEvent hit) return 0;
         float weapon = data.Weapon(c.WeaponModel)?.Damage ?? (c.Weapon == "-" ? UnarmedDamage : float.NaN);
         if (float.IsNaN(weapon)) return null;
-        float strength = c.Attacker.IsPlayer ? 0 : data.Character(c.Attacker.Model)?.Strength ?? 0;
+        // The player's strength comes from its extra_damage skill (CombatData.PlayerStrength), 0 at the levels a
+        // new game has; the caller passes it.
+        float strength = c.Attacker.IsPlayer ? c.PlayerStrength : data.Character(c.Attacker.Model)?.Strength ?? 0;
         float group = c.HitGroup is int g && data.Character(c.Victim.Model) is CharacterData victim ? victim.HitGroup(g) : 1f;
         float damage = (strength + weapon) * hit.HitPow * group;
         // A critical doubles a player's blow once: by the player's critical byte (Wire v11), or the

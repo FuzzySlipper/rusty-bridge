@@ -102,7 +102,7 @@ internal sealed class InputTimeline
                 {
                     string? Model(ushort index) => index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var e) ? f.Models.GetValueOrDefault(e.ModelIndex) : null;
                     var kit = (f.Stats.Modules, Model(f.Stats.Weapon), Model(f.Stats.Shield));
-                    if (build is null) build = CharacterBuild.FromRecording(f.Stats, kit.Item2, kit.Item3, Path.GetFileName(path));
+                    if (build is null) build = CharacterBuild.FromRecording(f.Stats, f.Version, kit.Item2, kit.Item3, Path.GetFileName(path));
                     else if (kit != lastKit) buildChanges++;
                     lastKit = kit;
                 }

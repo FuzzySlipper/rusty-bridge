@@ -62,6 +62,27 @@ public sealed class CombatData
 {
     /// <summary>The player's first-person model, whose `combatmovedatas` holds the player's attacks.</summary>
     public const string PlayerAttacksModel = "models/npc/player/first_basic.mdl";
+    /// <summary>The player's body model, whose .qct holds the per-level stat tables (<see cref="PlayerStrength"/>).</summary>
+    public const string PlayerModel = "models/npc/player/player_basic.mdl";
+
+    /// <summary>
+    /// The player's strength at an <c>extra_damage</c> level: <c>player_strength_{level + 1}</c> from
+    /// <c>player_basic.qct</c>'s <c>skills</c> block (0, 0, 2, 3, 6 for 0 to 4). The game reads its table at
+    /// level + 1 (server.dll+0x419275; docs/combat.md, "The player's strength"). 0 when the table is missing.
+    /// </summary>
+    public float PlayerStrength(int extraDamageLevel) => PlayerSkillNumber($"player_strength_{Math.Clamp(extraDamageLevel, 0, 3) + 1}") ?? 0;
+
+    /// <summary>
+    /// A number in <c>player_basic.qct</c>'s stat block: the <c>skills</c> block that holds <paramref name="key"/>. The
+    /// per-class starting builds have <c>skills</c> blocks too, earlier in the file, and a missing brace leaves the
+    /// file's blocks flattened, so the block is found by its key, not its place. Null when absent.
+    /// </summary>
+    public float? PlayerSkillNumber(string key)
+    {
+        static IEnumerable<KeyValues> All(KeyValues b) => b.Blocks.SelectMany(All).Prepend(b);
+        return Read(PlayerModel)?.SelectMany(All)
+            .FirstOrDefault(b => b.Name.Equals("skills", StringComparison.OrdinalIgnoreCase) && b[key] is not null)?.Number(key);
+    }
 
     readonly Func<string, byte[]?> _read;
     readonly Dictionary<string, CharacterData?> _characters = new(StringComparer.OrdinalIgnoreCase);

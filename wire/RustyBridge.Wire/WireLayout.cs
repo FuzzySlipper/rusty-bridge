@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 15;
+    public const uint Version = 16;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -489,7 +489,7 @@ public struct WirePlayerInput
 /// (a spell is a weapon, <c>spell_fire_1</c> and so on) and worn as entity index and serial (<see cref="WireLayout.NoEntity"/> when none).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
-public struct WirePlayerStats
+public unsafe struct WirePlayerStats
 {
     public ushort Player;
     public byte Valid;
@@ -510,6 +510,11 @@ public struct WirePlayerStats
     /// <summary>Their serials.</summary>
     public uint WeaponSerial, ShieldSerial, HelmetSerial, RingSerial, ArmorSerial;
     public uint Reserved3, Reserved4, Reserved5;
+    /// <summary>v16: each skill's level, by <see cref="SkillNames.ByIndex"/> (26 used), from m_skillLevel (+0x2AC8).</summary>
+    public fixed byte SkillLevels[32];
+
+    /// <summary>v16: the level of the skill <c>mm_skills_infos.txt</c> calls <paramref name="name"/>; 0 for one the game's table lacks.</summary>
+    public int SkillLevel(string name) => Array.IndexOf(SkillNames.ByIndex, name) is int i and >= 0 ? SkillLevels[i] : 0;
 
     public static WirePlayerStats None => new()
     {
@@ -536,6 +541,21 @@ public enum SkillModules : ulong
     Telekinesis = 1ul << 24, FlameArrow = 1ul << 25, Fireball = 1ul << 26, CureWounds = 1ul << 27,
     LightningBolt = 1ul << 28, Shrink = 1ul << 29, MagicReflection = 1ul << 30, Firetrap = 1ul << 31,
     Inferno = 1ul << 32, Freeze = 1ul << 33, Charm = 1ul << 34, DetectTrap = 1ul << 35, DetectSecret = 1ul << 36,
+}
+
+/// <summary>
+/// The game's skill table, by index (copied at start-up from server.dll+0x79DFCC; docs/wire.md, "The player's stats"):
+/// the index of each skill's level in <see cref="WirePlayerStats.SkillLevels"/>. <c>backstab</c>, in
+/// <c>mm_skills_infos.txt</c>, isn't in it.
+/// </summary>
+public static class SkillNames
+{
+    public static readonly string[] ByIndex =
+    [
+        "combat", "projectile", "stamina", "extra_damage", "extra_health", "critical_hit", "extra_mana", "adrenaline",
+        "fast_metabolism", "poison_recovery", "mana_regeneration", "stealth", "mechanism", "focus", "magic_0", "magic_1",
+        "magic_3", "magic_5", "magic_6", "magic_7", "magic_8", "magic_9", "magic_11", "magic_12", "magic_13", "magic_15",
+    ];
 }
 
 /// <summary>The skill modules' names, by bit, as <c>mm_skills_infos.txt</c> writes them (telekinesis is Arkane's spelling).</summary>

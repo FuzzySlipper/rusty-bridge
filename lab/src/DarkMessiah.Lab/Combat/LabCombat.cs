@@ -60,6 +60,9 @@ internal sealed class LabCombat : IDisposable
     readonly CombatModel model;
     readonly List<(SwingTrace Trace, double Until)> recent = [];
     double now;
+    // The fight's game time, and the slow motion asked for on it: the world runs at the factor from start to end.
+    double fightSeconds, slowStart = double.NaN, slowEnd = double.NaN;
+    float slowFactor = 1;
     // The swing window last settled (a hit, or a kick decided: SwingKey), and the last swing that hit or missed outright.
     int settledSwing = -1, decidedSwing = -1;
     // The critical roll: seeded, so fights, replays and the smoke repeat.
@@ -160,6 +163,9 @@ internal sealed class LabCombat : IDisposable
     internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
         OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false)
     {
+        fightSeconds += seconds;
+        AdrenalineGained = 0;
+        FatalityLanded = false;
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
         Sword.Fatal = canFatality && Adrenaline.Full;
@@ -218,9 +224,13 @@ internal sealed class LabCombat : IDisposable
             Criticals++;
         }
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
-        if (Sword.Move == SwordMove.Fatality) Adrenaline.Spend();
+        AdrenalineGained += hit?.Adrenaline ?? 0;
+        if (Sword.Move == SwordMove.Fatality) { Adrenaline.Spend(); FatalityLanded = true; }
         if (hit?.CutsHead == true && group == HeadGroup) asked = MathF.Max(asked, Orc.Health);
+        bool wasAlive = Orc.Alive;
         Orc.Damage(asked);
+        // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
+        if (Sword.Move == SwordMove.Fatality && wasAlive && !Orc.Alive) AskSlowTime(SlowTime.FatalityKill);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
@@ -235,6 +245,8 @@ internal sealed class LabCombat : IDisposable
     {
         settledSwing = SwingKey;
         decidedSwing = Sword.Swing;
+        // The Whirlwind asks its .qct slow motion as it begins (×0.5 for 2.5 s; recorded at its first tick).
+        if (model.EventOf(new Party("player", "", [Sword.Clip.Clip], 0, "#1"))?.SlowTime is { } whirlSlow) AskSlowTime(whirlSlow);
         Vector3 flat = (Orc.Feet - feet) with { Y = 0 };
         if (!Orc.Alive || flat.Length() > WhirlwindReach)
         {
@@ -299,6 +311,25 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     internal float CriticalChance => model.Data.PlayerCriticalChance(Build?.Level("critical_hit") ?? 0,
         model.Data.Weapon(FirstPerson.SwordModel)?.CriticalChance ?? 0);
+
+    /// <summary>Slow motion asked for: from <see cref="SlowTime.Delay"/> on, the world runs at its factor for its game seconds.</summary>
+    void AskSlowTime(SlowTime slow)
+    {
+        slowStart = fightSeconds + slow.Delay;
+        slowEnd = slowStart + slow.GameSeconds;
+        slowFactor = slow.Factor;
+        SlowTimeRequests.Add((fightSeconds, slow));
+    }
+
+    /// <summary>What the lab's blows gave the gauge this step, and whether a Fatality landed (which empties it).</summary>
+    internal float AdrenalineGained { get; private set; }
+    internal bool FatalityLanded { get; private set; }
+
+    /// <summary>The world's rate the fight asks for now: a slow motion's factor while it runs, else null.</summary>
+    internal double? TimeScale => fightSeconds >= slowStart && fightSeconds < slowEnd ? slowFactor : null;
+
+    /// <summary>Every slow motion the fight asked for, at its game time.</summary>
+    internal List<(double At, SlowTime Slow)> SlowTimeRequests { get; } = [];
 
     /// <summary>One critical roll at <see cref="CriticalChance"/>, as the donor's <c>RandomFloat(0, 100) &lt; chance</c>.</summary>
     internal bool RollCritical() => criticals.NextSingle() * 100 < CriticalChance;
@@ -392,6 +423,9 @@ internal sealed class LabCombat : IDisposable
         Adrenaline.Reset();
         criticals = new Random(CriticalSeed);
         Criticals = 0;
+        fightSeconds = 0;
+        slowStart = slowEnd = double.NaN;
+        SlowTimeRequests.Clear();
         Orc.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();

@@ -521,6 +521,26 @@ host.Call(engine =>
     Check(MathF.Abs(before - orc.Health - data.Settings.KickDamage) < 1e-3f && orc.State == OrcState.Pushed,
         FormattableString.Invariant($"a kick asks the settings' kick_damage and pushes the orc: {before:0.##} → {orc.Health:0.##}, {orc.State}"));
 
+    // Slow motion (#10147): the Whirlwind asks its .qct ×0.5 for 2.5 s as it begins, which the world runs at for
+    // 1.25 s of game time; the lab's world time follows TimeScale.
+    {
+        var ownBuild = combat.Build!;
+        combat.Rebuild(ownBuild with { Modules = new HashSet<string>(ownBuild.Modules) { "combat_trample", "combat_fatality" } });
+        combat.Reset();
+        Face();
+        combat.Adrenaline.Set(20, 20);
+        for (int i = 0; i < 50; i++) combat.Step(Tick, step++, true, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, crouched: true);
+        combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, crouched: true);
+        bool whirled = combat.Sword.Move == SwordMove.Whirlwind;
+        double? during = combat.TimeScale;
+        var asked = combat.SlowTimeRequests.LastOrDefault().Slow;
+        for (int i = 0; i < 80; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+        Check(whirled && during == .5 && asked == new DarkMessiah.Combat.SlowTime(0, 2.5f, .5f) && combat.TimeScale is null,
+            FormattableString.Invariant($"the Whirlwind asks ×0.5 for 2.5 s at once, and the world runs at it for 1.25 s of game time ({during}, then {combat.TimeScale?.ToString() ?? "realtime"})"));
+        combat.Rebuild(ownBuild);
+        combat.Reset();
+    }
+
     // A kick tuned to a contact window shorter than a step (review R10121-4: windup ×1.4, active ×0.25 makes the
     // window 0.4200–0.4325 s, which a 60 Hz step jumps over) still contacts once, and the kick still ends.
     var untuned = combat.Tuning;
@@ -614,6 +634,11 @@ host.Call(engine =>
             return (combat.CriticalChance, hits / 200f);
         }
     }
+    // Slow motion (#10147): every recorded request is a Fatality kill's, the Whirlwind's or a map script's, as the lab asks.
+    var slowTimes = SlowTimeCalibration.Measure(calibrated, combat.Model);
+    foreach (var c in slowTimes) Console.WriteLine($"  slow motion: {c}");
+    Check(slowTimes.Count(c => c.Cause == "Fatality kill") >= 3 && slowTimes.All(c => c.Agrees),
+        $"the lab asks the donor's slow motion: on each Fatality kill and as the Whirlwind begins, none on other kills ({slowTimes.Count(c => c.Agrees)} of {slowTimes.Count})");
     var adrenaline = AdrenalineCalibration.Measure(calibrated, combat);
     foreach (var byMove in adrenaline.GroupBy(a => a.Move))
         Console.WriteLine($"  adrenaline {byMove.Key}: {byMove.Count(a => a.Agrees)} of {byMove.Count()} landed blows fill the gauge as the lab's does");
@@ -694,7 +719,7 @@ host.Call(engine =>
     {
         if (!File.Exists(path)) { Console.WriteLine($"skip the {Path.GetFileName(path)} replay: no local/recordings/experiments/{Path.GetFileName(path)}"); continue; }
         var report = CombatReplay.Run(combat, path, product);
-        foreach (var line in report.Lines().Take(10)) Console.WriteLine($"  {line}");
+        foreach (var line in (Environment.GetEnvironmentVariable("RB_ALL") is null ? report.Lines().Take(10).Concat(report.Lines().Where(l => l.Contains("adrenaline:"))) : report.Lines())) Console.WriteLine($"  {line}");
         foreach (var family in families)
         {
             var m = report.Moves.GetValueOrDefault(family);

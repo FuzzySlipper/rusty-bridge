@@ -44,7 +44,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyDictionary<string, (int Donor, int Lab, int Together)> Moves, double MeanLagSeconds,
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
-    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null)
+    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -57,6 +57,8 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
             yield return FormattableString.Invariant($"  the lab begins a move {MeanLagSeconds * 1000:0} ms after the donor on average");
         if (Build is { } build) yield return $"  build: {build}";
         if (Kicks is { } k) yield return $"  {k}";
+        if (Adrenaline is { Ticks: > 0 } a)
+            yield return FormattableString.Invariant($"  adrenaline: the lab's gauge, on its own blows from the donor's start, within 1 of the donor's on {a.Near} of {a.Ticks} ticks ({100.0 * a.Near / a.Ticks:0}%)");
         if (Body is { } b) yield return $"  {b}";
         foreach (var side in new[] { PlayerBlows, OrcBlows })
         {
@@ -175,6 +177,8 @@ internal static class CombatReplay
         combat.God = true;
         combat.Log = log;
         bool grounded = true;
+        PlayerAdrenaline? shadow = null;
+        int shadowTicks = 0, shadowNear = 0;
         if (driveBody) body!.Begin();
         try
         {
@@ -183,11 +187,23 @@ internal static class CombatReplay
                 times[t.Tick] = t.Time;
                 if (t.Orc is { } o) followed[t.Tick] = o.Id;
                 if (t.Kick && timeline.HasCommands) requests.Add(t.Time);
-                if (t.Adrenaline is float adrenaline) combat.Adrenaline.Set(adrenaline, t.AdrenalineMax);
+                if (t.Adrenaline is float adrenaline)
+                {
+                    combat.Adrenaline.Set(adrenaline, t.AdrenalineMax);
+                    if (shadow is null) { shadow = new PlayerAdrenaline(); shadow.Set(adrenaline, t.AdrenalineMax); }
+                }
                 // With no weapon in hand the donor's player ignores attack, block and kick: so does the lab's sword.
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                // The gauge the lab's own blows would keep (the fight's is held to the donor's), against the donor's.
+                if (shadow is not null && t.Adrenaline is float donorGauge)
+                {
+                    shadow.Gain(combat.AdrenalineGained);
+                    if (combat.FatalityLanded) shadow.Spend();
+                    shadowTicks++;
+                    if (MathF.Abs(shadow.Value - donorGauge) <= 1) shadowNear++;
+                }
                 if (driveBody)
                 {
                     // A recorded teleport (a scenario's setpos: over a metre in a tick) that raises the donor raises the
@@ -324,7 +340,8 @@ internal static class CombatReplay
             Compare("the player's blows on the followed orc", donorPlayer, log.Where(e => e.ByPlayer).Select(Lab).ToList()),
             Compare("the followed orc's blows on the player", donorOrc, log.Where(e => !e.ByPlayer).Select(Lab).ToList()),
             notCompared, kicks, bodyReplay, byClip, excluded,
-            timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, which the replay doesn't follow" : "")}" : null);
+            timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, which the replay doesn't follow" : "")}" : null,
+            shadow is null ? null : (shadowNear, shadowTicks));
     }
 
     /// <summary>

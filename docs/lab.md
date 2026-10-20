@@ -194,6 +194,10 @@ sprinted and then charged.
 
 Recorded in `l01_a-v16-adrenaline*`, `-fatality*`, `-whirlwind` and `-disarm` (#10145; the scenarios of the same
 names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-crit`, `-slowmo`) and hand2's behead.
+- **The gauge in replays:** replays hold the lab's gauge to the recording's, since the lab's replayed blows don't land
+  as the donor's do: its orc carries a shield the scenario orcs didn't, and its traced hit parts differ ("Where they
+  differ" below). The lab's own gauge, run from the donor's start on the lab's blows, stays within 1 of the donor's on
+  4% to 100% of a replay's ticks (each replay reports it); per landed blow it agrees 159 of 162 times (below).
 - **The gauge** (`PlayerAdrenaline`): each blow that takes health gives its `.qct` event's `adrenalineadd` (a fast
   attack 0.5, a power attack 3, the jump and rush attacks 1, a disarm 8), up to 20 (the Wire's `MaxAdrenaline`): 159
   of 162 landed blows fill it as the lab's does (`AdrenalineCalibration`; the three are a power attack's layer
@@ -221,6 +225,32 @@ names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-cri
   0, `disarmflag`) has no hit window.
 - **An orc getting up takes ×2:** four blows on an orc in `StandUp_*` asked twice the lab's, the only unexplained
   doubles (one of them the old `l01_a-layers` fast attack). The lab's orc is never down (#10152).
+
+### Slow motion
+
+Dark Messiah slows the world on its signature kills (#10147; docs/wire.md, "Slow motion"). Over every recording
+(`SlowTimeCalibration`, 7 of 7):
+- **A Fatality that kills** (the huge slash or the behead) asks ×0.1 for 2 s, 0.2 s late: the damage record's own
+  slow-time fields (`SlowTime.FatalityKill`). Four did, each one; no other kill asked anything (a kick under a fading
+  huge slash's layer is a kick's kill).
+- **The Whirlwind** asks its `.qct` slow time as it begins: ×0.5 for 2.5 s (`AttackEvent.SlowTime`).
+- **Map scripts** ask their own (`ActiveSlowMotion`, from outside server.dll); the arena has none.
+
+The request runs the world at the factor for the duration of wall time, which is duration × factor of game time (0.2
+s for a Fatality kill, 1.25 s for the Whirlwind), while look and controls keep host time. `LabCombat` keeps the request
+on the fight's game time (`TimeScale`), and the product hands it to `WorldTime`, which runs the Engine's gameplay time
+at that rate (or the chosen rate, if slower) until it ends. Replays step on the recording's own game time, so they
+aren't slowed.
+
+### The finishing moves
+
+- **The behead** (`layer_behead_sword_noshield_out`): two recorded, both Fatalities at full adrenaline, both killing
+  blows; its trigger against the huge slash isn't found (above, "Adrenaline, the Fatality and the Whirlwind"). The lab
+  plays the huge slash for it, and replays count both as the Fatality.
+- **Cutting the head off:** the lab kills the orc (a `cutheadflag` head blow) but leaves its body whole: head and limb
+  removal is rusty-engine #10176.
+- **Impales** (`layer_Impal_*`, `layer_Ground_Impal_*`, `impalflag`): never recorded. They need an orc knocked down or
+  stunned (#10152).
 
 ### Criticals
 

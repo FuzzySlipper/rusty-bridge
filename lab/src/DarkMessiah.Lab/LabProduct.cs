@@ -134,6 +134,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             kickPending = attackPending = blockPending = false;
             scene.Step(delta, cubes.PrepareStep());
         }
+        time.SetSlow(combat.TimeScale);
         // Facts identify the first admitted step; the published state is at the end boundary.
         scene.SimulationStep = checked(facts.SimulationStep + facts.AdmittedStepCount);
         worldSeconds = scene.SimulationStep * facts.FixedDeltaSeconds;

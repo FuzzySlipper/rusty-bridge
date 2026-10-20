@@ -19,6 +19,16 @@ internal sealed class WorldTime(IEngineContext engine)
     /// <summary>The running rate chosen, kept while held so resuming returns to it.</summary>
     internal double Rate { get; private set; } = GameplayTimeConvenience.RealtimeRate;
     internal bool Held { get; private set; }
+    /// <summary>A slow motion the fight asks for (a Fatality kill, the Whirlwind): it runs the world at this rate instead.</summary>
+    internal double? Slow { get; private set; }
+
+    /// <summary>Takes the fight's slow motion, or its end (null); applies it when it changes.</summary>
+    internal void SetSlow(double? factor)
+    {
+        if (factor == Slow) return;
+        Slow = factor;
+        Apply();
+    }
     /// <summary>The selection as the last update reported it.</summary>
     internal (double Rate, uint AdvanceSteps) Reported { get; private set; }
 
@@ -26,7 +36,7 @@ internal sealed class WorldTime(IEngineContext engine)
     internal void Apply()
     {
         if (Held) engine.GameplayTime.Hold();
-        else engine.GameplayTime.SetRate(Rate);
+        else engine.GameplayTime.SetRate(Slow is double slow ? Math.Min(Rate, slow) : Rate);
     }
 
     internal void Observe(ProductUpdateFacts facts) => Reported = (facts.GameplayRate, facts.GameplayAdvanceRemainingSteps);
@@ -56,5 +66,6 @@ internal sealed class WorldTime(IEngineContext engine)
 
     internal string Describe() => Reported.AdvanceSteps > 0
         ? string.Create(CultureInfo.InvariantCulture, $"stepping · {Reported.AdvanceSteps} steps left")
-        : Held ? "held" : Rate >= 1 ? "realtime" : string.Create(CultureInfo.InvariantCulture, $"slow · {Rate:0.00}×");
+        : Held ? "held" : Slow is double slow ? string.Create(CultureInfo.InvariantCulture, $"slow motion · {Math.Min(Rate, slow):0.00}×")
+        : Rate >= 1 ? "realtime" : string.Create(CultureInfo.InvariantCulture, $"slow · {Rate:0.00}×");
 }

@@ -8,13 +8,31 @@ namespace DarkMessiah.Combat;
 /// and kicks; 0 when not given), the adrenaline it gives the player when it lands (`adrenalineadd`), and whether a
 /// blow on the head cuts it off (`cutheadflag`: the huge slash's head blows killed an orc of 100000 health), and whether
 /// a player's blow with it may be a critical (`critical_enable`: the power attacks' releases and the combos, not the
-/// fast attacks).
+/// fast attacks), and the slow motion the move asks for as it begins (`slowtime_delay`, `_duration`, `_factor`: the
+/// Whirlwind's ×0.5 for 2.5 s; null when it asks none).
 /// </summary>
 public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
-    bool CutsHead = false, bool CanCritical = false)
+    bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
+}
+
+/// <summary>
+/// A slow-motion request, as the game's request (server.dll+0x147560) takes it: after <paramref name="Delay"/> seconds the
+/// world runs at <paramref name="Factor"/> for <paramref name="Duration"/> seconds of wall time, which is Duration ×
+/// Factor of game time (docs/wire.md, "Slow motion").
+/// </summary>
+public sealed record SlowTime(float Delay, float Duration, float Factor)
+{
+    /// <summary>
+    /// What a Fatality's killing blow asks: the damage record's own slow-time fields (×0.1 for 2 s, 0.2 s late), which
+    /// reach the request from server.dll+0x2CB846. Every recorded Fatality kill asked it, no other kill did (#10147).
+    /// </summary>
+    public static readonly SlowTime FatalityKill = new(.2f, 2, .1f);
+
+    /// <summary>How long the world runs slowed, in game time.</summary>
+    public float GameSeconds => Duration * Factor;
 }
 
 /// <summary>
@@ -247,7 +265,9 @@ public sealed class CombatData
     static AttackEvent Event(KeyValues b) =>
         new(b.Number("HitPow") ?? 1, (b.Number("breakparade") ?? 0) > 0 || (b.Number("forcebreakparade") ?? 0) > 0,
             b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0), b.Number("adrenalineadd") ?? 0,
-            (b.Number("cutheadflag") ?? 0) > 0, (b.Number("critical_enable") ?? 0) > 0);
+            (b.Number("cutheadflag") ?? 0) > 0, (b.Number("critical_enable") ?? 0) > 0,
+            b.Number("slowtime_duration") is float duration && duration > 0
+                ? new SlowTime(b.Number("slowtime_delay") ?? 0, duration, b.Number("slowtime_factor") ?? 1) : null);
 
     public WeaponData? Weapon(string model)
     {

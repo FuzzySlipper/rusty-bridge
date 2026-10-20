@@ -429,6 +429,11 @@ The request has seven callers:
   - **Bit 13:** `combat_trample`, from combat level 3 in `scripts/mm_skills_infos.txt`.
   - **The attack:** `first_basic.qct` gives the Trample attack (`layer_combo_*_trample`) ×0.5 for 2.5 s.
   - **Not reproduced:** with every module enabled (`mm_player_skills_grosbill 1`), no bot or hand-played fight downed an orc and trampled it.
+  - **What does reach it (2026-10-20, #10147):** every Fatality kill recorded since asked the damage record's ×0.1 for
+    2 s, 0.2 s late, from `+0x2CB846` (the return of `+0x2CB841`): four kills by the huge slash or the behead, one of
+    them hand2's (129299) with a new game's modules, so the gate isn't `combat_trample` as read above. No other kill
+    asked it (fast and power attacks, kicks). The Whirlwind (`layer_combo_sword_trample`) asks its `.qct` ×0.5 for 2.5 s
+    as it begins, returning to `+0x44D64F` (the `+0x44D64A` call above). The lab's rule: docs/lab.md, "Slow motion".
 - **Callers outside server.dll:** Arkane's copy-protected code (the `.sll`
   section, `server.dll+0x945000` on) runs from a copy in allocated memory, so
   its calls return outside the module. From 2026-10-18 21:50 the tap writes

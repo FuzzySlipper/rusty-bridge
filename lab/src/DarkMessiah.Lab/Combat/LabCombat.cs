@@ -364,7 +364,8 @@ internal sealed class LabCombat : IDisposable
         Orc.Damage(asked);
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
         if (Sword.Move == SwordMove.Fatality && wasAlive && !Orc.Alive) AskSlowTime(SlowTime.FatalityKill);
-        if (bash) Orc.Push((Orc.Feet - feet) with { Y = 0 }, BashPush, "Push_Body_Front_small");
+        // Its reaction (#10153): the bash's push slides it its measured 1.4 m.
+        React(hit, kick: false, asked, group, forward, (Orc.Feet - feet) with { Y = 0 }, bash ? BashPush : 0);
         // It may stun or knock the orc down (#10152): the shield's bash is no staff's and multiplies by 1.
         Stagger(hit, feet, bash);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
@@ -431,11 +432,30 @@ internal sealed class LabCombat : IDisposable
         // Its .qct event has critical_enable: it rolls (or, replayed, takes the donor's) as any blow does (R10146-1).
         float asked = Asked(tick, player, Orc.Party(), 0);
         Orc.Damage(asked);
+        React(model.EventOf(player), kick: false, asked, 0, flat.LengthSquared() > 1e-6f ? Vector3.Normalize(flat) : Orc.Facing * -1, flat, 0);
         Stagger(model.EventOf(player), feet);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, 0));
         Message = Orc.Alive ? FormattableString.Invariant($"Whirlwind for {asked:0.##}") : "The orc falls";
+    }
+
+    bool lastCritical;
+
+    /// <summary>
+    /// A player's blow's reaction on the orc (#10153; <see cref="OrcReactions"/>), from its event, its damage, whether
+    /// it was a critical, its hit group and the player's facing in the orc's frame.
+    /// </summary>
+    void React(AttackEvent? blow, bool kick, float damage, int? group, Vector3 forward, Vector3 pushDirection, float pushMetres)
+    {
+        var facing = Orc.Facing with { Y = 0 };
+        var left = new Vector3(facing.Z, 0, -facing.X);
+        var look = forward with { Y = 0 };
+        float angle = look.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f
+            ? MathF.Atan2(Vector3.Dot(look, left), Vector3.Dot(look, facing)) * 180 / MathF.PI : 180;
+        var reaction = OrcReactions.Pick(new ReactionBlow(blow, kick, damage, !kick && lastCritical, group, angle),
+            Orc.State == OrcState.Stunned, Orc.SinceSmallHit);
+        if (reaction.Clip is not null) Orc.React(reaction, pushDirection, pushMetres);
     }
 
     /// <summary>
@@ -444,9 +464,11 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     float Asked(ulong tick, Party player, Party victim, int? group, string? weapon = null)
     {
+        lastCritical = false;
         if (model.EventOf(player)?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
         {
             Criticals++;
+            lastCritical = true;
             return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true, weapon: weapon, alert: AlertAt(tick));
         }
         return PlayerAsks(player, victim, group, kick: false, Orc.Health, weapon: weapon, alert: AlertAt(tick));
@@ -568,7 +590,7 @@ internal sealed class LabCombat : IDisposable
         }
         float asked = PlayerAsks(player, orc, null, kick: true, Orc.Health, alert: AlertAt(tick));
         Orc.Damage(asked);
-        Orc.Push(flat, Tuning.KickPush);
+        React(null, kick: true, asked, null, forward, flat, Tuning.KickPush);
         // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
         Stagger(null, eye with { Y = Orc.Feet.Y });
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };

@@ -34,9 +34,9 @@ internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float He
 /// <see cref="OrcMind"/>): it walks in (<c>CombatWalk</c>) to its green zone, holds or strafes (<c>Combatmove_*</c>)
 /// between its red and yellow zones while it waits out its cool or berserk interval, then picks an attack whose strike
 /// lands from where it stands, played at the cleaver's <c>speed_attack</c>. Every clip moves it by its root motion
-/// (mstudiomovement_t), as the donor's entity moves. Each attack part's event (2102, 2139) the step crosses is a blow. When not attacking it may parry a swing it sees coming (<c>layer_parry_B</c>
-/// over its idle, which sets its defense state's parry bit), and it reacts to hits (<c>Hit_Body_Front_small</c>) and
-/// kicks (<c>Push_Body_back_small</c>, pushed back). At no health it drops and comes back after a while.
+/// (mstudiomovement_t), as the donor's entity moves. Each attack part's event (2102, 2139) the step crosses is a blow. It parries and dodges by its <c>.qct</c> (<see cref="OrcDefence"/>),
+/// reacts to each blow by the donor's rule (<see cref="OrcReactions"/>), and is stunned and knocked down by it
+/// (<see cref="OrcStagger"/>). At no health it drops and comes back after a while.
 /// </summary>
 internal sealed class Orc : IDisposable
 {
@@ -60,6 +60,10 @@ internal sealed class Orc : IDisposable
     readonly OrcDefence defence;
     readonly OrcStamina stamina;
     int seenSwing = -1, answeredSwing = -1;
+    // A small hit playing over whatever it does (#10153), and when the last began.
+    string? hitLayer;
+    float hitLayerCycle;
+    double lastSmallHit = double.NegativeInfinity;
     bool wasAttacking;
     // Its own clock, seconds, for the dodge's delay; and the parry layer it played last (it never plays one twice running).
     double clock;
@@ -271,6 +275,8 @@ internal sealed class Orc : IDisposable
         // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
         // while the NPC is flagged attacking, +0x2DFD59, and when its attack task completes, +0x2B06D2).
         if (wasAttacking && State != OrcState.Attack) mind.Attacked(Wounded);
+        // Wounded mid-walk or mid-strafe, it goes on in its wounded clip.
+        if (Wounded && Hurt(Clip) is var hurt && hurt != Clip) Clip = hurt;
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
@@ -324,7 +330,7 @@ internal sealed class Orc : IDisposable
                 // Ready and too close for any attack to land (pressed against the player at its hull's 32 units,
                 // nearer than the uppercut's 34): it steps back to fight again (R10150-1), as the donor's orcs began
                 // attacks out of Combatmove_backward_small.
-                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings) && Clip != "Combatmove_backward_small")
+                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings) && Clip != Hurt("Combatmove_backward_small") && Clip != "Combatmove_backward_small")
                     Play(OrcState.Ready, "Combatmove_backward_small");
                 else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
@@ -405,9 +411,41 @@ internal sealed class Orc : IDisposable
         if (!Alive || Following) return;
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
-        // A hit ends a stun (every recorded stun a blow cut short); one on the ground or getting up plays no reaction.
-        else if (State is not (OrcState.Attack or OrcState.Backstabbed or OrcState.KnockedDown)) Play(OrcState.Hurt, "Hit_Body_Front_small");
     }
+
+    /// <summary>
+    /// A blow's reaction (#10153; <see cref="OrcReactions"/>): a small hit over what it does, or a hit or push in its
+    /// place, which cuts short an attack, a parry or a stun (every recorded stun a blow cut short), as the donor's did.
+    /// None while it lies, gets up, dodges, is backstabbed or dies: the recorded orcs played none dodging (11 blows).
+    /// A push slides it <paramref name="pushMetres"/> along <paramref name="pushDirection"/> (a kick's, a bash's);
+    /// with none it moves by the clip's root motion.
+    /// </summary>
+    internal void React(OrcReaction reaction, Vector3 pushDirection = default, float pushMetres = 0)
+    {
+        if (!Alive || Following || reaction.Clip is null || State is OrcState.Down or OrcState.KnockedDown or OrcState.Backstabbed or OrcState.Dodging) return;
+        string? clip = ClipNamed(reaction.Clip);
+        if (clip is null) return;
+        if (reaction.Overlay)
+        {
+            hitLayer = clip;
+            hitLayerCycle = 0;
+            lastSmallHit = clock;
+            return;
+        }
+        Layer = null;
+        if (reaction.Push && pushMetres > 0) Push(pushDirection, pushMetres, clip);
+        else Play(OrcState.Hurt, clip);
+    }
+
+    /// <summary>Seconds since its last small hit began.</summary>
+    internal double SinceSmallHit => clock - lastSmallHit;
+
+    /// <summary>The small hit playing over it, if any.</summary>
+    internal string? HitLayer => hitLayer;
+
+    /// <summary>The model's clip by a name in any case (the model's own: <c>Hit_head_Front_small</c>, <c>Push_Body_back_small</c>).</summary>
+    string? ClipNamed(string name) =>
+        body.Model.Info.Clips.ContainsKey(name) ? name : body.Model.Info.Clips.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// A kick or a shield bash: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack
@@ -538,6 +576,8 @@ internal sealed class Orc : IDisposable
         defence.Reset();
         stamina.Reset();
         seenSwing = answeredSwing = -1;
+        hitLayer = null;
+        lastSmallHit = double.NegativeInfinity;
         wasAttacking = false;
         Play(OrcState.Approach, "CombatWalk");
     }
@@ -576,8 +616,13 @@ internal sealed class Orc : IDisposable
         if (Following && overlays.Length > 0) body.Play(Clip, Cycle, overlays);
         // Falling: the pose it was struck in gives way to the lying one.
         else if (Falling) body.Play(fallFrom, fallFromCycle, (Clip, 0, FallWeight));
-        else if (Layer is null) body.Play(Clip, Cycle);
-        else body.Play(Clip, Cycle, (Layer, LayerCycle, 1));
+        else
+        {
+            var over = new List<(string, float, float)>(2);
+            if (Layer is not null) over.Add((Layer, LayerCycle, 1));
+            if (hitLayer is not null) over.Add((hitLayer, hitLayerCycle, 1));
+            body.Play(Clip, Cycle, [.. over]);
+        }
     }
 
     /// <summary>A parry over its guard: one of <c>layer_parry_A</c>–<c>E</c> at random, never the last one again (server.dll's SetParryLayer).</summary>
@@ -603,9 +648,24 @@ internal sealed class Orc : IDisposable
     void Play(OrcState state, string clip)
     {
         State = state;
-        Clip = clip;
+        Clip = Wounded ? Hurt(clip) : clip;
         Cycle = 0;
     }
+
+    /// <summary>
+    /// Its locomotion wounded (#10153): below <c>life_tohurt</c> (or exhausted) the recorded orcs walked in
+    /// <c>Hurtwalk</c> and strafed with <c>Wounded_combatmove_*</c> (117 and 219 of their ticks there, no
+    /// <c>CombatWalk</c> or <c>Combatmove_*_small</c> in the top of the list).
+    /// </summary>
+    internal static string Hurt(string clip) => clip switch
+    {
+        "CombatWalk" => "Hurtwalk",
+        "Combatmove_left_small" => "Wounded_combatmove_left",
+        "Combatmove_right_small" => "Wounded_combatmove_right",
+        "Combatmove_backward_small" => "Wounded_combatmove_back",
+        "Combatmove_forward_small" => "Wounded_combatmove_front",
+        _ => clip,
+    };
 
     void Advance(float seconds)
     {
@@ -619,9 +679,15 @@ internal sealed class Orc : IDisposable
             var layer = body.Model.Clip(Layer);
             LayerCycle = MathF.Min(1, LayerCycle + (layer.Seconds > 0 ? seconds / layer.Seconds : 1));
         }
+        if (hitLayer is not null)
+        {
+            var layer = body.Model.Clip(hitLayer);
+            hitLayerCycle += layer.Seconds > 0 ? seconds / layer.Seconds : 1;
+            if (hitLayerCycle >= 1) hitLayer = null;
+        }
     }
 
-    bool Looping(string clip) => clip is "combatidle" or "CombatWalk" or "Stunned";
+    bool Looping(string clip) => clip is "combatidle" or "CombatWalk" or "Hurtwalk" or "Stunned";
 
     /// <summary>
     /// How near its feet come to the player's, Source units: two human hulls (16 each; the donor's player and NPC hulls
@@ -648,7 +714,7 @@ internal sealed class Orc : IDisposable
     void RootMotion(string clip, float from, float to)
     {
         // The walk moves by the donor's ground speed instead (Step).
-        if (clip == "CombatWalk") return;
+        if (clip is "CombatWalk" or "Hurtwalk") return;
         var played = body.Model.Clip(clip);
         if (played.Movement is not { Count: > 0 }) return;
         Vector2 moved = to >= from ? played.MovedAt(to) - played.MovedAt(from) : played.MovedAt(1) - played.MovedAt(from) + played.MovedAt(to);

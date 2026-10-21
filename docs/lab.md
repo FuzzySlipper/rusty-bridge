@@ -566,7 +566,7 @@ idle moments or every 1.8 s, the orc holding its attacks in the second half):
 | Wounded | parried 10% of 21 fast attacks, dodged 3% of 36 power attacks, 0 of 21 kicks | parried 29% of 108, dodged none: too few recorded to compare |
 
 Situations with fewer than 25 recorded or 30 lab swings are reported, not compared; a compared one agrees within two
-standard deviations of the donor's rate plus 5 points.
+standard deviations of the difference between the two rates (both are samples) plus 5 points.
 
 - **Repeated swings:** the donor's orcs parried a ready orc's fast attacks 12% of 41 over their first three swings,
   50% of 56 over the next seven and 42% of 239 after: no growth, and the first few lower, likely the defence's
@@ -608,6 +608,34 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
   (`IDynamicsService.CreateRagdoll`); #10216 builds it.
 - **Not modelled:** `GlobalStunChanceMultiplier` (1.5) multiplies the stun chance when an NPC flag (+0x2270) is set,
   which isn't identified; the idle, unaware orcs' staff stuns.
+
+### Hit reactions
+
+A player's blow plays a reaction on the orc (#10153; `Npc/OrcReaction.cs`), by a rule fitted to every recorded player
+blow on an orc (`ReactionCalibration`: what it began within 16 ticks, a reaction sequence or a hit overlay; `RB_REACT=1`
+prints them). The orc's model has the table: `Hit_<side>_medium`/`_long`, `Push_<side>_medium`/`_long`,
+`Hit_head_<side>_small`/`Hit_Body_<side>_small` (overlays) and `Push_Head`/`Body_<side>_small`. server.dll looks the
+small ones up by index in each NPC class's sequence cache (+0x2C0F40, read through +0x2C1170).
+
+| A blow | Plays | Recorded |
+| --- | --- | --- |
+| Its side | where the impact comes from: the move's `impactdirX`/`Y` (X ahead, Y to the attacker's left) turned by the attacker's facing into the orc's frame, reversed, in quarters | the side right on 295 of 337 (the misses at the quarters' edges) |
+| A kick | `Push_<side>_medium`, sliding it the kick's push | 57 of 63 recorded medium pushes the same kind |
+| `alwayspush` (the daggers' power attack, the rush, the Whirlwind, the bash) | `Push_<side>_long` from 10 damage (medium under 10 a hit); the bash's (under 0.5) `Push_<Head\|Body>_<side>_small` | |
+| `push` (the sword's power attack) on a critical | `Push_<side>_long` | 11 of 11 criticals pushed, no other blow of it |
+| A fast attack (`impactcoeff` 0.5) | the small hit as an overlay, over whatever the orc does (an attack goes on under it): the head's on a head blow or a swing to the left (`impactdirY` > 0: A, C, E), else the body's (B, D, the daggers' A); none within a second of the last small hit | 24 of 26 blows 30–60 ticks after a small hit played none, from 70 ticks they played |
+| Anything else, and every blow on a stunned orc | `Hit_<side>_long` from 10 damage, else `_medium`, in its place: it cuts short an attack, a parry or a stun | medium to 9 damage, long from 12 |
+| On an orc dodging, grabbing, dying, down or getting up | none | 11 blows on dodging orcs, 10 in `attack_grab` |
+
+- **Against the recordings** (the smoke): the rule plays the donor's reaction, clip and side, on 395 of 488 recorded
+  blows (81%; replays follow the recorded orc's own sequences, so this is the replays' measure). By kind: long hits
+  113 of 124, head small hits 80 of 88, medium pushes 56 of 63, no reaction 70 of 102, medium hits 37 of 57, long
+  pushes 21 of 31. What differs: the quarters' edges, the daggers' power attacks on idle orcs (likely unaware, #10154),
+  and the staff's 16.8-damage blows on stunned orcs (medium 4 of 5 where the rule says long).
+- **Wounded** (below `life_tohurt` or exhausted) it walks in `Hurtwalk` and strafes with `Wounded_combatmove_*`, as the
+  recorded orcs did below a fifth of their health. Its wounded attacks (`attack_wounded_*`) aren't chosen.
+- **Not read:** the selector in server.dll (the measured rule stands in for it), and the electrocuted, disarmed and
+  shield hits (`Hit_electrocuted`, `Hit_Disarmed`, `Hit_Shield`).
 
 ## Calibration
 

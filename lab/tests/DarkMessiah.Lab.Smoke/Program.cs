@@ -385,6 +385,14 @@ host.Call(engine =>
         new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
     product.Start();
     // RB_REPLAY=path replays one recording and prints its whole report, for looking into one replay.
+    // RB_REACT=1 prints the donor's hit reactions (#10153) and stops.
+    if (Environment.GetEnvironmentVariable("RB_REACT") == "1")
+    {
+        var reactions = ReactionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
+        foreach (var r in reactions)
+            Console.WriteLine(FormattableString.Invariant($"REACT {r.Recording} {r.Tick} {r.Move} dmg {r.Damage:0.##} grp {r.HitGroup} push {r.PushForce} flag {r.DamageFlag:x} {r.Side} {r.Angle:0} hp {r.HealthFraction:0.00} before {r.Before}@{r.BeforeCycle:0.00} -> {r.Reaction} +{r.Delay} ovl {r.Overlay} facing {r.Facing:0} crit {(r.Critical ? 1 : 0)} z {r.HitHeight:0} was {r.OverlayBefore}"));
+        return;
+    }
     // RB_KNOCK=1 prints the donor's stuns and knockdowns (#10152) and stops.
     if (Environment.GetEnvironmentVariable("RB_KNOCK") == "1")
     {
@@ -617,7 +625,7 @@ host.Call(engine =>
         static string Show((int Swings, int Parries, int Dodges) c) => c.Swings == 0 ? "no swings"
             : FormattableString.Invariant($"{c.Swings} swings, parried {Rate(c.Parries, c.Swings):P0}, dodged {Rate(c.Dodges, c.Swings):P0}");
         // A situation is compared where both have its samples (the donor 25, the lab 30): within two standard
-        // deviations of the donor's rate over its swings, plus 5 points. Thinner ones are reported, not checked.
+        // deviations of the difference between the two rates, plus 5 points. Thinner ones are reported, not checked.
         var compared = new List<string>();
         var failed = new List<string>();
         void Compare(string name, Func<DefenceCase, bool> where, string? notModelled = null)
@@ -631,7 +639,8 @@ host.Call(engine =>
             foreach (var part in new Func<(int Swings, int Parries, int Dodges), int>[] { c => c.Parries, c => c.Dodges })
             {
                 double p = Rate(part(d), d.Swings), q = Rate(part(l), l.Swings);
-                if (Math.Abs(p - q) > 2 * Math.Sqrt(p * (1 - p) / d.Swings) + .05) { failed.Add(name); break; }
+                // Two standard deviations of the difference of the two rates (both are samples), plus 5 points.
+                if (Math.Abs(p - q) > 2 * Math.Sqrt(p * (1 - p) / d.Swings + q * (1 - q) / l.Swings) + .05) { failed.Add(name); break; }
             }
         }
         foreach (var kind in Enum.GetValues<SwingKind>())
@@ -669,6 +678,19 @@ host.Call(engine =>
             FormattableString.Invariant($"an orc starts with its .qct's {full} stamina; three stuns spend it, and it is wounded at full health ({orc.Health:0}), spending no more"));
         orc.Spawn();
         Check(!orc.Wounded && orc.Stamina.Left == full, "a new orc has its stamina back");
+    }
+
+    // Hit reactions (#10153): the lab's rule against every recorded player blow on an orc.
+    {
+        var reactions = ReactionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
+        var scored = ReactionCalibration.Score(reactions, combat.Model.Data);
+        static string Kind(string clip) => clip.Length == 0 ? "none"
+            : System.Text.RegularExpressions.Regex.Replace(clip.ToLowerInvariant(), "_(front|back|left|right)", "_<side>");
+        int agree = scored.Count(x => x.Lab.Equals(x.Donor, StringComparison.OrdinalIgnoreCase));
+        foreach (var kind in scored.GroupBy(x => Kind(x.Donor)).OrderByDescending(g => g.Count()))
+            Console.WriteLine($"  recorded {kind.Key}: {kind.Count()}, the lab's rule the same {kind.Count(x => x.Lab.Equals(x.Donor, StringComparison.OrdinalIgnoreCase))}, same kind {kind.Count(x => Kind(x.Lab) == kind.Key)}");
+        Check(scored.Count >= 400 && agree * 10 >= scored.Count * 8,
+            FormattableString.Invariant($"the orc's reaction to a blow is the donor's (clip and side) on {agree} of {scored.Count} recorded blows ({100.0 * agree / scored.Count:0}%)"));
     }
 
     // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.
@@ -745,7 +767,8 @@ host.Call(engine =>
         for (int i = 0; i < 120; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
         string held = orc.Clip;
         orc.Damage(.5f);
-        Check(stunned == Stagger.Stunned && stunClip == "hit_stunned_front" && held == "Stunned" && orc.State == OrcState.Hurt,
+        orc.React(OrcReactions.Pick(new ReactionBlow(new AttackEvent(1, false, ImpactCoeff: .5f), false, .5f, false, 2, 180), stunned: true, 10));
+        Check(stunned == Stagger.Stunned && stunClip == "hit_stunned_front" && held == "Stunned" && orc.State == OrcState.Hurt && orc.Clip == "Hit_Front_medium",
             $"a staff's blow stuns it ({stunClip}, then {held}), and the next hit ends the stun");
         Check(CombatModel.DownMultiplier("StandUp_back") == 2 && CombatModel.DownMultiplier("Stunned") == 1.5f && CombatModel.DownMultiplier("combatidle") == 1,
             "a blow on an orc getting up asks ×2, on a stunned one ×1.5");
@@ -881,6 +904,58 @@ host.Call(engine =>
     Check(dodgedKick && orc.Health == before && orc.State == OrcState.Dodging,
         FormattableString.Invariant($"a kick reaching an orc inside its dodge's window ({dodgeClip}) does nothing: health {before:0.##} → {orc.Health:0.##}, {orc.State}"));
     combat.Orc.Defending.Forced = Defence.None;
+
+    // Hit reactions through the combat (#10153): a fast attack plays the small hit over what the orc does, a power
+    // attack a hit in its place, a kick a push; an orc attacking keeps attacking under the small hit.
+    {
+        (OrcState State, string Clip, string? Over, float Damage) Strike(int holdSteps, bool kick = false)
+        {
+            int hits = combat.Player.Hits;
+            for (int i = 0; i < holdSteps; i++) combat.Step(Tick, step++, !kick, false, kick && i == 0, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+            for (int i = 0; i < 120 && combat.Player.Hits == hits; i++)
+                combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+            return (orc.State, orc.Clip, orc.HitLayer, combat.LastBlow?.Damage ?? 0);
+        }
+        void Settle() { for (int i = 0; i < 90; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); }
+        Settle();
+        Face();
+        var swift = Strike(3);
+        Settle();
+        Face();
+        var heavy = Strike(40);
+        Settle();
+        Face();
+        var kicked = Strike(1, kick: true);
+        Console.WriteLine($"  reactions: fast {swift}, power {heavy}, kick {kicked}");
+        string side = "Front";
+        Check(swift.Over is { } over && over.StartsWith("Hit_head_", StringComparison.Ordinal) && over.EndsWith("_small", StringComparison.Ordinal) && swift.State != OrcState.Hurt,
+            $"a fast attack plays the small hit over the orc, the head's (fast A swings to the left): {swift.Over}, the orc {swift.State}");
+        string size = heavy.Damage >= OrcReactions.LongFrom ? "long" : "medium";
+        Check(heavy.State == OrcState.Hurt && heavy.Clip.StartsWith("Hit_", StringComparison.Ordinal) && heavy.Clip.EndsWith("_" + size, StringComparison.Ordinal),
+            FormattableString.Invariant($"a power attack plays a hit in the orc's place, {size} at {heavy.Damage:0.#} damage: {heavy.Clip}"));
+        Check(kicked.State == OrcState.Pushed && kicked.Clip == $"Push_{side}_medium", $"a kick from in front pushes it with Push_Front_medium: {kicked.Clip}");
+        // Under an attack: the small hit plays over it, a full hit cuts it short.
+        orc.Hold = false;
+        Face();
+        for (int i = 0; i < 600 && orc.State != OrcState.Attack; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+        string attacking = orc.Clip;
+        orc.React(OrcReactions.Pick(new ReactionBlow(new AttackEvent(.7f, false, ImpactY: 1, ImpactCoeff: .5f), false, 4, false, 1, 180), false, 10));
+        bool kept = orc.State == OrcState.Attack && orc.Clip == attacking && orc.HitLayer is not null;
+        bool again = OrcReactions.Pick(new ReactionBlow(new AttackEvent(.7f, false, ImpactY: 1, ImpactCoeff: .5f), false, 4, false, 1, 180), false, orc.SinceSmallHit).Clip is null;
+        orc.React(OrcReactions.Pick(new ReactionBlow(new AttackEvent(1.5f, false, ImpactY: 1), false, 12, false, 3, 180), false, 10));
+        Check(attacking.StartsWith("attack", StringComparison.Ordinal) && kept && again && orc.State == OrcState.Hurt && orc.Clip == "Hit_left_long",
+            $"an attacking orc keeps on under the small hit ({attacking}), plays no second within a second, and a full hit cuts its attack short: {orc.Clip}");
+        orc.Hold = true;
+        // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
+        orc.Spawn();
+        orc.Damage(orc.Health * .9f);
+        orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 6);
+        orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+        string woundedWalk = orc.Clip;
+        Check(orc.Wounded && woundedWalk == "Hurtwalk" && Orc.Hurt("Combatmove_left_small") == "Wounded_combatmove_left",
+            $"a wounded orc walks in Hurtwalk ({woundedWalk}) and strafes with Wounded_combatmove_*, as the donor's did below 20% of their health");
+        orc.Spawn();
+    }
 
     // A jump attack fells only after the player has dropped 50 units below where they left the ground (R10152-1),
     // through the combat: ten from 30 units up, ten from 60, each a press in the air held through the wind-up.

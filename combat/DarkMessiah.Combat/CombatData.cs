@@ -10,11 +10,13 @@ namespace DarkMessiah.Combat;
 /// the power attack has the flag too, and its head blows never did), and whether
 /// a player's blow with it may be a critical (`critical_enable`: the power attacks' releases and the combos, not the
 /// fast attacks), and the slow motion the move asks for as it begins (`slowtime_delay`, `_duration`, `_factor`: the
-/// Whirlwind's ×0.5 for 2.5 s; null when it asks none).
+/// Whirlwind's ×0.5 for 2.5 s; null when it asks none); and how its victim reacts (#10153): `impactdirX`/`Y` (the
+/// impact's direction in the attacker's frame, X ahead, Y to its left), `impactcoeff` (0.5 for the fast attacks),
+/// `push` (push on a critical) and `alwayspush`.
 /// </summary>
 public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
     bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null, bool ForceBreaksParry = false,
-    float ChanceToStun = 0, float ChanceToFall = 0)
+    float ChanceToStun = 0, float ChanceToFall = 0, float ImpactX = 0, float ImpactY = 0, float ImpactCoeff = 1, float Push = 0, float AlwaysPush = 0)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
@@ -303,7 +305,8 @@ public sealed class CombatData
             b.Number("slowtime_duration") is float duration && duration > 0
                 ? new SlowTime(b.Number("slowtime_delay") ?? 0, duration, b.Number("slowtime_factor") ?? 1) : null,
             (b.Number("forcebreakparade") ?? 0) > 0,
-            b.Number("chancetostun") ?? 0, b.Number("chancetofall") ?? 0);
+            b.Number("chancetostun") ?? 0, b.Number("chancetofall") ?? 0,
+            b.Number("impactdirX") ?? 0, b.Number("impactdirY") ?? 0, b.Number("impactcoeff") ?? 1, b.Number("push") ?? 0, b.Number("alwayspush") ?? 0);
 
     public WeaponData? Weapon(string model)
     {

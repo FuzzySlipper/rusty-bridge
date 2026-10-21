@@ -4,7 +4,8 @@ using DarkMessiah.Shared;
 namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
-internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind, Undraw, Draw }
+internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind, Undraw, Draw,
+    BackstabIn, BackstabIdle, Backstab, BackstabCancel, Transition }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -113,6 +114,9 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 /// <param name="Draw">The weapon coming to hand (<c>*_draw</c>); null when it comes at once (a simple weapon, the club).</param>
 /// <param name="QuickDraw">The weapon coming back to hand after the hands were taken (<c>*_quickdraw</c>: an orc's grab).</param>
 /// <param name="Undraw">The weapon put away (<c>*_undraw</c>), before another is drawn.</param>
+/// <param name="Backstab">The daggers' backstab (<c>layer_backstab_*</c>); null for a class without one.</param>
+/// <param name="Transitions">The daggers' way from a fast attack held to its end into the power attack's hold
+/// (<c>layer_transition_daggers_A</c>...), per letter; null for a class that winds up again (the sword).</param>
 /// <param name="Leap">The jump attack's clips (the game's Leaping Attack); null when the model has none.</param>
 /// <param name="Rush">The rush attack (the game's Charge, <c>layer_combo_*_rush</c>, two strikes for the sword); null when the model has none.</param>
 /// <param name="Fatality">The Fatality's huge slash (<c>layer_combo_*_huge</c>); null when the model has none.</param>
@@ -120,7 +124,7 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain,
     IReadOnlyList<MoveClip?> Ends, MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null,
     MoveClip? Rush = null, MoveClip? Fatality = null, MoveClip? Whirlwind = null, bool Wraps = false, MoveClip? Draw = null, MoveClip? QuickDraw = null,
-    MoveClip? Undraw = null)
+    MoveClip? Undraw = null, BackstabClips? Backstab = null, IReadOnlyList<MoveClip?>? Transitions = null)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
 
@@ -137,13 +141,13 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     /// <summary>Every clip the set plays, by its name; null for one it lacks.</summary>
     internal MoveClip? Named(string name) =>
         new MoveClip?[] { Idle, ParryIn, ParryHold, ParryOut, Kick, Broken, Rush, Fatality, Whirlwind, Draw, QuickDraw, Undraw,
-            Leap?.In, Leap?.Idle, Leap?.Out, Leap?.Cancel }
-            .Concat(Chain).Concat(Ends).Concat(Charges.Values.SelectMany(c => new[] { c.In, c.Hold, c.Out }))
+            Leap?.In, Leap?.Idle, Leap?.Out, Leap?.Cancel, Backstab?.In, Backstab?.Idle, Backstab?.Out, Backstab?.Cancel }
+            .Concat(Chain).Concat(Ends).Concat(Transitions ?? []).Concat(Charges.Values.SelectMany(c => new[] { c.In, c.Hold, c.Out }))
             .FirstOrDefault(c => c?.Clip == name);
 
     /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release, the kick, the jump attack's strike and the rush.</summary>
     internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush },
-        .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }];
+        .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }, .. Backstab is null ? [] : new[] { Backstab.Out }];
 
     /// <summary>The power attack's clips for <paramref name="direction"/>, the neutral ones when the model has none for it.</summary>
     internal PowerClips Charge(PowerDirection direction) => Charges.GetValueOrDefault(direction) ?? Charges[PowerDirection.Neutral];
@@ -209,8 +213,29 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
                 ? new LeapClips(C(n.LeapIn), C(F(n.Leap, "idle"), loop: true), C(F(n.Leap, "out")), C(F(n.Leap, "cancel")))
                 : null,
             Maybe(n.Rush), Maybe(n.Huge), Maybe(n.Trample), n.Wraps,
-            simple ? null : Maybe($"layer_{n.Set}_draw"), Maybe($"layer_{n.Set}_quickdraw"), Maybe($"layer_{n.Set}_undraw"));
+            simple ? null : Maybe($"layer_{n.Set}_draw"), Maybe($"layer_{n.Set}_quickdraw"), Maybe($"layer_{n.Set}_undraw"),
+            weapon == WeaponClass.Daggers && model.Clips.ContainsKey("layer_backstab_out")
+                ? new BackstabClips(C("layer_backstab_in"), C("layer_backstab_idle", loop: true),
+                    C("layer_backstab_out") with { Open = BackstabClips.Kill, Close = BackstabClips.Blow },
+                    C("layer_backstab_cancel"))
+                : null,
+            // At the clip's own rate: the recorded ones took 22 ticks, its 0.333 s.
+            weapon == WeaponClass.Daggers ? n.Letters.Select(c => Maybe($"layer_transition_daggers_{c}")).ToList() : null);
     }
+}
+
+/// <summary>
+/// The daggers' backstab (#10148): readied by itself behind a victim (<c>layer_backstab_in</c>, 0.53 s, then the held
+/// <c>_idle</c>), struck by a press while ready (<c>_out</c>), or let go (<c>_cancel</c>). Its strike has no hit window in
+/// the model, only a 2102 at 0.215: there the recorded victim fell to 1 health (<c>die_backstabbed</c> from the start),
+/// and 60 ticks in (cycle <see cref="Blow"/>, 4 of 4) the blow (the .qct's second event) killed it.
+/// </summary>
+internal sealed record BackstabClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveClip Cancel)
+{
+    /// <summary>The cycle of <c>_out</c> where the victim is left at 1 health: its 2102.</summary>
+    internal const float Kill = .215f;
+    /// <summary>The cycle of <c>_out</c> where the blow lands: 60 ticks into its 2.2 s, in all four recorded.</summary>
+    internal const float Blow = .41f;
 }
 
 /// <summary>
@@ -289,7 +314,8 @@ internal sealed class PlayerSword(SwordClips clips)
     /// <summary>The hit window this step's cycles overlap (the rush attack has two), or -1.</summary>
     internal int Window => Swinging ? Clip.WindowAt(stepFrom, Cycle) : -1;
     /// <summary>A move that swings or kicks plays: its hit window may be open.</summary>
-    internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush or SwordMove.Fatality or SwordMove.Whirlwind;
+    internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush or SwordMove.Fatality or SwordMove.Whirlwind
+        or SwordMove.Backstab;
     /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
     internal float TraceCycle => Window is int w and >= 0 ? Math.Clamp(Cycle, Clip.Windows[w].Open, Clip.Windows[w].Close) : Cycle;
     /// <summary>Where this step's swing came from in its hit window: the previous step's cycle, clamped into the window.</summary>
@@ -324,6 +350,11 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool Fatal { get; set; }
     /// <summary>The build has <c>combat_trample</c> (the combat skill's level 3, the game's Whirlwind).</summary>
     internal bool CanWhirl { get; set; }
+    /// <summary>
+    /// A victim's back is in reach for the daggers' backstab (the caller decides it each step: <see cref="Combat.LabCombat"/>).
+    /// On the ground and otherwise ready, the backstab readies; once it doesn't hold, it lets go.
+    /// </summary>
+    internal bool BackstabReady { get; set; }
     /// <summary>A kick was asked for and hasn't started: it starts on the first step it may.</summary>
     internal bool KickWanted => kickWanted;
 
@@ -480,7 +511,9 @@ internal sealed class PlayerSword(SwordClips clips)
         switch (Move)
         {
             case SwordMove.Ready:
-                if (attackHeld && inJump) airSince = airHold = 0;
+                // Behind a victim the daggers ready the backstab by themselves, attack held or not (both recorded).
+                if (BackstabReady && clips.Backstab is { } backstab && !inJump) Play(SwordMove.BackstabIn, backstab.In);
+                else if (attackHeld && inJump) airSince = airHold = 0;
                 else if (attackHeld) Charge(move, 0);
                 // No parry starts in the air: block pressed mid-jump (128149, held 4 ticks) played none.
                 else if (blockHeld && CanParry && !airborne) Play(SwordMove.Parry, clips.ParryIn);
@@ -516,6 +549,13 @@ internal sealed class PlayerSword(SwordClips clips)
                 if (chained) PlayFast(at == last ? 0 : at + 1);
                 // A, and the last, recover when nothing chains onto them; the others go on winding up if attack is held,
                 // from the press under them or from now, or recover (the daggers and staff), or end ready (the sword).
+                // The daggers held to a fast attack's end go through its transition into the power attack's hold (the
+                // goblin fight: an A started from its recovery and held, 6 of 6), not its recovery.
+                else if (attackHeld && clips.Transitions?[at] is { } transition)
+                {
+                    direction = SwordClips.Direction(move);
+                    Play(SwordMove.Transition, transition);
+                }
                 else if (end is not null && (at == 0 || at == last)) Play(SwordMove.FastEnd, end);
                 else if (attackHeld) Charge(move, float.IsNaN(under) ? 0 : under);
                 else if (end is not null) Play(SwordMove.FastEnd, end);
@@ -533,6 +573,19 @@ internal sealed class PlayerSword(SwordClips clips)
                 break;
             case SwordMove.LeapCancel:
                 if (done) { if (attackHeld) AirCharge(); else Play(SwordMove.Power, clips.Power, swing: true); }
+                break;
+            case SwordMove.Transition:
+                if (!attackHeld) StartFast();
+                else if (done) Play(SwordMove.Charge, clips.Charge(direction).Hold);
+                break;
+            case SwordMove.BackstabIn:
+                if (!BackstabReady) Play(SwordMove.BackstabCancel, clips.Backstab!.Cancel);
+                else if (done) Play(SwordMove.BackstabIdle, clips.Backstab!.Idle);
+                break;
+            case SwordMove.BackstabIdle:
+                // A press while it's held strikes (3 of 3 recorded, 17 to 45 ticks into the idle).
+                if (attackPressed) Play(SwordMove.Backstab, clips.Backstab!.Out, swing: true);
+                else if (!BackstabReady) Play(SwordMove.BackstabCancel, clips.Backstab!.Cancel);
                 break;
             case SwordMove.FastEnd:
                 if (attackPressed && Cycle >= FastEndOpen) StartFast();

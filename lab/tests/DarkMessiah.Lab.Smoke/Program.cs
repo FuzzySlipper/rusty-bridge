@@ -719,6 +719,29 @@ host.Call(engine =>
             $"a daggers or staff chain stopped at C recovers with C's own (the recordings: end_C, C_end 9 of 9), A with A's ({threeDaggers.LastClip}, {oneStaff.LastClip}, {threeStaff.LastClip})");
         var clubChain = Taps(clubClips, 5, chain: 2);
         Check(string.Concat(clubChain.Played) == "AB", $"the club chains A and B only (the recordings: B to C 0 of 8; long sword 8 of 8): {string.Concat(clubChain.Played)}");
+        // The daggers' backstab (R10148-2): ready by itself, struck by a press in its idle, let go when no longer ready.
+        var stab = new PlayerSword(daggerClips) { FastDelay = 0, BackstabReady = true };
+        stab.Step(Tick, false, false, false);
+        bool readies = stab.Move == SwordMove.BackstabIn;
+        for (int i = 0; i < 60 && stab.Move == SwordMove.BackstabIn; i++) stab.Step(Tick, false, false, false);
+        bool idles = stab.Move == SwordMove.BackstabIdle;
+        stab.Step(Tick, true, false, false);
+        bool strikes = stab.Move == SwordMove.Backstab && stab.SwingStarted && stab.Clip.Clip == "layer_backstab_out";
+        var letGo = new PlayerSword(daggerClips) { FastDelay = 0, BackstabReady = true };
+        for (int i = 0; i < 40; i++) letGo.Step(Tick, false, false, false);
+        letGo.BackstabReady = false;
+        letGo.Step(Tick, false, false, false);
+        Check(readies && idles && strikes && letGo.Move == SwordMove.BackstabCancel,
+            "with daggers behind a victim the backstab readies (backstab_in, then its idle), a press strikes (backstab_out), and losing the back lets it go (backstab_cancel)");
+        // Held to A's end, the daggers go through its transition into the power attack's hold (the goblin fight, 6 of 6).
+        var held = new PlayerSword(daggerClips) { FastDelay = 0, ChainLength = 5 };
+        held.Step(Tick, true, false, false);
+        held.Step(Tick, false, false, false);
+        for (int i = 0; i < 200 && !(held.Move == SwordMove.FastEnd && held.Cycle >= PlayerSword.FastEndOpen); i++) held.Step(Tick, false, false, false);
+        var path = new List<string>();
+        for (int i = 0; i < 120; i++) { held.Step(Tick, true, false, false); if (path.LastOrDefault() != held.Clip.Clip) path.Add(held.Clip.Clip); }
+        Check(path.SequenceEqual(["layer_fastattack_daggers_A", "layer_transition_daggers_A", "layer_bigslash_Daggers_idle"]),
+            $"the daggers' A, held to its end, goes through transition_daggers_A into the power attack's hold: {string.Join(" > ", path.Select(c => c.Replace("layer_", "")))}");
         // Switching: the sword puts itself away, then the daggers are drawn; taps meanwhile are dropped, attack held winds up after.
         var switching = new PlayerSword(real) { FastDelay = 0 };
         switching.Equip(daggerClips);
@@ -749,6 +772,24 @@ host.Call(engine =>
         bool clubCaps = combat.Sword.ChainLength == 2 && combat.Weapon.Model == Club && combat.Sword.Clips.Draw is null;
         combat.Rebuild(labBuild with { Weapon = Kryss, Modules = new HashSet<string>(labBuild.Modules) { "combat_chained_slash" } }, draw: false);
         bool daggersChain = combat.Sword.ChainLength == 5 && combat.Sword.Clips.Fast.Clip == "layer_fastattack_daggers_A" && combat.FirstPerson.SwordModel == Kryss;
+        // The backstab's readiness through LabCombat (R10148-2): an orc 1.2 m ahead with its back turned readies it; on
+        // guard (combatidle) it doesn't; turned towards the player it doesn't.
+        {
+            Vector3 eye = product.Player.Eye, look = product.Player.Forward with { Y = 0 }, at = product.Player.Feet;
+            look = Vector3.Normalize(look);
+            SwordMove ReadiesOn(string sequence, Vector3 facing)
+            {
+                combat.Reset();
+                for (int i = 0; i < 3; i++)
+                    combat.Step(Tick, step++, false, false, false, eye, look, at, new OrcPose("#7.1", at + look * 1.2f, facing, 100, sequence, 0, 1, null, 0, true, [Orc.Cleaver]));
+                var move = combat.Sword.Move;
+                combat.Orc.StopFollowing();
+                return move;
+            }
+            var (back, guarded, facingPlayer) = (ReadiesOn("idle_0", look), ReadiesOn("combatidle", look), ReadiesOn("idle_0", -look));
+            Check(back == SwordMove.BackstabIn && guarded == SwordMove.Ready && facingPlayer == SwordMove.Ready,
+                $"the backstab readies on an orc's turned back ({back}), not on one on guard ({guarded}) or facing the player ({facingPlayer})");
+        }
         // Both daggers are drawn (R10148-3), one in each hand, through a chain of taps; switching away leaves one weapon.
         var blades = new List<int>();
         float apart = float.MaxValue;
@@ -993,6 +1034,30 @@ host.Call(engine =>
             if (family == "power attack" && m.Donor < 5) continue;
             Check(m.Donor > 0 && m.Together * 10 >= m.Donor * 8,
                 $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
+        }
+    }
+    // The backstab replayed (#10148, R10148-2): every donor backstab begun with it, and the goblin fight's moves, its
+    // power attacks through the daggers' transition.
+    {
+        var stabbed = new[] { "backstab-1", "backstab" }.Select(n => Path.Combine(recordings, "experiments", $"l01_a-v17-{n}.rbrec")).Where(File.Exists).ToList();
+        int donorStabs = 0, together = 0, labStabs = 0;
+        foreach (var path in stabbed)
+        {
+            var m = CombatReplay.Run(combat, path, product).Moves.GetValueOrDefault("backstab");
+            (donorStabs, together, labStabs) = (donorStabs + m.Donor, together + m.Together, labStabs + m.Lab);
+        }
+        if (stabbed.Count > 0)
+            Check(donorStabs >= 3 && together * 10 >= donorStabs * 8,
+                $"the lab begins the donor's backstabs with it: {together} of {donorStabs} (lab {labStabs})");
+        string goblin = Path.Combine(recordings, "experiments", "l01_a-v17-daggers-goblin.rbrec");
+        if (File.Exists(goblin))
+        {
+            var report = CombatReplay.Run(combat, goblin, product);
+            foreach (var family in new[] { "fast attack", "power attack" })
+            {
+                var m = report.Moves.GetValueOrDefault(family);
+                Check(m.Donor > 0 && m.Together * 10 >= m.Donor * 8, $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
+            }
         }
     }
     string switches = WeaponRun("switch");

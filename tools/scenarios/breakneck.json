@@ -1,0 +1,267 @@
+{
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_mm_staff_combat",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_staff_combat",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 20
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 25
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 30
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 20
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 270 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 20
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 270 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 25
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 270 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 20
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    "ai_disable 1",
+    "ent_fire npc_orc_sword addoutput \"angles 0 90 0\"",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 20
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2.5
+    },
+    "ai_disable 0"
+  ],
+  "description": "The breakneck, second round (#10148, R10148-2): every skill, the combat staff. An unaware orc (ai_disable 1) is approached to 20-30 units from behind and from the front (mm_angle_breakneck_front 0.707), and tapped 0.3 or 0.8 s after, or attack held 1.5 s: which, if any, plays layer_breakneck_back or _front?",
+  "seconds": 90
+}

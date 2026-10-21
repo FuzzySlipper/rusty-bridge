@@ -161,6 +161,8 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
 | `telekinesis` | every skill, telekinesis deployed (`Deploy_Spell_AIR_1`), standing 70 units from the start area's jug, looking 11° down at it | three 2.5 s holds: the first lifted it (mana 26.3 to 22.3) |
 | `spells-probe` | every skill | `Deploy_Spell_FIRE_1` and three casts (mana down 4 to 6.6 each), then telekinesis |
+| `backstab` | every skill, the kryss daggers, an unaware orc (`ai_disable 1`) spawned for each try and turned away | approached from behind to 25-100 units, tapped 0.3-1.3 s after; landed at 40, 60 and 80 units (the first round, `backstab-1`, once at 35) |
+| `breakneck` | every skill, the combat staff, the same orcs | approached from behind and in front to 20-30 units, tapped or held: no breakneck in 17 tries over two rounds |
 | `sword-timing` | the short sword, a new game's skills | presses 0.15-0.6 s after a kick, holds through B with a strafe or back/forward from 0.15 or 0.35 s in, taps of 1-4 ticks (#10142) |
 | `sword-timing2` | the same | a second tap through A's recovery (`FastEndOpen`); a kick, a jump, and attack held 0.2 s at points of the kick (`KickAttackOpen`) |
 | `charsheet`, `charsheet-keys` | sv_cheats; F7 bound to `togglecharsheet` | the sheet opened and closed from the console, then the keyboard (the action bytes +0x9B, +0x9D) |
@@ -180,6 +182,8 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
   damage doesn't calibrate; `chained-slash` lets the orc fight.
 - **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down
   (`Deploy_Spell_AIR_1` is the way).
+- **Respawned orcs:** after five or six `mm_npc_create`s in one run a new orc stopped appearing (`backstab`, twice), so
+  the input stopped; keep a run to a few spawns.
 
 ## A save past the ride
 

@@ -63,13 +63,14 @@ public sealed record CharacterData(string Model, float Strength, IReadOnlyDictio
 /// blow on an NPC at or below <see cref="NotAlertedLevel"/> is multiplied by
 /// <see cref="NotAlertedMultiplier"/>, and every player blow by
 /// <see cref="PlayerDamageMultiplier"/>. A player's kick asks <see cref="KickDamage"/>, and costs
-/// <see cref="StaminaKickNpc"/> stamina when it lands on an NPC, <see cref="StaminaKickAll"/> otherwise.
+/// <see cref="StaminaKickNpc"/> stamina when it lands on an NPC, <see cref="StaminaKickAll"/> otherwise. With daggers the
+/// backstab readies within <see cref="BackStabDistIn"/> units of a victim's back and lets go beyond <see cref="BackStabDistOut"/>.
 /// </summary>
 public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier, float KickDamage = 1,
-    float StaminaKickNpc = 3, float StaminaKickAll = 1)
+    float StaminaKickNpc = 3, float StaminaKickAll = 1, float BackStabDistIn = 100, float BackStabDistOut = 200)
 {
     /// <summary>What the shipped file says, for when it can't be read.</summary>
-    public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1);
+    public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1, 100, 200);
 }
 
 /// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done", and `WCritHit`, the critical
@@ -221,7 +222,9 @@ public sealed class CombatData
             Deep(game, "player_damage_multiplier") ?? shipped.PlayerDamageMultiplier,
             Deep(game, "kick_damage") ?? shipped.KickDamage,
             Deep(game, "stamina_kick_npc") ?? shipped.StaminaKickNpc,
-            Deep(game, "stamina_kick_all") ?? shipped.StaminaKickAll);
+            Deep(game, "stamina_kick_all") ?? shipped.StaminaKickAll,
+            Deep(game, "BackStabDist_IN") ?? shipped.BackStabDistIn,
+            Deep(game, "BackStabDist_OUT") ?? shipped.BackStabDistOut);
     }
 
     /// <summary>The tables from a game's VPK folder (local/donor/vpks, or the install's vpks).</summary>

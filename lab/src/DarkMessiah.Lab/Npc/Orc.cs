@@ -9,7 +9,7 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down }
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed }
 
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
 internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
@@ -64,6 +64,7 @@ internal sealed class Orc : IDisposable
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
+        Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
 
@@ -196,7 +197,7 @@ internal sealed class Orc : IDisposable
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
-        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt) && distance > 1e-3f) Facing = toPlayer / distance;
+        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed) && distance > 1e-3f) Facing = toPlayer / distance;
         cooldown = MathF.Max(0, cooldown - seconds);
         float before = Cycle;
         Advance(seconds);
@@ -244,13 +245,33 @@ internal sealed class Orc : IDisposable
         return blows;
     }
 
+    /// <summary>Getting up after a knockdown (a followed orc's <c>StandUp_*</c>): rarely backstabbed (24 of 472 ticks in reach).</summary>
+    internal bool GettingUp => Clip.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase);
+    /// <summary>On guard, in <c>combatidle</c> (the lab's orc standing ready): never backstabbed (0 of 2262 ticks in reach).</summary>
+    internal bool OnGuard => Clip.Equals("combatidle", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a backstab can take it: its .qct's <c>backstable</c> (1 for the orc).</summary>
+    internal bool Backstable { get; }
+
+    /// <summary>
+    /// A backstab has it (#10148): it plays <c>die_backstabbed</c>, left at 1 health, and fights no more; the backstab's
+    /// blow then kills it (<see cref="Damage"/>).
+    /// </summary>
+    internal void Backstabbed()
+    {
+        if (!Alive || Following) return;
+        Health = MathF.Min(Health, 1);
+        Layer = null;
+        Play(OrcState.Backstabbed, body.Model.Info.Clips.ContainsKey("die_backstabbed") ? "die_backstabbed" : "combatidle");
+    }
+
     /// <summary>The verdict and blow are the combat's; this takes their outcome.</summary>
     internal void Damage(float amount)
     {
         if (!Alive || Following) return;
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
-        else if (State != OrcState.Attack) Play(OrcState.Hurt, "Hit_Body_Front_small");
+        else if (State is not (OrcState.Attack or OrcState.Backstabbed)) Play(OrcState.Hurt, "Hit_Body_Front_small");
     }
 
     /// <summary>A kick: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack interrupted.</summary>

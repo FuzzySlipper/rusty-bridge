@@ -202,9 +202,24 @@ The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.
 - **The quick draw** (`*_quickdraw`) isn't a switch: it plays when the weapon comes back after the hands were empty,
   6.6 s after each of the orc's `attack_grab`s in the long-sword run (4 of 4). The lab's orc doesn't grab yet, so
   nothing calls `PlayerSword.QuickDraw`.
-- **Not seen:** the daggers' backstab readies by itself (`backstab_in`, `backstab_idle`) when the player stands behind
-  an orc, and cancels (`backstab_cancel`) as the player moves; no scripted press landed one, so the lab plays none.
-  No staff run showed the breakneck.
+- **Held to the end of a fast attack, the daggers go to the power attack's hold** through their transition
+  (`layer_transition_daggers_A`, 0.33 s at the clip's rate), not their recovery: in the goblin fight (`daggers-goblin`) an A
+  started from its recovery and held, 6 of 6. The lab does this for every letter of the daggers' chain; only A's is
+  recorded. The sword winds up again from the press under it, as before.
+- **The backstab** (`backstab`, `backstab-1`; R10148-2): with the daggers, an orc's back turned to the player readies it
+  by itself, attack held or not: `backstab_in` (0.53 s), then the held `backstab_idle`. A press while it's held strikes
+  (`backstab_out`), 4 of 4 (17 to 45 ticks into the idle); losing the back lets it go (`backstab_cancel`). It readies
+  within the settings' `BackStabDist_IN` (100 units; recorded at 35 to 80), stays to `BackStabDist_OUT` (200), with
+  the orc's facing within 45° of the player's view (server.dll's `mm_player_backstab_cos`, 0.707: one try at 44°
+  didn't ready, three readied ones let go past 51°), on a `backstable` victim (the orc's .qct) that isn't on guard:
+  over the daggers recordings the donor readied on 463 of 1147 ticks in that reach with the orc idling unaware, 76 of
+  80 turning, 58 of 170 attacking, and on none of 2262 with it in `combatidle`, nor (the lab) getting up (24 of 472).
+  The strike kills: the orc plays `die_backstabbed` as it begins, drops to 1 health at the out's 2102 (cycle 0.215;
+  the first contact, asking 0) and dies to the blow at cycle 0.41 (60 ticks in, 4 of 4; the .qct's second event).
+  Replayed, the lab begins the donor's 4 backstabs with it (lab 6); in the daggers fights it readies once where the
+  donor didn't. Its trigger beyond the reach and facing (awareness, the weapon's state) isn't read from server.dll.
+- **Not seen:** no staff run showed the breakneck (17 tries, from behind and in front at 20 to 30 units, tapped and
+  held, on unaware orcs), so the lab plays none.
 
 ### The jump attack
 

@@ -216,6 +216,7 @@ internal sealed class LabCombat : IDisposable
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
         Sword.Fatal = canFatality && Adrenaline.Full;
+        Sword.BackstabReady = BackstabReady(forward, feet);
         Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
         // The old weapon is away: the new one is in the hand as its draw begins.
         if (drawing is { } next && Sword.Move != SwordMove.Undraw)
@@ -227,6 +228,7 @@ internal sealed class LabCombat : IDisposable
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
+        else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye);
         else if (Sword.Traced && settledSwing != SwingKey)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
@@ -374,6 +376,57 @@ internal sealed class LabCombat : IDisposable
             return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true);
         }
         return PlayerAsks(player, victim, group, kick: false, Orc.Health);
+    }
+
+    /// <summary>
+    /// The daggers' backstab is in reach (#10148): daggers in hand, the orc alive and <c>backstable</c>, its back turned
+    /// to the player (its facing within 45° of the player's view: server.dll's <c>mm_player_backstab_cos</c>, 0.707; one
+    /// at 44° didn't ready, one at 0° did, and three readied ones let go as it passed 51 to 111°) and in front of it,
+    /// within the settings' <c>BackStabDist_IN</c> (100 units) to ready and <c>BackStabDist_OUT</c> (200) to stay ready,
+    /// and neither on guard nor getting up. Over the daggers recordings, of the ticks with an orc in that reach, the donor
+    /// readied on 463 of 1147 with it idling unaware, 76 of 80 turning, 58 of 170 attacking, 4 of 5 walking, 24 of 472
+    /// getting up (<c>StandUp_*</c>), and none of 2262 with it on guard (<c>combatidle</c>).
+    /// </summary>
+    bool BackstabReady(Vector3 forward, Vector3 feet)
+    {
+        if (Sword.Clips.Backstab is null || !Orc.Alive || !Orc.Backstable || Orc.State == OrcState.Backstabbed || Orc.GettingUp || Orc.OnGuard) return false;
+        Vector3 toOrc = (Orc.Feet - feet) with { Y = 0 }, look = forward with { Y = 0 }, facing = Orc.Facing with { Y = 0 };
+        if (look.LengthSquared() < 1e-6f || facing.LengthSquared() < 1e-6f) return false;
+        look = Vector3.Normalize(look);
+        float units = toOrc.Length() / SourceSpace.MetresPerUnit;
+        bool held = Sword.Move is SwordMove.BackstabIn or SwordMove.BackstabIdle;
+        var settings = model.Data.Settings;
+        return units <= (held ? settings.BackStabDistOut : settings.BackStabDistIn) && Vector3.Dot(toOrc, look) > 0
+            && Vector3.Dot(look, Vector3.Normalize(facing)) >= BackstabCos;
+    }
+
+    /// <summary>server.dll's <c>mm_player_backstab_cos</c> default: how square behind the victim the player must be.</summary>
+    internal const float BackstabCos = .707f;
+
+    /// <summary>
+    /// The backstab's strike: at its 2102 (<see cref="BackstabClips.Kill"/>) the orc is left at 1 health and plays
+    /// <c>die_backstabbed</c>; at <see cref="BackstabClips.Blow"/> the blow lands and kills it, as the recorded ones did.
+    /// </summary>
+    void Backstab(ulong tick, Vector3 eye)
+    {
+        float from = Sword.TraceFromCycle, to = Sword.Cycle;
+        // Its first contact asks nothing and leaves the victim at 1 health (the donor's, at the 2102, 4 of 4).
+        if (from <= BackstabClips.Kill && to > BackstabClips.Kill || Sword.SwingStarted && to > BackstabClips.Kill)
+        {
+            Orc.Backstabbed();
+            Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, 0, null));
+        }
+        if (!(from <= BackstabClips.Blow && to > BackstabClips.Blow) || decidedSwing == Sword.Swing) return;
+        settledSwing = SwingKey;
+        decidedSwing = Sword.Swing;
+        if (Orc.State != OrcState.Backstabbed && !Orc.Following) { Player = Player with { Missed = Player.Missed + 1 }; return; }
+        var player = new Party("player", "", [Sword.Clip.Clip], BackstabClips.Blow, "#1", PlayerModel);
+        float asked = Asked(tick, player, Orc.Party(), null);
+        Orc.Damage(asked);
+        Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
+        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, BackstabClips.Blow, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"backstab {asked:0.##}"), 0, asked), blow: true);
+        Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
+        Message = Orc.Alive ? FormattableString.Invariant($"Backstab for {asked:0.##}") : "Backstabbed";
     }
 
     /// <summary>How far the Whirlwind reaches, metres: authored (the one recorded blow struck at 1.4 m).</summary>

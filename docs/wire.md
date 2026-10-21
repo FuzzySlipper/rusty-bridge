@@ -802,6 +802,11 @@ the frame, only when edict 1 is a `player`, inside a fault guard:
   `m_fMaxStamina` (0x227A1594), `m_fMana` (0x227A1490), `m_iSkillPoints` (0x227A1664), the five `m_hActive*`
   handles (from 0x227989C4).
 - **Send props:** `m_fMaxMana` +0x29B0 (`push 0x29b0; push "m_fMaxMana"` at +0x425CD6), beside `m_fDisplayMaxMana` +0x29B4.
+- **The armour handle:** `m_hActiveArmor` +0x2250, datadesc slot 0x227A0998 (written at +0x41B816/+0x41B820).
+- **Checked at load** (`CheckStatsOffsets`): each datadesc slot above must hold its field's name and offset, the
+  max-mana push its bytes and name, and the modules' and levels' reads their instructions
+  (`8B 84 96 F0 2A 00 00` at +0x3E55E4, `8B 96 C8 2A 00 00` at +0x3E64FD). If any differs, the tap logs which and
+  leaves the stats record invalid (`valid` 0); everything else still records.
 - **Which stamina:** a static table also names `m_fCurStamina` at +0x2974, but only code outside the player's (around
   +0x2BEBAE) writes it; the player's code (+0x3F9A87 on) writes +0x29C4. The recordings bear it out (below).
 - **The skill modules:** `mm_player_skills_dump_modules` (+0x40D890) asks a has-module function (+0x3E5590) for each

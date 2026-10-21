@@ -706,6 +706,9 @@ static const int kSkillModulesOffset = 0x2AF0, kSkillPointsOffset = 0x2B3C;
 static const int kSkillLevelsOffset = 0x2AC8, kSkillCount = 26;
 static const int kActiveWeaponOffset = 0x18F0, kActiveShieldOffset = 0x18F4, kActiveHelmetOffset = 0x18F8;
 static const int kActiveRingOffset = 0x18FC, kActiveArmorOffset = 0x2250;
+// Set at install when the bytes the offsets above were read from are still there (CheckStatsOffsets); until then,
+// or if they differ, the stats record stays invalid and the rest of the tap runs on.
+static bool g_statsOffsetsOk = false;
 
 static const char* ClassNameAt(uint16_t index) {
     if (index == wire::kNoEntity || !g_edicts) return nullptr;
@@ -840,6 +843,7 @@ static void WritePlayerInput(wire::PlayerInput* in) {
 static void WritePlayerStats(wire::PlayerStats* st) {
     memset(st, 0, sizeof *st);
     st->player = st->weapon = st->shield = st->helmet = st->ring = st->armor = wire::kNoEntity;
+    if (!g_statsOffsetsOk) return;
     const char* cls = ClassNameAt(1);
     if (!cls || strcmp(cls, "player") != 0) return;
     __try {
@@ -1475,6 +1479,57 @@ static void __fastcall TakeDamageHook(void* self, void* /*edx*/, const void* inf
     VictimAnim anim = CaptureAnim(self);
     g_takeDamage(self, info);
     OnDamage(self, info, before, HealthOf(self), anim);
+}
+
+// --- Checks for the player's stats offsets (Wire v15/v16) --------------------
+//
+// The stats reader reads fixed CMM_Player offsets (docs/wire.md, "The player's stats"). Each was read from
+// server.dll, and the same bytes are checked here before the reader is enabled:
+// - the datadesc slots CBasePlayer's start-up initializers fill: a name pointer, then the field's offset;
+// - m_fMaxMana's send prop: push 0x29B0; push "m_fMaxMana" at +0x425CD6;
+// - the skill modules' has-module test: mov eax,[esi+edx*4+0x2AF0] at +0x3E55E4;
+// - the skill levels' get-level read: mov edx,[esi+0x2AC8] at +0x3E64FD.
+// Addresses are as in the file (image base 0x22000000), rebased to where server.dll loaded.
+static const uint32_t kServerImageBase = 0x22000000;
+struct DatadescField { uint32_t slot; const char* name; int offset; };
+static const DatadescField kStatsDatadesc[] = {
+    { 0x227A14F8, "m_fStamina", kStaminaOffset },
+    { 0x227A1594, "m_fMaxStamina", kMaxStaminaOffset },
+    { 0x227A1490, "m_fMana", kManaOffset },
+    { 0x227A1664, "m_iSkillPoints", kSkillPointsOffset },
+    { 0x227989C4, "m_hActiveWeapon", kActiveWeaponOffset },
+    { 0x227989F8, "m_hActiveShield", kActiveShieldOffset },
+    { 0x22798A2C, "m_hActiveHelmet", kActiveHelmetOffset },
+    { 0x22798A60, "m_hActiveRing", kActiveRingOffset },
+    { 0x227A0998, "m_hActiveArmor", kActiveArmorOffset },
+};
+static const unsigned char kMaxManaPush[] = { 0x68, 0xB0, 0x29, 0x00, 0x00, 0x68 };          // +0x425CD6
+static const unsigned char kModulesRead[] = { 0x8B, 0x84, 0x96, 0xF0, 0x2A, 0x00, 0x00 };    // +0x3E55E4
+static const unsigned char kLevelsRead[] = { 0x8B, 0x96, 0xC8, 0x2A, 0x00, 0x00 };           // +0x3E64FD
+
+static void CheckStatsOffsets() {
+    unsigned char* base = (unsigned char*)GetModuleHandleA("server.dll");
+    if (!base) return;
+    auto at = [base](uint32_t va) { return base + (va - kServerImageBase); };
+    const char* failed = nullptr;
+    __try {
+        for (const auto& f : kStatsDatadesc) {
+            const char* name = *(const char* const*)at(f.slot);
+            if (!name || strcmp(name, f.name) != 0 || *(const int*)at(f.slot + 4) != f.offset) { failed = f.name; break; }
+        }
+        if (!failed) {
+            const unsigned char* push = at(0x22425CD6);
+            const char* name = *(const char* const*)(push + sizeof kMaxManaPush);
+            if (memcmp(push, kMaxManaPush, sizeof kMaxManaPush) != 0 || !name || strcmp(name, "m_fMaxMana") != 0) failed = "m_fMaxMana";
+        }
+        if (!failed && memcmp(at(0x223E55E4), kModulesRead, sizeof kModulesRead) != 0) failed = "the skill modules (+0x2AF0)";
+        if (!failed && memcmp(at(0x223E64FD), kLevelsRead, sizeof kLevelsRead) != 0) failed = "the skill levels (+0x2AC8)";
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        failed = "an unreadable address";
+    }
+    g_statsOffsetsOk = failed == nullptr;
+    if (failed) Log("player stats: unexpected bytes for %s, not recording stats", failed);
+    else Log("player stats: offsets checked (%d datadesc fields, max mana, modules, levels)", (int)(sizeof kStatsDatadesc / sizeof *kStatsDatadesc));
 }
 
 static void InstallDamageHook() {
@@ -2118,6 +2173,7 @@ public:
         QueryPerformanceCounter(&g_qpcStart);
         WireOpen();
         ControlOpen();
+        CheckStatsOffsets();
         InstallDamageHook();
         InstallUsercmdHook();
         InstallDefenseHook();

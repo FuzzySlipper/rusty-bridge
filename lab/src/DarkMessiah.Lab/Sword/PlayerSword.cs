@@ -629,6 +629,8 @@ internal sealed class PlayerSword(SwordClips clips)
         stepFrom = 0;
         kickAttack = false;
         fastIn = float.NaN;
+        // A move that starts takes over from a press still waiting in a jump (R10144-2: a kick after landing).
+        airSince = float.NaN;
         if (swing) { Swing++; SwingStarted = true; }
     }
 }

@@ -100,6 +100,17 @@ Mash(afterE, 4);
 for (int i = 0; i < 200 && !(afterE.Clip.Clip == "fast-e"); i++) afterE.Step(Tick, i % 12 < 4, false, false);
 for (int i = 0; i < 30 && afterE.Move == SwordMove.Fast; i++) afterE.Step(Tick, i % 12 < 4, false, false);
 Check(afterE.Move == SwordMove.FastEnd, "a press during E chains nothing: E ends in the recovery");
+// A kick takes over from an attack waiting in a jump (R10144-2): in the air a step, landed with attack held (the press
+// waits out AirDelay), then kick pressed while attack stays held. The kick plays on to its end.
+var landedKick = new PlayerSword(clips) { FastDelay = 0 };
+landedKick.Step(Tick, false, false, false, airborne: true);
+landedKick.Step(Tick, true, false, false);
+landedKick.Step(Tick, true, false, true);
+bool kicking = landedKick.Move == SwordMove.Kick;
+var kickMoves = new List<SwordMove>();
+for (int i = 0; i < 40; i++) { landedKick.Step(Tick, true, false, true); kickMoves.Add(landedKick.Move); }
+Check(kicking && kickMoves.Take(30).All(m => m == SwordMove.Kick),
+    $"a kick after landing with attack held isn't replaced by the waiting air attack: {string.Join(" ", kickMoves.Distinct())}");
 // A retune mid-chain (an orc slider, combat.json reloaded) keeps the chain's place (R10143-2): a queued C to D stays D,
 // and E's cap holds. The retuned set is a new one, its clips equal but not the same objects.
 SwordClips Retuned() => clips with { Chain = clips.Chain.Select(c => c with { }).ToList() };
@@ -406,6 +417,32 @@ host.Call(engine =>
     for (int i = 0; i < 5; i++) { Feed(1); moves.Add(combat.Sword.Move); }
     Check(moves.Contains(SwordMove.Power), "a hold past the power threshold is still a power attack");
     for (int i = 0; i < 90; i++) Feed(1);
+    // The body sprints only as stamina admits (R10144-3), through the product: held sprint with forward sprints from
+    // full stamina, stops once it's spent, and doesn't start again below 3.
+    {
+        static ProductInputEvent Key(KeyboardControl key, InputEdge edge) => default(ProductInputEvent) with { Kind = InputEventKind.Key, Keyboard = key, Edge = edge };
+        // Put back after: the player where it stood, the orc where it waited.
+        var (stood, facing, waited) = (product.Player.Position, product.Player.LookState.YawRadians * 180 / MathF.PI, combat.Orc.Feet);
+        combat.Reset();
+        Feed(1, Key(KeyboardControl.KeyW, InputEdge.Pressed), Key(KeyboardControl.ShiftLeft, InputEdge.Pressed));
+        Feed(1);
+        bool fresh = product.Player.Sprinted && combat.Stamina.Sprinting;
+        for (int i = 0; i < 600 && combat.Stamina.Value > 0; i++) Feed(1);
+        Feed(1);
+        bool spent = !product.Player.Sprinted && !combat.Stamina.Sprinting;
+        Feed(1, Key(KeyboardControl.ShiftLeft, InputEdge.Released));
+        for (int i = 0; i < 600 && combat.Stamina.Value < 1.5f; i++) Feed(1);
+        Feed(1, Key(KeyboardControl.ShiftLeft, InputEdge.Pressed));
+        Feed(1);
+        bool low = !product.Player.Sprinted && !combat.Stamina.Sprinting;
+        Feed(1, Key(KeyboardControl.ShiftLeft, InputEdge.Released), Key(KeyboardControl.KeyW, InputEdge.Released));
+        Check(fresh && spent && low, FormattableString.Invariant(
+            $"the body sprints as stamina admits: from full ({fresh}), not once spent ({spent}), not from {combat.Stamina.Value:0.0} ({low})"));
+        Feed(1);
+        product.Player.Place(stood, facing);
+        combat.Orc.PlaceAt(waited);
+        combat.Reset();
+    }
     combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1 } });
     combat.Orc.Spawn();
     Console.WriteLine($"donor content: {product.Donor.Source}");

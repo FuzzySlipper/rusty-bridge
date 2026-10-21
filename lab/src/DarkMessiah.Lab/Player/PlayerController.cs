@@ -69,6 +69,8 @@ internal sealed class PlayerController : IDisposable
     /// <summary>Where the player looks, as a unit vector (pitch included): the aim of interaction and actions.</summary>
     internal Vector3 Forward => Look.IntegrateClamped(new LookRequest(LookState, Vector2.Zero, Input.Config.PointerLookConfig)).Forward;
     internal CharacterStepReceipt? LastStep { get; private set; }
+    /// <summary>The last step moved with the sprint configuration.</summary>
+    internal bool Sprinted { get; private set; }
     internal uint Recoveries { get; private set; }
     internal string LastRecovery { get; private set; } = "none";
     internal BodyEvents Body { get; } = new();
@@ -94,6 +96,7 @@ internal sealed class PlayerController : IDisposable
     {
         CharacterMotion before = Motion;
         CharacterStepReceipt receipt;
+        Sprinted = input.SprintHeld && !input.CrouchHeld;
         try
         {
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,

@@ -122,14 +122,17 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             scene.SimulationStep = checked(facts.SimulationStep + step);
             ulong? held = cubes.Held?.Entity.Value;
             ReadOnlyMemory<SpatialEntityCollider> bodies = scene.Colliders();
-            player.Step(frame, jumpPending, delta, scene.Obstacles(held).Append(OrcObstacle()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale);
+            // The body sprints only as stamina admits it, as the sword does: not from below 3, and not once it's spent.
+            bool sprintAsked = frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero;
+            var body = frame with { SprintHeld = combat.Stamina.Admits(sprintAsked) };
+            player.Step(body, jumpPending, delta, scene.Obstacles(held).Append(OrcObstacle()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale);
             jumpPending = false;
             cubes.Interaction.Update();
             if (usePending) cubes.Use();
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
             combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
-                move: frame.Movement, grounded: player.Motion.Grounded, sprinting: frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero,
+                move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
                 crouched: player.Motion.Stance == CharacterStance.Crouched);
             kickPending = attackPending = blockPending = false;
             scene.Step(delta, cubes.PrepareStep());

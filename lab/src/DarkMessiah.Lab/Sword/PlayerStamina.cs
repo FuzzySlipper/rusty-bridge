@@ -68,10 +68,16 @@ internal sealed class PlayerStamina(StaminaRules rules)
     /// <summary>The body sprints: asked to while moving, and started with the stamina for it.</summary>
     internal bool Sprinting { get; private set; }
 
+    /// <summary>
+    /// Whether the body sprints this step if asked: with stamina left, and, to start, the stamina to start with. The body's
+    /// locomotion and the sword both take this (R10144-3), so neither sprints while the other doesn't.
+    /// </summary>
+    internal bool Admits(bool sprintAsked) => sprintAsked && Value > 0 && (Sprinting || Value >= Rules.NeededForSprint);
+
     /// <param name="sprintAsked">Sprint is held while the body moves.</param>
     internal void Step(float seconds, bool sprintAsked)
     {
-        Sprinting = sprintAsked && Value > 0 && (Sprinting || Value >= Rules.NeededForSprint);
+        Sprinting = Admits(sprintAsked);
         if (Sprinting)
         {
             Value = MathF.Max(0, Value - Rules.SprintCostPerSecond * seconds);

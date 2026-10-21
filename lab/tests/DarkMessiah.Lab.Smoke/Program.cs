@@ -733,6 +733,14 @@ host.Call(engine =>
         letGo.Step(Tick, false, false, false);
         Check(readies && idles && strikes && letGo.Move == SwordMove.BackstabCancel,
             "with daggers behind a victim the backstab readies (backstab_in, then its idle), a press strikes (backstab_out), and losing the back lets it go (backstab_cancel)");
+        // Losing the back on the step of the press lets go and doesn't strike (R10148-4).
+        var lostAndPressed = new PlayerSword(daggerClips) { FastDelay = 0, BackstabReady = true };
+        for (int i = 0; i < 60 && lostAndPressed.Move != SwordMove.BackstabIdle; i++) lostAndPressed.Step(Tick, false, false, false);
+        int swingsAt = lostAndPressed.Swing;
+        lostAndPressed.BackstabReady = false;
+        lostAndPressed.Step(Tick, true, false, false);
+        Check(lostAndPressed.Move == SwordMove.BackstabCancel && lostAndPressed.Swing == swingsAt && !lostAndPressed.SwingStarted,
+            $"a press on the step the back is lost lets the backstab go and strikes nothing ({lostAndPressed.Move})");
         // Held to A's end, the daggers go through its transition into the power attack's hold (the goblin fight, 6 of 6).
         var held = new PlayerSword(daggerClips) { FastDelay = 0, ChainLength = 5 };
         held.Step(Tick, true, false, false);
@@ -787,6 +795,20 @@ host.Call(engine =>
                 return move;
             }
             var (back, guarded, facingPlayer) = (ReadiesOn("idle_0", look), ReadiesOn("combatidle", look), ReadiesOn("idle_0", -look));
+            // Through the combat (R10148-4): readied to its idle, then the orc turns to face the player as attack goes
+            // down. The backstab lets go, and nothing is struck.
+            combat.Reset();
+            var turned = new OrcPose("#7.1", at + look * 1.2f, -look, 100, "idle_0", 0, 1, null, 0, true, [Orc.Cleaver]);
+            for (int i = 0; i < 60 && combat.Sword.Move != SwordMove.BackstabIdle; i++)
+                combat.Step(Tick, step++, false, false, false, eye, look, at, turned with { Facing = look });
+            bool idled = combat.Sword.Move == SwordMove.BackstabIdle;
+            var (hitsBefore, logBefore) = (combat.Player.Hits, combat.Criticals);
+            combat.Step(Tick, step++, true, false, false, eye, look, at, turned);
+            var afterTurn = combat.Sword.Move;
+            for (int i = 0; i < 60; i++) combat.Step(Tick, step++, false, false, false, eye, look, at, turned);
+            combat.Orc.StopFollowing();
+            Check(idled && afterTurn == SwordMove.BackstabCancel && combat.Player.Hits == hitsBefore,
+                $"through the combat, the orc turning as attack goes down lets the readied backstab go, with no blow ({afterTurn}, hits {combat.Player.Hits - hitsBefore})");
             Check(back == SwordMove.BackstabIn && guarded == SwordMove.Ready && facingPlayer == SwordMove.Ready,
                 $"the backstab readies on an orc's turned back ({back}), not on one on guard ({guarded}) or facing the player ({facingPlayer})");
         }

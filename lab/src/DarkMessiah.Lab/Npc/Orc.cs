@@ -245,10 +245,12 @@ internal sealed class Orc : IDisposable
         return blows;
     }
 
-    /// <summary>Getting up after a knockdown (a followed orc's <c>StandUp_*</c>): rarely backstabbed (24 of 472 ticks in reach).</summary>
-    internal bool GettingUp => Clip.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase);
-    /// <summary>On guard, in <c>combatidle</c> (the lab's orc standing ready): never backstabbed (0 of 2262 ticks in reach).</summary>
-    internal bool OnGuard => Clip.Equals("combatidle", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether an orc playing <paramref name="sequence"/> can't be backstabbed: on guard (<c>combatidle</c>, the lab's orc
+    /// standing ready: 0 of 2262 recorded ticks in reach) or getting up after a knockdown (<c>StandUp_*</c>: 24 of 472).
+    /// </summary>
+    internal static bool Guarded(string sequence) =>
+        sequence.Equals("combatidle", StringComparison.OrdinalIgnoreCase) || sequence.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a backstab can take it: its .qct's <c>backstable</c> (1 for the orc).</summary>
     internal bool Backstable { get; }

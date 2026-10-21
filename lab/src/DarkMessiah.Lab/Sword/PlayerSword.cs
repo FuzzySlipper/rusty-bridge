@@ -596,9 +596,10 @@ internal sealed class PlayerSword(SwordClips clips)
                 else if (done) Play(SwordMove.BackstabIdle, clips.Backstab!.Idle);
                 break;
             case SwordMove.BackstabIdle:
-                // A press while it's held strikes (3 of 3 recorded, 17 to 45 ticks into the idle).
-                if (attackPressed) Play(SwordMove.Backstab, clips.Backstab!.Out, swing: true);
-                else if (!BackstabReady) Play(SwordMove.BackstabCancel, clips.Backstab!.Cancel);
+                // Lost the back first, it lets go, a press this step or not (R10148-4); else a press strikes (4 of 4
+                // recorded, 17 to 45 ticks into the idle).
+                if (!BackstabReady) Play(SwordMove.BackstabCancel, clips.Backstab!.Cancel);
+                else if (attackPressed) Play(SwordMove.Backstab, clips.Backstab!.Out, swing: true);
                 break;
             case SwordMove.FastEnd:
                 if (attackPressed && Cycle >= FastEndOpen) StartFast();

@@ -216,7 +216,7 @@ internal sealed class LabCombat : IDisposable
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
         Sword.Fatal = canFatality && Adrenaline.Full;
-        Sword.BackstabReady = BackstabReady(forward, feet);
+        Sword.BackstabReady = BackstabReady(forward, feet, orcPose);
         Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
         // The old weapon is away: the new one is in the hand as its draw begins.
         if (drawing is { } next && Sword.Move != SwordMove.Undraw)
@@ -228,7 +228,7 @@ internal sealed class LabCombat : IDisposable
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
-        else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye);
+        else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
         {
             if (Sword.Move == SwordMove.Kick) Kick(tick, eye, forward);
@@ -387,14 +387,16 @@ internal sealed class LabCombat : IDisposable
     /// readied on 463 of 1147 with it idling unaware, 76 of 80 turning, 58 of 170 attacking, 4 of 5 walking, 24 of 472
     /// getting up (<c>StandUp_*</c>), and none of 2262 with it on guard (<c>combatidle</c>).
     /// </summary>
-    bool BackstabReady(Vector3 forward, Vector3 feet)
+    /// <param name="pose">In a replay, the followed orc's pose this step (the orc takes it after the sword steps).</param>
+    bool BackstabReady(Vector3 forward, Vector3 feet, OrcPose? pose = null)
     {
-        if (Sword.Clips.Backstab is null || !Orc.Alive || !Orc.Backstable || Orc.State == OrcState.Backstabbed || Orc.GettingUp || Orc.OnGuard) return false;
-        Vector3 toOrc = (Orc.Feet - feet) with { Y = 0 }, look = forward with { Y = 0 }, facing = Orc.Facing with { Y = 0 };
+        bool alive = pose is null ? Orc.Alive : pose.Health > 0;
+        if (Sword.Clips.Backstab is null || !alive || !Orc.Backstable || Orc.State == OrcState.Backstabbed || Orc.Guarded(pose?.Sequence ?? Orc.Clip)) return false;
+        Vector3 toOrc = ((pose?.Feet ?? Orc.Feet) - feet) with { Y = 0 }, look = forward with { Y = 0 }, facing = (pose?.Facing ?? Orc.Facing) with { Y = 0 };
         if (look.LengthSquared() < 1e-6f || facing.LengthSquared() < 1e-6f) return false;
         look = Vector3.Normalize(look);
         float units = toOrc.Length() / SourceSpace.MetresPerUnit;
-        bool held = Sword.Move is SwordMove.BackstabIn or SwordMove.BackstabIdle;
+        bool held = Sword.Move is SwordMove.BackstabIn or SwordMove.BackstabIdle or SwordMove.Backstab;
         var settings = model.Data.Settings;
         return units <= (held ? settings.BackStabDistOut : settings.BackStabDistIn) && Vector3.Dot(toOrc, look) > 0
             && Vector3.Dot(look, Vector3.Normalize(facing)) >= BackstabCos;
@@ -407,9 +409,18 @@ internal sealed class LabCombat : IDisposable
     /// The backstab's strike: at its 2102 (<see cref="BackstabClips.Kill"/>) the orc is left at 1 health and plays
     /// <c>die_backstabbed</c>; at <see cref="BackstabClips.Blow"/> the blow lands and kills it, as the recorded ones did.
     /// </summary>
-    void Backstab(ulong tick, Vector3 eye)
+    void Backstab(ulong tick, Vector3 eye, Vector3 forward, Vector3 feet)
     {
         float from = Sword.TraceFromCycle, to = Sword.Cycle;
+        // The back lost by the time it strikes (the orc turned this very step): it strikes nothing (R10148-4).
+        if (Sword.SwingStarted && !Orc.Following && !BackstabReady(forward, feet))
+        {
+            settledSwing = SwingKey;
+            decidedSwing = Sword.Swing;
+            Player = Player with { Missed = Player.Missed + 1 };
+            return;
+        }
+        if (decidedSwing == Sword.Swing && Orc.State != OrcState.Backstabbed) return;
         // Its first contact asks nothing and leaves the victim at 1 health (the donor's, at the 2102, 4 of 4).
         if (from <= BackstabClips.Kill && to > BackstabClips.Kill || Sword.SwingStarted && to > BackstabClips.Kill)
         {

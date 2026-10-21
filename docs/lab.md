@@ -516,6 +516,31 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   where the recorded ones pressed in and backed off, so the uppercut leads the lab's attacks.
 - **`Hold`** (`Orc.Hold`) keeps it from attacking: the smoke's still orc.
 
+### Stuns and knockdowns
+
+A player's blow can stun the orc or knock it down (#10152; `Npc/OrcStagger.cs`), by rules read from server.dll and
+the data, against every recorded player blow on an orc (`KnockdownCalibration`, `RB_KNOCK=1` prints them):
+
+| What | Rule | Source |
+| --- | --- | --- |
+| Knocked down | a roll under the blow's `.qct` event's `chancetofall`, plus `WoundedFallChance` (0.3) on a wounded orc (below `life_tohurt`, 0.2 of its health); a jump attack (`AttackMove` 12) only after the player dropped `PlayerVerticalAttackHeightToMakeNPCFall` (50 units), which the lab doesn't track | the melee routine, server.dll+0x407FE0–0x4080AB: the weapon's factor (+0x11BC, 1 unless `second_chance_perc` is 0, which no weapon sets) × the event's chance, sets the damage's fall flag |
+| Stunned, by a staff | every blow | the staff classes' virtual +0x704 returns true (the swords' and daggers' false), which sets the damage's stun flag |
+| Stunned, otherwise | once it has taken `nbhittostun` (6) × the weapon's `NpcNbhittostunMultiplicator` (1; none sets it) hits within `delaytostun` (10 s), a roll under the event's `chancetostun` × the weapon's `stunmultiplicator` (1, the axes 2), plus `WoundedStunChance` (0.3) wounded | the NPC's stun test, server.dll+0x2AB04F–0x2AB15D |
+| Lying | `StandUp_<side>_firstframe` for `KnockedDownTime` (2 s) plus 1.3 s for the donor's ragdoll to fall and rest, then `StandUp_back` (3.25 s) or `_front` (2.25 s) | the orc's sequences: the donor's NPC holds the first frame while a separate `prop_ragdoll` falls |
+| Stunned for | `hit_stunned_<side>` (the side the blow came from), then `Stunned` for `stunned_duration` (4 s), then `Stunned_out`; a hit ends it | the `.qct`; every recorded stun was ended early by a hit |
+| Damage while down | ×2 getting up (`StandUp_*`), ×1.5 stunned (`CombatModel.DownMultiplier`) | measured (#10145, #10148) |
+
+- **Against the recordings:** 12 falls in 501 blows on a standing orc where the rule expects 17.6 (±6.5); a staff's
+  blow stunned or felled 21 of 22 alert orcs that were up (idle, unaware ones 5 of 12, another path); every other
+  weapon's blows stunned 2 of 436, as the six-hit rule allows (the power attack's `chancetostun` 0.8 needs the six
+  hits first). Kicks felled 1 orc of 48: a kick's fall is the hazards' (#10157).
+- **The lab's orc** lies 6.57 s from the blow to standing, inside the donor's 5.6–10.2 s (35 knockdowns, median 6.3).
+  It lies on its back to a blow from in front (the donor's fell on their backs 31 of 35 times), and doesn't roll: 12
+  of the donor's got up from the other side. A stand-in: the donor drops a ragdoll, which the Engine can do
+  (`IDynamicsService.CreateRagdoll`); #10216 builds it.
+- **Not modelled:** `GlobalStunChanceMultiplier` (1.5) multiplies the stun chance when an NPC flag (+0x2270) is set,
+  which isn't identified; the idle, unaware orcs' staff stuns.
+
 ## Calibration
 
 `lab/tests/DarkMessiah.Lab.Smoke` measures the moves against every local recording of Wire v9 or later. Those recordings carry the client's view-model layers.
@@ -814,10 +839,10 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 ## Not done yet
 
 - **Orc AI:** its rhythm, zones, walk and attack choice are the donor's (see "The orc"); its parries are a fixed chance
-  (#10151), its reactions one hit and one push clip (#10153), and it neither dodges, grabs (#10185) nor stuns (#10152).
+  (#10151), its reactions one hit and one push clip (#10153), and it neither dodges nor grabs (#10185).
 - **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
-  - knockdowns into ragdolls;
+  - knockdowns into ragdolls (the orc lies at once in its get-up frame: #10216);
   - a kick that throws the orc into walls;
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**

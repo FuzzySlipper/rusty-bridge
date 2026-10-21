@@ -17,7 +17,9 @@ internal enum WeaponClass { Sword, Daggers, Staff }
 /// <param name="AttackSpeed"><c>speed_attack</c>, the attack clips' playback rate (1.10 for the short sword, daggers and staff; 1 when absent).</param>
 /// <param name="Simple"><c>simple_weapon</c> (the club): its fast attacks chain A and B only, with or without
 /// <c>combat_chained_slash</c>, and it comes to hand without a draw.</param>
-internal sealed record LabWeapon(string Model, WeaponClass Class, float Range, float AttackSpeed, bool Simple)
+/// <param name="StunMultiplier"><c>stunmultiplicator</c>: what its blows' <c>chancetostun</c> is multiplied by (1 for
+/// every weapon the lab plays, 2 for the axes; #10152).</param>
+internal sealed record LabWeapon(string Model, WeaponClass Class, float Range, float AttackSpeed, bool Simple, float StunMultiplier = 1)
 {
     internal const string ShortSword = "models/items/weapons/sword_short/sword_short.mdl";
 
@@ -45,6 +47,7 @@ internal sealed record LabWeapon(string Model, WeaponClass Class, float Range, f
         return new LabWeapon(VpkIndex.Normalize(model), weaponClass,
             (donor.Number(model, "entity_data", "rangeattack") ?? 100) * SourceSpace.MetresPerUnit,
             donor.Number(model, "entity_data", "speed_attack") ?? 1,
-            donor.Number(model, "entity_data", "simple_weapon") is > 0);
+            donor.Number(model, "entity_data", "simple_weapon") is > 0,
+            donor.Number(model, "entity_data", "stunmultiplicator") ?? 1);
     }
 }

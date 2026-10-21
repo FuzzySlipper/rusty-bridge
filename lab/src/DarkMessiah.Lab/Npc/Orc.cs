@@ -9,7 +9,7 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed }
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown }
 
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
 /// <param name="Window">For a strike window's sweep, the cycle its window opens (the key it lands under); null for a part's blow.</param>
@@ -56,6 +56,10 @@ internal sealed class Orc : IDisposable
     OrcTuning tuning;
     float downSeconds, pushLeft;
     readonly OrcMind mind;
+    readonly OrcStagger stagger;
+    // A stun's and a knockdown's time left, and the side a knockdown lies on (back or front).
+    float stunLeft, groundLeft;
+    string groundSide = "back";
     Vector3 pushDirection;
 
     internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning)
@@ -69,6 +73,7 @@ internal sealed class Orc : IDisposable
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
         mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
+        stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
@@ -247,7 +252,8 @@ internal sealed class Orc : IDisposable
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
-        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed) && distance > 1e-3f) Facing = toPlayer / distance;
+        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown) && distance > 1e-3f)
+            Facing = toPlayer / distance;
         mind.Step(seconds, swingStarted);
         float before = Cycle;
         string playing = Clip;
@@ -302,6 +308,19 @@ internal sealed class Orc : IDisposable
             case OrcState.Hurt:
                 if (done) Play(OrcState.Ready, "combatidle");
                 break;
+            case OrcState.Stunned:
+                // hit_stunned_<side>, then Stunned until stunned_duration is spent, then Stunned_out.
+                stunLeft -= seconds;
+                if (Clip.StartsWith("hit_stunned", StringComparison.Ordinal) && done) Play(OrcState.Stunned, "Stunned");
+                else if (Clip == "Stunned" && stunLeft <= 0) Play(OrcState.Stunned, "Stunned_out");
+                else if (Clip == "Stunned_out" && done) Play(OrcState.Ready, "combatidle");
+                break;
+            case OrcState.KnockedDown:
+                // Lying (StandUp_<side>_firstframe) while the donor's ragdoll would fall and rest, then getting up.
+                groundLeft -= seconds;
+                if (Clip.EndsWith("_firstframe", StringComparison.Ordinal) && groundLeft <= 0) Play(OrcState.KnockedDown, $"StandUp_{groundSide}");
+                else if (!Clip.EndsWith("_firstframe", StringComparison.Ordinal) && done) Play(OrcState.Ready, "combatidle");
+                break;
         }
         return blows;
     }
@@ -334,7 +353,8 @@ internal sealed class Orc : IDisposable
         if (!Alive || Following) return;
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
-        else if (State is not (OrcState.Attack or OrcState.Backstabbed)) Play(OrcState.Hurt, "Hit_Body_Front_small");
+        // A hit ends a stun (every recorded stun a blow cut short); one on the ground or getting up plays no reaction.
+        else if (State is not (OrcState.Attack or OrcState.Backstabbed or OrcState.KnockedDown)) Play(OrcState.Hurt, "Hit_Body_Front_small");
     }
 
     /// <summary>
@@ -343,12 +363,56 @@ internal sealed class Orc : IDisposable
     /// </summary>
     internal void Push(Vector3 direction, float metres, string clip = "Push_Body_back_small")
     {
-        if (!Alive || Following) return;
+        if (!Alive || Following || State == OrcState.KnockedDown) return;
         direction.Y = 0;
         pushDirection = direction.LengthSquared() > 1e-6f ? Vector3.Normalize(direction) : -Facing;
         pushLeft = metres;
         Layer = null;
         Play(OrcState.Pushed, clip);
+    }
+
+    /// <summary>Below its <c>life_tohurt</c> share of its health: wounded, which makes stuns and falls likelier.</summary>
+    internal bool Wounded => Alive && Health <= stagger.Data.HurtFraction * mind.Data.Health;
+
+    /// <summary>What the stun and knockdown rules work from (#10152).</summary>
+    internal OrcStaggerData StaggerData => stagger.Data;
+
+    /// <summary>
+    /// How long the donor's ragdoll fell and came to rest before the knocked-down time began, seconds: over 47 recorded
+    /// knockdowns the orc lay a median 3.3 s before getting up (2.9 to 4.2), of which <c>KnockedDownTime</c> is 2.
+    /// The lab's stand-in lies that long at once (#10152).
+    /// </summary>
+    internal const float RagdollFallSeconds = 1.3f;
+
+    /// <summary>
+    /// After a player's blow has done its damage (#10152): whether it stuns or knocks the orc down
+    /// (<see cref="OrcStagger"/>), and the reaction if so. <paramref name="from"/> is where the blow came from (the
+    /// player's feet). Knocked down it lies on its back to a blow from in front, else on its front (the donor's lay on
+    /// their backs 31 of 35 times: the stand-in doesn't roll); stunned it plays the side the blow came from.
+    /// </summary>
+    internal Stagger Struck(AttackEvent? blow, double now, Vector3 from, bool staff, float stunMultiplier)
+    {
+        if (!Alive || Following || State is OrcState.KnockedDown or OrcState.Backstabbed) return Stagger.None;
+        var outcome = stagger.Decide(blow, now, Wounded, staff, stunMultiplier);
+        if (outcome == Stagger.None || State == OrcState.Stunned && outcome == Stagger.Stunned) return Stagger.None;
+        Vector3 toward = (from - Feet) with { Y = 0 };
+        float ahead = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), Facing) : 1;
+        Layer = null;
+        if (outcome == Stagger.KnockedDown)
+        {
+            groundSide = ahead >= 0 ? "back" : "front";
+            groundLeft = stagger.Data.KnockedDownSeconds + RagdollFallSeconds;
+            Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+        }
+        else
+        {
+            var left = new Vector3(Facing.Z, 0, -Facing.X);
+            float side = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), left) : 0;
+            string from_ = ahead >= .707f ? "front" : ahead <= -.707f ? "back" : side > 0 ? "left" : "right";
+            stunLeft = stagger.Data.StunSeconds;
+            Play(OrcState.Stunned, $"hit_stunned_{from_}");
+        }
+        return outcome;
     }
 
     /// <summary>Moves the orc's feet (a developer placement).</summary>
@@ -360,6 +424,7 @@ internal sealed class Orc : IDisposable
         Health = mind.Data.Health;
         Layer = null;
         mind.Reset();
+        stagger.Reset();
         Play(OrcState.Approach, "CombatWalk");
     }
 
@@ -427,7 +492,7 @@ internal sealed class Orc : IDisposable
         }
     }
 
-    bool Looping(string clip) => clip is "combatidle" or "CombatWalk";
+    bool Looping(string clip) => clip is "combatidle" or "CombatWalk" or "Stunned";
 
     /// <summary>
     /// How near its feet come to the player's, Source units: two human hulls (16 each; the donor's player and NPC hulls

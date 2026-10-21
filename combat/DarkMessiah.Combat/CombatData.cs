@@ -13,7 +13,8 @@ namespace DarkMessiah.Combat;
 /// Whirlwind's ×0.5 for 2.5 s; null when it asks none).
 /// </summary>
 public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
-    bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null, bool ForceBreaksParry = false)
+    bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null, bool ForceBreaksParry = false,
+    float ChanceToStun = 0, float ChanceToFall = 0)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
@@ -301,7 +302,8 @@ public sealed class CombatData
             (b.Number("cutheadflag") ?? 0) > 0, (b.Number("critical_enable") ?? 0) > 0,
             b.Number("slowtime_duration") is float duration && duration > 0
                 ? new SlowTime(b.Number("slowtime_delay") ?? 0, duration, b.Number("slowtime_factor") ?? 1) : null,
-            (b.Number("forcebreakparade") ?? 0) > 0);
+            (b.Number("forcebreakparade") ?? 0) > 0,
+            b.Number("chancetostun") ?? 0, b.Number("chancetofall") ?? 0);
 
     public WeaponData? Weapon(string model)
     {

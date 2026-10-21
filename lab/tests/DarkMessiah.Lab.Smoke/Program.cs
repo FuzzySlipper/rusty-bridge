@@ -385,6 +385,20 @@ host.Call(engine =>
         new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
     product.Start();
     // RB_REPLAY=path replays one recording and prints its whole report, for looking into one replay.
+    // RB_KNOCK=1 prints the donor's stuns and knockdowns (#10152) and stops.
+    if (Environment.GetEnvironmentVariable("RB_KNOCK") == "1")
+    {
+        var (blows, spans) = KnockdownCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories), product.Combat.Model);
+        foreach (var byMove in blows.GroupBy(b => (b.Move, Stun: b.Event?.ChanceToStun ?? -1, Fall: b.Event?.ChanceToFall ?? -1)).OrderByDescending(x => x.Count()))
+            Console.WriteLine(FormattableString.Invariant($"KNOCK {byMove.Key.Move} stun {byMove.Key.Stun} fall {byMove.Key.Fall}: {byMove.Count()} blows, {byMove.Count(b => b.Outcome == BlowOutcome.Fall)} falls, {byMove.Count(b => b.Outcome == BlowOutcome.Stun)} stuns"));
+        foreach (var b in blows.Where(b => b.Outcome != BlowOutcome.None)) Console.WriteLine(FormattableString.Invariant($"KNOCKED {b.Recording} {b.Tick} {b.Move} {b.Outcome} dmg {b.Damage:0.#} before {b.VictimBefore} then {b.Then} hits {b.HitsBefore} ev stun {b.Event?.ChanceToStun} fall {b.Event?.ChanceToFall}"));
+        foreach (var sp in spans) Console.WriteLine(FormattableString.Invariant($"SPAN {sp.Recording} {sp.Tick} {sp.Kind} {sp.First} -> {sp.Last} {sp.Seconds:0.00} s"));
+        // The decoded stun rule's precondition: six hits within ten seconds (server.dll+0x2AB085).
+        foreach (var byWindow in blows.Where(b => !b.Kick).GroupBy(b => (Weapon: b.Move.Contains("staff") ? "staff" : b.Move.Contains("aggers") ? "daggers" : "sword",
+                     Six: blows.Count(o => o.Recording == b.Recording && o.Tick <= b.Tick && o.Tick > b.Tick - 10 * 66 && o.Victim == b.Victim) >= 6)))
+            Console.WriteLine($"WINDOW {byWindow.Key.Weapon} six-in-ten {byWindow.Key.Six}: {byWindow.Count()} blows, {byWindow.Count(b => b.Outcome == BlowOutcome.Stun)} stuns, mean chance {byWindow.Average(b => b.Event?.ChanceToStun ?? 0):0.00}");
+        return;
+    }
     if (Environment.GetEnvironmentVariable("RB_REPLAY") is { Length: > 0 } only)
     {
         foreach (var line in CombatReplay.Run(product.Combat, only, product).Lines()) Console.WriteLine(line);
@@ -589,6 +603,54 @@ host.Call(engine =>
         FormattableString.Invariant($"every move but the Whirlwind has a hit window; B's and T's, with no 2186/2190, run 2107–2110 (B {real.Charge(PowerDirection.B).Out.Open:0.00}–{real.Charge(PowerDirection.B).Out.Close:0.00})"));
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
+
+    // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.
+    {
+        var (knockBlows, knockSpans) = KnockdownCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories), combat.Model);
+        var stagger = orc.StaggerData;
+        var falls = KnockdownCalibration.Falls(knockBlows, stagger.WoundedFallChance);
+        Check(falls.Blows >= 300 && Math.Abs(falls.Observed - falls.Expected) <= falls.Spread + 1,
+            FormattableString.Invariant($"knockdowns come at the donor's rate: {falls.Observed} recorded falls in {falls.Blows} blows on a standing orc, the rule expects {falls.Expected:0.0} (±{falls.Spread:0.0})"));
+        // The staff's blows on an alert orc that is up (the recorded idle, unaware ones stunned 5 of 12: another path).
+        var staffBlows = knockBlows.Where(b => b.Move.Contains("staff", StringComparison.Ordinal) && KnockdownCalibration.Kind(b.VictimBefore) == BlowOutcome.None
+            && !b.VictimBefore.StartsWith("idle", StringComparison.Ordinal)).ToList();
+        int staffStuns = staffBlows.Count(b => b.Outcome != BlowOutcome.None);
+        Check(staffBlows.Count >= 15 && staffStuns * 10 >= staffBlows.Count * 8,
+            $"a staff's blow stuns (or fells) an alert orc that is up, as the donor's did: {staffStuns} of {staffBlows.Count}");
+        var other = knockBlows.Where(b => !b.Kick && !b.Move.Contains("staff", StringComparison.Ordinal) && KnockdownCalibration.Kind(b.VictimBefore) == BlowOutcome.None).ToList();
+        Check(other.Count >= 300 && other.Count(b => b.Outcome == BlowOutcome.Stun) <= 2,
+            $"any other blow stuns only after six hits in ten seconds: {other.Count(b => b.Outcome == BlowOutcome.Stun)} recorded stuns in {other.Count} sword and dagger blows");
+        var downs = knockSpans.Where(sp => sp.Kind == BlowOutcome.Fall).Select(sp => sp.Seconds).ToList();
+        float downP10 = OrcBehaviour.Quantile(downs, .1f), downP90 = OrcBehaviour.Quantile(downs, .9f);
+        // The lab's orc: knocked down by a blow that always fells, from in front.
+        orc.Hold = true;
+        orc.Spawn();
+        orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 1.5f);
+        for (int i = 0; i < 10; i++) orc.Step(Tick, product.Player.Feet, false);
+        var felled = orc.Struck(new AttackEvent(1, false, ChanceToFall: 1), 100, product.Player.Feet, false, 1);
+        string lying = orc.Clip;
+        float downFor = 0;
+        string? gotUp = null;
+        while (orc.State == OrcState.KnockedDown && downFor < 20)
+        {
+            orc.Step(Tick, product.Player.Feet, false);
+            downFor += Tick;
+            if (orc.Clip.StartsWith("StandUp_", StringComparison.Ordinal) && !orc.Clip.EndsWith("_firstframe", StringComparison.Ordinal)) gotUp ??= orc.Clip;
+        }
+        Check(felled == Stagger.KnockedDown && lying == "StandUp_back_firstframe" && gotUp == "StandUp_back" && downFor >= downP10 && downFor <= downP90,
+            FormattableString.Invariant($"a felled orc lies on its back ({lying}), gets up with {gotUp} and is up again after {downFor:0.00} s (the donor's {downP10:0.00}–{downP90:0.00}, {downs.Count} knockdowns)"));
+        var stunned = orc.Struck(new AttackEvent(1, false), 200, product.Player.Feet, staff: true, 1);
+        string stunClip = orc.Clip;
+        for (int i = 0; i < 120; i++) orc.Step(Tick, product.Player.Feet, false);
+        string held = orc.Clip;
+        orc.Damage(.5f);
+        Check(stunned == Stagger.Stunned && stunClip == "hit_stunned_front" && held == "Stunned" && orc.State == OrcState.Hurt,
+            $"a staff's blow stuns it ({stunClip}, then {held}), and the next hit ends the stun");
+        Check(CombatModel.DownMultiplier("StandUp_back") == 2 && CombatModel.DownMultiplier("Stunned") == 1.5f && CombatModel.DownMultiplier("combatidle") == 1,
+            "a blow on an orc getting up asks ×2, on a stunned one ×1.5");
+        orc.Hold = false;
+        orc.Spawn();
+    }
 
     // The orc fights by its .qct (#10150): its attack choice by distance, its rhythm and its walk against the donor's
     // recorded orcs, the lab's over ten minutes of a scripted fight.

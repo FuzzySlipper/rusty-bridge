@@ -186,9 +186,22 @@ public sealed class CombatModel(CombatData data)
             damage *= settings.PlayerDamageMultiplier;
             if (c.VictimAlert is int alert && alert <= settings.NotAlertedLevel && c.VictimNpcState != NotAlertedExemptState)
                 damage *= settings.NotAlertedMultiplier;
+            damage *= DownMultiplier(c.Victim.Sequence);
         }
         return damage;
     }
+
+    /// <summary>
+    /// A player's blow on an NPC that is down or stunned asks more (#10152): getting up (<c>StandUp_*</c>) ×2, stunned
+    /// (<c>Stunned</c>) ×1.5. Measured on the recordings (#10145, #10148: every such blow the damage path couldn't
+    /// otherwise explain); where server.dll applies them isn't read. 1 otherwise.
+    /// </summary>
+    public static float DownMultiplier(string sequence) =>
+        sequence.StartsWith("StandUp", StringComparison.OrdinalIgnoreCase) ? GettingUpMultiplier
+        : sequence.Equals("Stunned", StringComparison.OrdinalIgnoreCase) ? StunnedMultiplier
+        : 1;
+
+    public const float GettingUpMultiplier = 2, StunnedMultiplier = 1.5f;
 
     /// <summary>Damage type bit 0x40000: the player's kick (docs/wire.md, "Kicks, knockdowns and adrenaline").</summary>
     public const uint KickDamage = 0x40000;

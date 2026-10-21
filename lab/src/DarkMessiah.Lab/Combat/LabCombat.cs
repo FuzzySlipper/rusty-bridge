@@ -354,6 +354,8 @@ internal sealed class LabCombat : IDisposable
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
         if (Sword.Move == SwordMove.Fatality && wasAlive && !Orc.Alive) AskSlowTime(SlowTime.FatalityKill);
         if (bash) Orc.Push((Orc.Feet - feet) with { Y = 0 }, BashPush, "Push_Body_Front_small");
+        // It may stun or knock the orc down (#10152): the shield's bash is no staff's and multiplies by 1.
+        Stagger(hit, feet, bash);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
@@ -418,6 +420,7 @@ internal sealed class LabCombat : IDisposable
         // Its .qct event has critical_enable: it rolls (or, replayed, takes the donor's) as any blow does (R10146-1).
         float asked = Asked(tick, player, Orc.Party(), 0);
         Orc.Damage(asked);
+        Stagger(model.EventOf(player), feet);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, 0));
@@ -500,6 +503,15 @@ internal sealed class LabCombat : IDisposable
         Message = Orc.Alive ? FormattableString.Invariant($"Backstab for {asked:0.##}") : "Backstabbed";
     }
 
+    /// <summary>A blow's stun or knockdown on the orc (#10152), told in the message.</summary>
+    void Stagger(AttackEvent? blow, Vector3 from, bool shield = false)
+    {
+        var weapon = Weapon;
+        var outcome = Orc.Struck(blow, fightSeconds, from, !shield && weapon.Class == WeaponClass.Staff, shield ? 1 : weapon.StunMultiplier);
+        if (outcome == Npc.Stagger.KnockedDown) Message = "Knocked down";
+        else if (outcome == Npc.Stagger.Stunned) Message = "Stunned";
+    }
+
     /// <summary>How far the Whirlwind reaches, metres: authored (the one recorded blow struck at 1.4 m).</summary>
     internal const float WhirlwindReach = 2f;
 
@@ -524,6 +536,8 @@ internal sealed class LabCombat : IDisposable
         float asked = PlayerAsks(player, Orc.Party(), null, kick: true, Orc.Health, alert: AlertAt(tick));
         Orc.Damage(asked);
         Orc.Push(flat, Tuning.KickPush);
+        // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
+        Stagger(null, eye with { Y = Orc.Feet.Y });
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"kick {asked:0.##}"), Damage: asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));

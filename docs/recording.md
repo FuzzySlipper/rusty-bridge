@@ -128,7 +128,7 @@ front, and input would land in them.
 - `description`, `seconds` (default 60), `launch` (the game's arguments; default the `rb_start` ones);
 - `setup`: console lines, `{"wait": seconds}`, and `{"approach": "npc_goblin", "distance": 60}`, which puts the player
   that many units in front of the nearest living NPC of that class on the Wire, facing it (`"height"`: that many
-  units above the NPC's feet, default 4, to drop from). NPCs spawned with `mm_npc_create` land where the view points,
+  units above the NPC's feet, default 4, to drop from; `"pitch"`: that many degrees down). NPCs spawned with `mm_npc_create` land where the view points,
   often out of reach: set the position and view first;
 - `play`: console lines, `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
   digits, `SPACE`, `SHIFT`, `CTRL`, `ALT`, `ESC`, `ENTER`, `TAB` or virtual-key codes), `{"wait": seconds}`,
@@ -159,7 +159,7 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `weapon-staff` | the same with the combat staff | the same at 65 units with bursts of 24 clicks and 1.8 s holds (its wind-up is 1.4 s), then the same tries at an unaware orc (no breakneck) |
 | `weapon-switch` | every skill, the long sword, kryss daggers, combat staff and club given, a new orc with 100000 health | `use` each in turn, three rounds, attacking 0, 0.3 or 0.8 s after: two clicks, then a 1.2 s hold |
 | `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
-| `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
+| `telekinesis` | every skill, telekinesis deployed (`Deploy_Spell_AIR_1`), standing 70 units from the start area's jug, looking 11° down at it | three 2.5 s holds: the first lifted it (mana 26.3 to 22.3) |
 | `spells-probe` | every skill | `Deploy_Spell_FIRE_1` and three casts (mana down 4 to 6.6 each), then telekinesis |
 | `charsheet`, `charsheet-keys` | sv_cheats; F7 bound to `togglecharsheet` | the sheet opened and closed from the console, then the keyboard (the action bytes +0x9B, +0x9D) |
 

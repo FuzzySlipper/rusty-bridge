@@ -1,25 +1,80 @@
 {
-  "description": "Every skill module (telekynesis among them) and mana streamed, by an orc. Telekinesis can't be given from the console (give spell_air_1 and weapon_MMSpell_weapon_AIR_1 shut the game down): play --hand and take it from the belt to cast (#10164).",
+  "description": "Telekinesis with mana, unattended (#10141 R1, #10164): every skill, Deploy_Spell_AIR_1 (telekinesis), standing 70 units from the jug, looking 11\u00b0 down at it, on the start area's table (prop_physics_create isn't a command here): three holds of 2.5 s lift it, each release throws it, the jug approached again between; mana should fall while it's held.",
   "seconds": 50,
   "setup": [
     "sv_cheats 1",
     "god",
     "mm_player_skills_grosbill 1",
+    {
+      "wait": 1
+    },
     "setpos 0 -2400 0",
-    "setang 15 90 0",
+    "setang 0 90 0",
     {
-      "wait": 1
-    },
-    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
-    {
-      "wait": 2
+      "wait": 0.5
     },
     {
-      "approach": "npc_orc_sword",
-      "distance": 200
+      "approach": "prop_physics",
+      "distance": 70,
+      "height": -50,
+      "pitch": 11
     },
     {
       "wait": 1
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2.5
+    }
+  ],
+  "play": [
+    {
+      "approach": "prop_physics",
+      "distance": 70,
+      "height": -50,
+      "pitch": 11
+    },
+    {
+      "wait": 1
+    },
+    {
+      "click": 1,
+      "ms": 2500
+    },
+    {
+      "wait": 3
+    },
+    {
+      "approach": "prop_physics",
+      "distance": 70,
+      "height": -50,
+      "pitch": 11
+    },
+    {
+      "wait": 1
+    },
+    {
+      "click": 1,
+      "ms": 2500
+    },
+    {
+      "wait": 3
+    },
+    {
+      "approach": "prop_physics",
+      "distance": 70,
+      "height": -50,
+      "pitch": 11
+    },
+    {
+      "wait": 1
+    },
+    {
+      "click": 1,
+      "ms": 2500
+    },
+    {
+      "wait": 3
     }
   ]
 }

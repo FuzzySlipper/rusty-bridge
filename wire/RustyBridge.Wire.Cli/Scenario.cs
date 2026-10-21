@@ -78,7 +78,8 @@ static class Scenario
     }
 
     /// <param name="height">Units above the NPC's feet to put the player (4 stands it on level ground; more drops it).</param>
-    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance, float height = 4)
+    /// <param name="pitch">The view's pitch, degrees down (0 looks level).</param>
+    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance, float height = 4, float pitch = 0)
     {
         using var reader = new WireReader(wirePath);
         var snap = new WireSnapshot();
@@ -94,7 +95,7 @@ static class Scenario
         double x = npc.OriginX + dx * distance, y = npc.OriginY + dy * distance;
         double yaw = Math.Atan2(-dy, -dx) * 180 / Math.PI;
         Console.WriteLine(FormattableString.Invariant($"  approach {cls} #{npc.Index} at ({npc.OriginX:F0} {npc.OriginY:F0} {npc.OriginZ:F0}) from {distance:F0} units, {height:F0} up"));
-        return (FormattableString.Invariant($"setpos {x:F1} {y:F1} {npc.OriginZ + height:F1}"), FormattableString.Invariant($"setang 0 {yaw:F1} 0"));
+        return (FormattableString.Invariant($"setpos {x:F1} {y:F1} {npc.OriginZ + height:F1}"), FormattableString.Invariant($"setang {pitch:F1} {yaw:F1} 0"));
     }
 
     static Process? Game() => Process.GetProcessesByName("mm").FirstOrDefault();
@@ -169,13 +170,13 @@ static class Scenario
     /// A setup step: a console line, <c>{"wait": seconds}</c>, or <c>{"approach": "npc_orc_sword", "distance": 60}</c>,
     /// which finds the nearest living entity of that class on the Wire and puts the player that many units in front of
     /// it, facing it (spawned NPCs land where the view pointed, which isn't always in reach); <c>"height"</c> puts it
-    /// that many units above the NPC's feet (default 4), to drop from.
+    /// that many units above the NPC's feet (default 4), to drop from, and <c>"pitch"</c> looks that many degrees down.
     /// </summary>
     static void Setup(TapControl control, JsonNode step, string wirePath)
     {
         if (step is JsonObject o && o["approach"] is { } target)
         {
-            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60, (float?)o["height"] ?? 4);
+            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60, (float?)o["height"] ?? 4, (float?)o["pitch"] ?? 0);
             Setup(control, setpos, wirePath);
             Setup(control, setang, wirePath);
             return;

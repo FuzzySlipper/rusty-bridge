@@ -1,0 +1,80 @@
+{
+  "description": "The character sheet from the keyboard (#10139, R10139-3): F7 (virtual key 118) bound to togglecharsheet and pressed through the desktop lease, three opens and closes 2 s apart, then mm_open_charsheet from the console: does +0x9F (bit 10) come with a keyboard open?",
+  "seconds": 25,
+  "setup": [
+    "sv_cheats 1",
+    "bind F7 togglecharsheet",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    },
+    "mm_open_charsheet",
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        118
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 2
+    }
+  ]
+}

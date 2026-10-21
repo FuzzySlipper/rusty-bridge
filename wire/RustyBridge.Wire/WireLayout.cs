@@ -621,6 +621,10 @@ public enum PlayerActions : uint
     Kick = 1 << 2,
     /// <summary>+xana, byte +0x9A: set while held.</summary>
     Xana = 1 << 5,
+    /// <summary>The character sheet opened (togglecharsheet or mm_open_charsheet), byte +0x9B, one tick: 8 of 8 opens, from the console or the keyboard. The server clears the player's buttons on it.</summary>
+    CharSheetOpen = 1 << 6,
+    /// <summary>The character sheet closed (togglecharsheet), byte +0x9D, one tick: 8 of 8 closes.</summary>
+    CharSheetClose = 1 << 8,
     /// <summary>mm_previtem and mm_nextitem, byte +0x9E, one tick per press: one byte for both, likely signed by direction (the Wire keeps only that it's set).</summary>
     ItemCycle = 1 << 9,
 }

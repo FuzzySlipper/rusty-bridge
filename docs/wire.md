@@ -770,14 +770,22 @@ lease, with the time of each press logged beside the recording and lined up with
 | `+kick` | byte +0x97 (bit 2), while held |
 | `+xana` | byte +0x9A (bit 5), while held (41 ticks for a 0.6 s hold) |
 | `mm_previtem`, `mm_nextitem` | byte +0x9E (bit 9), one tick per press. Each session registered one of the two, whichever came first: one byte, likely signed by direction, which the Wire reduces to set or not |
-| `togglecharsheet` | opening the sheet set +0x9B (bit 6), then +0x9F (bit 10) a tick later; closing it +0x9D (bit 8). Bit 10 also came once near a spell click. Not named |
+| `togglecharsheet`, `mm_open_charsheet` | opening the sheet sets +0x9B (bit 6, `CharSheetOpen`), closing it +0x9D (bit 8, `CharSheetClose`), one tick each: 8 of 8 opens and closes from the console and the keyboard (`charsheet`, `charsheet-keys`, R10139-3) |
+| (unknown) | +0x9F (bit 10) came twice in `l01_a-v15-stats` (a tick after a keyboard open, and near a spell click) and in none of the 8 opens since, nor with 6 fire casts and 6 telekinesis holds (`spells-probe`, `telekinesis`): not the spell click. Not named |
 | `+speed` | `IN_BULLRUSH` (bit 22) in the buttons, while held |
 | `+zoom` | `IN_WALK` (bit 18) in the buttons, while held |
 | `+leanleft`, `+leanright` | nothing in the command, standing or walking |
 | `usebelt1`–`usebelt9` | nothing in the command (the first put the weapon away, so the belt travels another way) |
 
-Bytes +0x96, +0x98, +0x99, +0x9C, +0xA0 and +0xA1 never set. `PlayerActions` names sprint, kick, xana and the item
-cycle; `InputButtons` notes the two buttons.
+Bytes +0x96, +0x98, +0x99, +0x9C, +0xA0 and +0xA1 never set. `PlayerActions` names sprint, kick, xana, the sheet's
+open and close and the item cycle; `InputButtons` notes the two buttons.
+
+**What the server does with them.** `CMM_Player`'s command handling (server.dll+0x45551A on) tests the bytes from
++0x9B on and raises one event each on the map's `mm_player_inputs` entity (+0x3FEED0, which finds the entity by that
+name and passes the event to it): +0x9B event 0x17, which also clears the player's button words (+0x1FC0 to +0x1FCC:
+the sheet takes the input), +0x9C 0x18, +0x9D 0x29, +0x9E 0x19, +0x9F 0x1A, +0xA0 0x37 and +0xA1 0x38. The entity's
+outputs (`On_OpenInventory`, `On_openbelt`, `On_exitbelt`, `OnOpenObjectives`...) are what the map's tutorials hook;
+which output each event fires isn't read.
 
 ## The player's stats
 
@@ -828,8 +836,11 @@ the frame, only when edict 1 is a `player`, inside a fault guard:
 - **Stamina:** a 3 s sprint and three kicks took it to 4.32. After `mm_player_skills_grosbill 1` (every module) its
   maximum became 12, `player_stamina_double_sprint_max`.
 - **Mana:** it regenerates about 0.7 a second. The skills raised its maximum to 100 and the ring of mana to 110, as
-  the HUD showed. A spell cast wasn't staged: `give spell_fire_1` puts the spell in hand, but clicking it from the
-  console session didn't cast, which likely needs it on the belt (#10141). `give weapon_mmspell` crashes the game.
+  the HUD showed. Casts spend it (`l01_a-v17-spells-probe`, R10139-2): with `Deploy_Spell_FIRE_1` in hand
+  (`weapon_MMSpell_weapon_FIRE_1` in the weapon slot), a 1.5 s held cast took it from 24.2 to 17.6 and two short
+  ones from 19.7 to 15.7 and 17.8 to 13.8; telekinesis (`weapon_MMTelekinesis_physcannon`) lifting the jug took it
+  from 26.3 to 22.3 as it gripped (`l01_a-v17-telekinesis`). `give spell_fire_1` puts the spell in hand but doesn't
+  cast; `give weapon_mmspell` crashes the game.
 - **Equipment:** the sword, shield, helmet, ring, two staffs and the two spells each showed in their slot as given.
 
 **How the offsets were found (2026-10-19, server.dll, image base 0x22000000).**

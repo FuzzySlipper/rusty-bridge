@@ -160,6 +160,8 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `weapon-switch` | every skill, the long sword, kryss daggers, combat staff and club given, a new orc with 100000 health | `use` each in turn, three rounds, attacking 0, 0.3 or 0.8 s after: two clicks, then a 1.2 s hold |
 | `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
 | `telekinesis` | every skill module (telekinesis among them), an orc 200 units away | none: hand-played |
+| `spells-probe` | every skill | `Deploy_Spell_FIRE_1` and three casts (mana down 4 to 6.6 each), then telekinesis |
+| `charsheet`, `charsheet-keys` | sv_cheats; F7 bound to `togglecharsheet` | the sheet opened and closed from the console, then the keyboard (the action bytes +0x9B, +0x9D) |
 
 **What the console can't stage:**
 - **Skills one by one:** only `mm_player_skills_grosbill 1` (every skill at its maximum level) or none. `skills_set` and `skills_add`
@@ -168,10 +170,14 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 - **Weapons in hand:** `give` then `use` draws a weapon only when the player has its skill: without skills only the
   short sword and the club came to hand, and the daggers and staffs stayed in the inventory. With
   `mm_player_skills_grosbill 1` every melee weapon tried draws (`weapons-probe`, #10148), and `use` on another switches.
-- **Spells in hand:** `give spell_fire_1` and `give spell_air_3` equip, but clicking them doesn't cast.
+- **Spells in hand:** the console's `Deploy_Spell_FIRE_1` ... `Deploy_Spell_EARTH_4` (`find spell` lists them) put a
+  learned spell in hand, and clicks cast it, mana falling. `give spell_fire_1` and `give spell_air_3` equip but don't
+  cast; `use` of the spell weapons and the belt slots select nothing, and `mm_spellshortcut` and `mm_book` are no
+  commands. There is no `prop_physics_create`: telekinesis takes a prop the level has (the start area's jug).
 - **A still NPC:** `ai_disable 1` holds it still, but it then counts as unaware (the not-alerted ×3 and more), so its
   damage doesn't calibrate; `chained-slash` lets the orc fight.
-- **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down.
+- **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down
+  (`Deploy_Spell_AIR_1` is the way).
 
 ## A save past the ride
 

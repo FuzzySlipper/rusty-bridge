@@ -1,0 +1,73 @@
+{
+  "description": "Spells cast unattended (#10139 R2, #10141 R1): every skill, then Deploy_Spell_FIRE_1 (the console's own spell commands; give crashed and use doesn't select spells), a held and a short click at an orc, then Deploy_Spell_AIR_1, telekinesis, at a barrel in front: held to lift it, released to throw. Mana should fall with each cast.",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "prop_physics_create props/furnitures/humans/barrel01.mdl",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "Deploy_Spell_FIRE_1",
+    {
+      "wait": 2.5
+    },
+    {
+      "click": 1,
+      "ms": 1500
+    },
+    {
+      "wait": 3
+    },
+    {
+      "click": 1,
+      "ms": 300
+    },
+    {
+      "wait": 3
+    },
+    {
+      "click": 1,
+      "ms": 300
+    },
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2.5
+    },
+    {
+      "click": 1,
+      "ms": 2500
+    },
+    {
+      "wait": 3
+    },
+    {
+      "click": 1,
+      "ms": 2500
+    },
+    {
+      "wait": 3
+    },
+    {
+      "click": 1,
+      "ms": 300
+    },
+    {
+      "wait": 3
+    }
+  ]
+}

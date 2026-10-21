@@ -1,0 +1,48 @@
+{
+  "description": "The character sheet's action bytes (#10139, R10139-3): togglecharsheet opens and closes it three times from the console, 2 s apart, and once with every skill: which of the command's bytes +0x9B, +0x9D, +0x9F go with which.",
+  "seconds": 30,
+  "setup": [
+    "sv_cheats 1",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 1
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 2
+    }
+  ]
+}

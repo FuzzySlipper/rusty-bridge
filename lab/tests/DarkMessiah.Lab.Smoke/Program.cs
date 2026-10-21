@@ -718,6 +718,21 @@ host.Call(engine =>
         bool clubCaps = combat.Sword.ChainLength == 2 && combat.Weapon.Model == Club && combat.Sword.Clips.Draw is null;
         combat.Rebuild(labBuild with { Weapon = Kryss, Modules = new HashSet<string>(labBuild.Modules) { "combat_chained_slash" } }, draw: false);
         bool daggersChain = combat.Sword.ChainLength == 5 && combat.Sword.Clips.Fast.Clip == "layer_fastattack_daggers_A" && combat.FirstPerson.SwordModel == Kryss;
+        // Both daggers are drawn (R10148-3), one in each hand, through a chain of taps; switching away leaves one weapon.
+        var blades = new List<int>();
+        float apart = float.MaxValue;
+        for (int i = 0; i < 90; i++)
+        {
+            combat.Step(Tick, step++, i % 12 < 3, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+            blades.Add(combat.FirstPerson.Facts().Count());
+            if (combat.FirstPerson.OffHand is { } left) apart = MathF.Min(apart, Vector3.Distance(left.Translation, combat.FirstPerson.Sword.Translation));
+        }
+        bool swungDaggers = combat.Player.Swings > 0;
+        combat.Rebuild(labBuild with { Weapon = LongSword }, draw: true);
+        for (int i = 0; i < 200 && combat.Sword.Drawing; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+        Check(swungDaggers && blades.All(c => c == 3) && apart > .05f && combat.FirstPerson.Facts().Count() == 2 && combat.FirstPerson.OffHand is null,
+            FormattableString.Invariant($"the daggers are drawn as two blades, one in each hand ({apart:0.00} m apart at the closest) through a chain, and one weapon after switching to the long sword"));
+        combat.Rebuild(labBuild with { Weapon = Kryss, Modules = new HashSet<string>(labBuild.Modules) { "combat_chained_slash" } }, draw: false);
         combat.Rebuild(labBuild with { Weapon = CombatStaff }, draw: true);
         bool drawing = combat.Sword.Move == SwordMove.Undraw && combat.FirstPerson.SwordModel == Kryss && combat.Weapon.Model == CombatStaff;
         combat.Rebuild(labBuild, draw: false);

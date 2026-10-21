@@ -177,6 +177,10 @@ The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.
   (A 28 and 23 times, C 1 and 9, D 1), and the next press from its second half starts A.
 - **Power attacks:** five each, as the sword's. The staff's wind-up is 1.54 s (1.40 s at its speed): the first staff
   run's 1.2 s holds were all released before it, and all made fast attacks.
+- **In the hand:** each weapon hangs on the arms' attachment the donor parents its entity to on the view model
+  (Wire `m_iParentAttachment`): the swords and the club `RightHand` (4), the kryss daggers `LeftHand` (8), the combat
+  staff `LeftHand_Staff` (13). A kryss model is one blade and the Wire has one daggers entity: the client draws the
+  other, which the lab puts on the arms' `RightHand_Daggers` (`FirstPerson.HandOf`).
 - **Hit windows:** the daggers' all have 2186 and 2190 but the huge slash; the staff's A and C close at 2102 (see
   "Where the numbers come from").
 - **Switching** (`weapon-switch`): `use` on another weapon puts the one in hand away (`*_undraw`, at the clip's own

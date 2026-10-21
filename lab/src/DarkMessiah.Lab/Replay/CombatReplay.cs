@@ -140,6 +140,16 @@ internal static class CombatReplay
         return at;
     }
 
+    /// <summary>
+    /// How far above the lab body's feet the donor's must be, metres, to fall from geometry the lab lacks: the recorded
+    /// ledges were 2.0 and 2.4 m up, a step is under 0.2.
+    /// </summary>
+    internal const float DonorAbove = .15f;
+
+    /// <summary>RB_TRACE=FROM-TO prints the lab sword's move each replayed tick in that range (looking into one replay).</summary>
+    static readonly (int, int)? Trace = Environment.GetEnvironmentVariable("RB_TRACE")?.Split('-') is [var from, var to]
+        && int.TryParse(from, out int f) && int.TryParse(to, out int t) ? (f, t) : null;
+
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
 
@@ -180,6 +190,7 @@ internal static class CombatReplay
         combat.Log = log;
         bool grounded = true;
         int switched = 0, rebuilt = 0;
+        var donorHeights = new Queue<float>();
         // Each recorded build change as the lab applied it: its tick, the modules and the stamina maximum it gave.
         var applied = new List<(int, int, float)>();
         // A tick in a stretch the donor held something the lab doesn't play: nothing there is compared (#10140).
@@ -209,10 +220,22 @@ internal static class CombatReplay
                 // The donor took another weapon: the lab's sword puts its own away and draws that one (#10148).
                 for (; switched < timeline.WeaponChanges.Count && timeline.WeaponChanges[switched].Tick <= t.Tick; switched++)
                     if (LabWeapon.ClassOf(timeline.WeaponChanges[switched].Model) is not null) combat.Arm(timeline.WeaponChanges[switched].Model);
+                // The donor in the air over ground the lab's arena lacks is in the air for the sword, though the lab's body
+                // has landed (R10144-1): falling from a ledge (its feet above the lab body's and coming down faster than
+                // 1 cm a tick), or holding the jump attack until its feet come to rest (still for 4 ticks; the top of an
+                // arc isn't rest, and the donor's ground can sit below the lab's floor).
+                float droppedBy = lastDonor is Vector3 ld ? ld.Y - t.Feet.Y : 0;
+                donorHeights.Enqueue(t.Feet.Y);
+                if (donorHeights.Count > 4) donorHeights.Dequeue();
+                bool donorResting = donorHeights.Count == 4 && donorHeights.Max() - donorHeights.Min() < .005f;
+                bool donorFalling = lastLab is Vector3 lf && t.Feet.Y - lf.Y > DonorAbove && droppedBy > .01f
+                    || combat.Sword.Move == SwordMove.Leap && !donorResting;
                 // With no weapon in hand the donor's player ignores attack, block and kick: so does the lab's sword.
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
-                    t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
+                    t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                if (Trace is var (from, to) && t.Tick >= from && t.Tick <= to)
+                    Console.WriteLine($"  trace {t.Tick} held {t.Held} grounded {grounded} move {combat.Sword.Move} {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} donor feet y {t.Feet.Y:0.00}");
                 lastMove = combat.Sword.Move;
                 // The gauge the lab's own blows would keep (the fight's is held to the donor's), against the donor's.
                 if (shadow is not null && t.Adrenaline is float donorGauge)

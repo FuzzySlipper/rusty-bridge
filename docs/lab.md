@@ -557,9 +557,10 @@ move (`layer_behead_*_out`, 129270) the lab plays as the neutral power attack.
 
 | Recording | What | Begun together, lab |
 | --- | --- | --- |
-| `l01_a-v16-jump-attack-hold` (0.4 s holds) | jump attacks' strikes | 6 of 7, lab 6 |
-| | power attacks | 5 of 5, lab 6 |
-| `l01_a-v16-jump-attack` (0.06, 0.15, 1 s holds, and drops) | power attacks | 15 of 15, lab 16 |
+| `l01_a-v16-jump-attack-hold` (0.4 s holds) | jump attacks' strikes | 7 of 7, lab 7 |
+| | power attacks | 5 of 5, lab 5 |
+| `l01_a-v16-jump-attack` (0.06, 0.15, 1 s holds, and drops) | jump attacks' strikes | 1 of 1, lab 1 |
+| | power attacks | 15 of 15, lab 15 |
 | `l01_a-v16-jump-attack-basic` (the same, without the skill) | power attacks | 16 of 16, lab 16 |
 | `l01_a-v16-rush-attack` | rushes | 6 of 6, lab 6 |
 | `l01_a-v16-fatality` | Fatalities | 11 of 11, lab 11 |
@@ -582,6 +583,13 @@ donor's undraw begins, since the weapon on the Wire changes only as the draw doe
 
 Replays hold the lab's adrenaline to the recording's each tick (`ReplayTick.Adrenaline`): the donor also fills it on
 blows the lab doesn't follow.
+
+**Ground the arena lacks** (R10144-1): two donor strikes came off geometry the lab's arena doesn't have, a 2.4 m
+ledge stepped off (`jump-attack-hold`, 17494) and a running jump that rose 2 m and landed 0.22 m below the lab's
+floor (`jump-attack`, 14395). The lab's body landed long before the donor did, so its sword cut the jump attack short.
+The replay's sword now counts the donor as in the air while it falls from above the lab body's feet (more than
+0.15 m up, dropping over 1 cm a tick), and, holding the jump attack, until the donor's feet are still for 4 ticks.
+Both strikes now begin with the donor's: 8 of 8.
 
 A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
 the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
@@ -648,6 +656,9 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Inspection targets:** `eye`, `reach`, `orc`, `last-blow` and `spawn`.
 - **The `lab.combat` overlay set:** each traced step of recent swings (green struck, blue parried or blocked, grey nothing), and the orc's reach.
 - **The developer shell (F3):** shows the overlay while open.
+- **One replay from the smoke:** `RB_REPLAY=local/recordings/....rbrec dotnet run --project lab/tests/DarkMessiah.Lab.Smoke`
+  prints that replay's whole report and stops; `RB_TRACE=FROM-TO` adds the lab sword's move on each replayed tick in
+  that range.
 
 ## Provenance
 

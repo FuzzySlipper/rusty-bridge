@@ -375,6 +375,12 @@ host.Call(engine =>
     using var product = new LabProduct(new ProductCreateContext(engine, new ProductContent(files, engine.Content),
         new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
     product.Start();
+    // RB_REPLAY=path replays one recording and prints its whole report, for looking into one replay.
+    if (Environment.GetEnvironmentVariable("RB_REPLAY") is { Length: > 0 } only)
+    {
+        foreach (var line in CombatReplay.Run(product.Combat, only, product).Lines()) Console.WriteLine(line);
+        return;
+    }
     ulong step = 0;
     void Advance(int updates)
     {
@@ -922,7 +928,7 @@ host.Call(engine =>
     // The jump and rush attacks replayed: the lab begins the donor's movement attacks with it.
     string Experiment(string name) => Path.Combine(recordings, "experiments", $"l01_a-v16-{name}.rbrec");
     foreach (var (path, families) in new[] { (Experiment("fatality"), new[] { "fatality", "power attack" }), (Experiment("whirlwind"), new[] { "whirlwind", "power attack" }),
-        (jumpAttack, new[] { "power attack" }), (jumpHold, new[] { "jump attack", "power attack" }), (jumpBasic, new[] { "power attack" }), (rushAttack, new[] { "rush attack" }) })
+        (jumpAttack, new[] { "jump attack", "power attack" }), (jumpHold, new[] { "jump attack", "power attack" }), (jumpBasic, new[] { "power attack" }), (rushAttack, new[] { "rush attack" }) })
     {
         if (!File.Exists(path)) { Console.WriteLine($"skip the {Path.GetFileName(path)} replay: no local/recordings/experiments/{Path.GetFileName(path)}"); continue; }
         var report = CombatReplay.Run(combat, path, product);

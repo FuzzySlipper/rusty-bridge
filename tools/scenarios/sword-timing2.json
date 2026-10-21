@@ -1,0 +1,212 @@
+{
+  "description": "KickAttackOpen (#10142, R10142-1): the short sword, a new game's skills. A kick on the ground, a jump 0.1 s into it (a kick pressed in the air doesn't start), and attack held 0.2 s (taps under 0.1 s in the air are dropped) from 0.35-0.8 s into the kick: from which cycle of the kick does it release the neutral power attack?",
+  "seconds": 50,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.2
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.4
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.45
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.5
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.55
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.6
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 100
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 0.65
+    },
+    {
+      "click": 1,
+      "ms": 200
+    },
+    {
+      "wait": 2.5
+    }
+  ]
+}

@@ -138,16 +138,27 @@ clips and differences (see "Weapons").
   scenario, docs/recording.md) each burst of quick clicks plays A, B, C, D, E, then `_end`: every next clip begins as
   the last ends (20, 24, 26 and 24 ticks), a press queues one clip, more presses in it do nothing, and nothing chains
   after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
-- **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press in its second half starts A again
-  at once; one at cycle 0.32 did nothing, one at 0.60 played A two ticks later (`PlayerSword.FastEndOpen`, 0.5).
+- **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press from cycle 0.58 of it starts A
+  again at once (`PlayerSword.FastEndOpen`): the `sword-timing2` sweep's presses at 0.12, 0.24, 0.30, 0.41, 0.51 and
+  0.56 did nothing, at 0.72 and 0.80 played A two ticks later, as one hand-played at 0.60 did (#10142).
 - **Attack in the air:** below, "The jump attack". Every press #10131 read as "power after a kick" was a jump: 126588
   and 128150 pressed mid-jump (`IN_JUMP`, the `jump_in` clip, rising), and the three taps late in a kick (cycle 0.84
-  to 1.00) all came in a jump that began during the kick. A press in the air during a kick before about cycle 0.75
-  did nothing (`PlayerSword.KickAttackOpen`); on the ground a tap during a kick does nothing.
+  to 1.00) all came in a jump that began during the kick. A press in the air during a kick is a press in a jump like
+  any other (`sword-timing2`, R10142-1): held 0.2 s at kick cycles 0.59 to 1.10 it made the neutral power attack, 8 of
+  8, cutting the kick; taps of 5 ticks were dropped, 4 of 4 (`AirHoldMin`). The one press that did nothing at about
+  0.65, which `KickAttackOpen` (0.75) rested on, was such a tap; the constant is gone. On the ground a tap during a
+  kick does nothing, and a kick pressed in the air doesn't start.
 - **No parry in the air:** block pressed mid-jump (128149, held 4 ticks) played no parry, and the attack pressed a tick
   later made the jump's power attack (#10144).
-- **Not explained** (one case each): a tap released a tick after its wind-up began played nothing (127146; pressed as
-  a kick ended); two presses during A (cycles 0.21 and 0.71) didn't chain B (120884, 120893).
+- **The timing sweep** (`sword-timing`, R10142-1) bears out the rules on varied timing:
+  - **After a kick, on the ground:** presses 0.15 to 0.6 s after a kick ended wound up and played A, 7 of 7: none
+    released the power attack with no wind-up (that is the air's, above).
+  - **The direction after B:** held through B with a strafe, back or forward starting 0.15 or 0.35 s into it, the
+    release took the movement held as B ended, 8 of 8 (right R, left L, back B, forward T).
+  - **Short taps:** taps of 1 to 4 ticks played A, 20 of 20.
+- **Not explained** (one case each, against the sweep's): a tap released a tick after its wind-up began played nothing
+  (127146; pressed as a kick ended); two presses during A (cycles 0.21 and 0.71) didn't chain B (120884, 120893); a
+  hold through B released R where the movement at B's end picks B (126828).
 - **A parried blow doesn't stop the swing.** The donor plays `layer_bounce_*` on none of the 23 player blows its
   orcs parried or blocked in the arena recordings, and chains and kicks on after them. The lab played a bounce
   there until #10131, which cut off the hand fights' chains.

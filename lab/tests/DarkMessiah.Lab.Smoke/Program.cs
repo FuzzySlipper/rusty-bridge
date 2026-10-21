@@ -200,16 +200,23 @@ while (k.Cycle < .5f) k.Step(Tick, false, false, false);
 k.Step(Tick, true, false, false);
 k.Step(Tick, false, false, false);
 Check(k.Move == SwordMove.Kick, "a tap of attack mid-kick does nothing");
-while (k.Cycle < PlayerSword.KickAttackOpen) k.Step(Tick, false, false, false);
+while (k.Cycle < .75f) k.Step(Tick, false, false, false);
 k.Step(Tick, true, false, false);
 k.Step(Tick, false, false, false);
 Check(k.Move == SwordMove.Kick, "on the ground a tap late in the kick does nothing either");
 var air = new PlayerSword(clips) { FastDelay = 0 };
 air.Step(Tick, false, false, true);
-while (air.Cycle < PlayerSword.KickAttackOpen) air.Step(Tick, false, false, false, airborne: true);
-air.Step(Tick, true, false, false, airborne: true);
+while (air.Cycle < .6f) air.Step(Tick, false, false, false, airborne: true);
+for (int i = 0; i < 12; i++) air.Step(Tick, true, false, false, airborne: true);
 air.Step(Tick, false, false, false, airborne: true);
-Check(air.Move == SwordMove.Power && air.Clip.Clip == "power" && air.SwingStarted, "in the air, one late in the kick releases the neutral power attack at once (the jump attack)");
+bool powered = air.Move == SwordMove.Power && air.Clip.Clip == "power";
+var airTap = new PlayerSword(clips) { FastDelay = 0 };
+airTap.Step(Tick, false, false, true);
+while (airTap.Cycle < .6f) airTap.Step(Tick, false, false, false, airborne: true);
+for (int i = 0; i < 4; i++) airTap.Step(Tick, i < 3, false, false, airborne: true);
+for (int i = 0; i < 12; i++) airTap.Step(Tick, false, false, false, airborne: true);
+Check(powered && airTap.Move == SwordMove.Kick,
+    "in the air, attack held mid-kick waits as any press in a jump and releases the neutral power attack, cutting the kick; a 3-tick tap is dropped (R10142-1: 8 of 8, 4 of 4)");
 // Attack in a jump (#10144): nothing until held 0.125 s, a shorter press dropped; then without the jump attack's
 // skill the neutral power attack's hold, with it the jump attack.
 var jump = new PlayerSword(clips) { FastDelay = 0 };
@@ -1001,6 +1008,25 @@ host.Call(engine =>
         }
     }
     else Console.WriteLine("skip the switching replay: no local/recordings/experiments/l01_a-v17-weapon-switch.rbrec");
+
+    // The sword's timing sweeps (#10142, R10142-1): presses after kicks, directions after B, short taps, presses through A's
+    // recovery and held in the air through kicks, each move begun with the donor's and each power attack as its own clip.
+    foreach (var name in new[] { "sword-timing", "sword-timing2-fastend", "sword-timing2" })
+    {
+        string path = Path.Combine(recordings, "experiments", $"l01_a-v17-{name}.rbrec");
+        if (!File.Exists(path)) { Console.WriteLine($"skip the {name} replay: no {path}"); continue; }
+        var report = CombatReplay.Run(combat, path, product);
+        foreach (var family in new[] { "fast attack", "power attack", "kick" })
+        {
+            var m = report.Moves.GetValueOrDefault(family);
+            if (m.Donor == 0) continue;
+            Check(m.Together * 10 >= m.Donor * 9, $"{report.Name}: the lab begins the donor's {family}s with it ({m.Together} of {m.Donor}, lab {m.Lab})");
+        }
+        var directions = report.Clips!.Where(c => c.Key.Contains("bigslash") && c.Key.EndsWith("_out")).ToList();
+        if (directions.Count > 0)
+            Check(directions.All(c => c.Value.Together == c.Value.Donor),
+                $"{report.Name}: each power attack's direction as the donor's: {string.Join(", ", directions.Select(c => $"{c.Key.Replace("layer_bigslash_sword_noshield_", "")} {c.Value.Together} of {c.Value.Donor}"))}");
+    }
 
     string stats = Path.Combine(recordings, "experiments", "l01_a-v15-stats.rbrec");
     if (File.Exists(stats))

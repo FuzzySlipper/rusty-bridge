@@ -1,0 +1,456 @@
+{
+  "description": "The sword rules #10131 left open (#10142, R10142-1), with varied timing: the short sword and a new game's skills. Presses 0.15-0.6 s after a kick ends (does one release the neutral power attack with no wind-up?); a hold through B with a strafe or back/forward starting 0.15 or 0.35 s into it (which direction does the release pick?); taps of 1 to 4 ticks, five each (which play nothing?).",
+  "seconds": 150,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.1
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.15
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.2
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.25
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.35
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.45
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.15
+    },
+    "+moveright",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-moveright",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.35
+    },
+    "+moveright",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-moveright",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.15
+    },
+    "+moveleft",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-moveleft",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.35
+    },
+    "+moveleft",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-moveleft",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.15
+    },
+    "+back",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-back",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.35
+    },
+    "+back",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-back",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.15
+    },
+    "+forward",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-forward",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 60
+    },
+    {
+      "wait": 0.1
+    },
+    "+attack",
+    {
+      "wait": 0.35
+    },
+    "+forward",
+    {
+      "wait": 0.8
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "-forward",
+    {
+      "wait": 2
+    },
+    {
+      "click": 1,
+      "ms": 16
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 16
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 16
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 16
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 16
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 33
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 33
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 33
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 33
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 33
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 50
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 50
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 50
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 50
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 50
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 66
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 66
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 66
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 66
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 66
+    },
+    {
+      "wait": 1.5
+    }
+  ]
+}

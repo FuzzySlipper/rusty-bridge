@@ -238,8 +238,7 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 /// holds (<c>_idle</c>) and strikes on release (<c>_out</c>); released early in its wind-up (before
 /// <see cref="LeapReleaseOpen"/>) it is the neutral power attack instead, and a landing cuts it short (<c>_cancel</c>),
 /// to the neutral power attack's hold. Otherwise the press holds the neutral power attack, released as it (at once if
-/// let go already). Late in a kick (from <see cref="KickAttackOpen"/>)
-/// a press in the air cuts the kick short the same way;</item>
+/// let go already). A press in the air during a kick does the same, cutting the kick short;</item>
 /// <item>with the adrenaline gauge full (<see cref="Fatal"/>), a charge released from its hold is the Fatality's huge
 /// slash (<c>layer_combo_sword_huge_noshield</c>) instead of the power attack, or crouched with <c>combat_trample</c>
 /// (<see cref="CanWhirl"/>) the Whirlwind (<c>layer_combo_sword_trample_noshield</c>);</item>
@@ -270,7 +269,7 @@ internal sealed class PlayerSword(SwordClips clips)
     // Seconds since an attack pressed in a jump (NaN when none is waiting), and since the body last landed.
     float airSince = float.NaN, landed = float.PositiveInfinity;
     PowerDirection direction;
-    bool chained, chainDue, attackWas, kickWas, kickWanted, kickAttack;
+    bool chained, chainDue, attackWas, kickWas, kickWanted;
     // How long the jump attack has held its pose, and how long a press in a jump was held.
     float leapHeld, airHold;
 
@@ -329,16 +328,12 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool KickWanted => kickWanted;
 
     /// <summary>
-    /// From this cycle of <c>fastattack_end</c> a press starts A at once; before it the press is dropped. The hand-played
-    /// fights show one of each (a press at 0.60 played A two ticks later, one at 0.32 nothing): the midpoint, not measured finer.
+    /// From this cycle of <c>fastattack_end</c> a press starts A at once; before it the press is dropped. The
+    /// <c>sword-timing2</c> sweep (R10142-1): presses at 0.12, 0.24, 0.30, 0.41, 0.51 and 0.56 played nothing, at 0.72 and
+    /// 0.80 A two ticks later, and a hand-played one at 0.60 A: between 0.56 and 0.60.
     /// </summary>
-    internal const float FastEndOpen = .5f;
+    internal const float FastEndOpen = .58f;
 
-    /// <summary>
-    /// From this cycle of a kick, attack pressed in the air releases the neutral power attack (three presses at
-    /// 0.84–1.00 did, all mid-jump; one in the air at about 0.65 did nothing): between them, not measured finer.
-    /// </summary>
-    internal const float KickAttackOpen = .75f;
 
     /// <summary>
     /// How long after the release (or a press in A's recovery) the fast attack begins: the donor's A starts 2 to 3
@@ -527,8 +522,10 @@ internal sealed class PlayerSword(SwordClips clips)
                 else Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.Kick:
-                kickAttack |= attackPressed && airborne && Cycle >= KickAttackOpen;
-                if (kickAttack && !attackHeld) Play(SwordMove.Power, clips.Power, swing: true);
+                // Attack pressed in the air during a kick is a press in a jump (R10142-1, the sword-timing2 sweep): held
+                // 0.2 s at kick cycles 0.59 to 1.10 it made the neutral power attack, 8 of 8; taps of 5 ticks were
+                // dropped, 4 of 4. (KickAttackOpen, a cycle from which it did, rested on taps and is gone.)
+                if (attackPressed && inJump) airSince = airHold = 0;
                 else if (done) Play(SwordMove.Ready, clips.Idle);
                 break;
             case SwordMove.Leap:
@@ -627,7 +624,6 @@ internal sealed class PlayerSword(SwordClips clips)
         Clip = clip;
         Cycle = 0;
         stepFrom = 0;
-        kickAttack = false;
         fastIn = float.NaN;
         // A move that starts takes over from a press still waiting in a jump (R10144-2: a kick after landing).
         airSince = float.NaN;

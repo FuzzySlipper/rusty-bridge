@@ -359,11 +359,13 @@ internal sealed class PlayerSword(SwordClips clips)
     internal bool KickWanted => kickWanted;
 
     /// <summary>
-    /// From this cycle of <c>fastattack_end</c> a press starts A at once; before it the press is dropped. The
-    /// <c>sword-timing2</c> sweep (R10142-1): presses at 0.12, 0.24, 0.30, 0.41, 0.51 and 0.56 played nothing, at 0.72 and
-    /// 0.80 A two ticks later, and a hand-played one at 0.60 A: between 0.56 and 0.60.
+    /// From this cycle of <c>fastattack_end</c> a press starts A at once; before it the press is dropped. Every press in
+    /// the recovery over the sword-class runs (R10142-1: <c>sword-timing2</c>, the long sword and the club): up to 0.53
+    /// nothing (10 of 10), at 0.56 and 0.57 A on 5 of 8, from 0.60 A (4 of 4, with a hand-played one). The streamed cycle
+    /// reads about a tick (0.03) ahead of the press: replayed, the lab's own recovery stood at 0.54 where those A began and
+    /// at 0.50-0.51 where presses did nothing, so on the lab's clock it opens at 0.525.
     /// </summary>
-    internal const float FastEndOpen = .58f;
+    internal const float FastEndOpen = .525f;
 
 
     /// <summary>

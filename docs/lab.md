@@ -138,9 +138,11 @@ clips and differences (see "Weapons").
   scenario, docs/recording.md) each burst of quick clicks plays A, B, C, D, E, then `_end`: every next clip begins as
   the last ends (20, 24, 26 and 24 ticks), a press queues one clip, more presses in it do nothing, and nothing chains
   after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
-- **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press from cycle 0.58 of it starts A
-  again at once (`PlayerSword.FastEndOpen`): the `sword-timing2` sweep's presses at 0.12, 0.24, 0.30, 0.41, 0.51 and
-  0.56 did nothing, at 0.72 and 0.80 played A two ticks later, as one hand-played at 0.60 did (#10142).
+- **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press late in it starts A again at once
+  (`PlayerSword.FastEndOpen`). Of every press in the recovery over the sword-class runs (the `sword-timing2` sweep, the
+  long sword and the club; #10142), those up to a streamed cycle of 0.53 did nothing (10 of 10), at 0.56 and 0.57 five
+  of eight played A two ticks later, from 0.60 all did (4 of 4). The streamed cycle reads about a tick ahead of the
+  press: replayed, the lab's own recovery stood at 0.54 where those A began, so the lab opens it at 0.525.
 - **Attack in the air:** below, "The jump attack". Every press #10131 read as "power after a kick" was a jump: 126588
   and 128150 pressed mid-jump (`IN_JUMP`, the `jump_in` clip, rising), and the three taps late in a kick (cycle 0.84
   to 1.00) all came in a jump that began during the kick. A press in the air during a kick is a press in a jump like

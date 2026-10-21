@@ -57,6 +57,11 @@ internal sealed class InputTimeline
     /// names it) and the damage asked. <see cref="Blows"/> keeps slash and club blows only.
     /// </summary>
     internal IReadOnlyList<(int Tick, string Victim, string Class, float Damage)> Kicks { get; private init; } = [];
+    /// <summary>
+    /// From Wire v15, each blow an orc landed on the player's shield, and its damage (#10149): a blocked blow wears the
+    /// shield by what it asks, and leaves the player untouched.
+    /// </summary>
+    internal IReadOnlyList<(int Tick, float Damage)> ShieldWear { get; private init; } = [];
     /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
     internal bool HasCommands { get; init; }
     /// <summary>
@@ -69,7 +74,7 @@ internal sealed class InputTimeline
     internal IReadOnlyList<(int Tick, CharacterBuild Build)> Builds { get; private init; } = [];
     internal int BuildChanges => Builds.Count;
     /// <summary>
-    /// The stretches where the donor's player held something the lab doesn't play (a shield, #10149; a weapon of no
+    /// The stretches where the donor's player held something the lab doesn't play (a weapon of no
     /// class the lab has, such as a bow or a spell), with what: the replay compares no move or blow in them.
     /// </summary>
     internal IReadOnlyList<(int From, int To, string What)> Unplayable { get; init; } = [];
@@ -99,6 +104,7 @@ internal sealed class InputTimeline
         : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_huge", StringComparison.Ordinal) || clip.Contains("behead", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "fatality"
         : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_trample", StringComparison.Ordinal) ? "whirlwind"
         : clip.Contains("backstab_out", StringComparison.Ordinal) ? "backstab"
+        : clip.EndsWith("_bash", StringComparison.Ordinal) ? "bash"
         : clip.EndsWith("_quickdraw", StringComparison.Ordinal) ? "quick draw"
         : clip.EndsWith("_undraw", StringComparison.Ordinal) ? "put away"
         : clip.EndsWith("_draw", StringComparison.Ordinal) ? "draw"
@@ -111,6 +117,7 @@ internal sealed class InputTimeline
         var ticks = new List<ReplayTick>();
         var swings = new List<DonorSwing>();
         var kicks = new List<(int, string, string, float)>();
+        var shieldWear = new List<(int, float)>();
         var playing = new Dictionary<string, float>();
         bool seeded = false;
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
@@ -134,6 +141,9 @@ internal sealed class InputTimeline
                         kicks.Add((d.Tick, $"#{d.Victim}.{d.VictimSerial:x}", cls, d.Damage));
                 if (f.Version >= 15 && f.Stats.Valid != 0)
                 {
+                    foreach (var d in f.Damage)
+                        if (d.Victim == f.Stats.Shield && f.Entities.TryGetValue(d.Attacker, out var striker) && f.Classes.GetValueOrDefault(striker.ClassId) == OrcClass)
+                            shieldWear.Add((d.Tick, d.Damage));
                     string? Model(ushort index) => index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var e) ? f.Models.GetValueOrDefault(e.ModelIndex) : null;
                     string? weapon = Model(f.Stats.Weapon);
                     var kit = (f.Stats.Modules, Model(f.Stats.Shield),
@@ -142,8 +152,7 @@ internal sealed class InputTimeline
                     else if (kit != lastKit)
                         builds.Add((f.Tick, CharacterBuild.FromRecording(f.Stats, f.Version, weapon, kit.Item2, $"{Path.GetFileName(path)} at tick {f.Tick}")));
                     lastKit = kit;
-                    string? what = kit.Item2 is { } shield ? $"a shield ({VpkIndex.Normalize(shield)}; #10149)"
-                        : weapon is not null && LabWeapon.ClassOf(weapon) is null ? $"{VpkIndex.Normalize(weapon)}, a weapon the lab doesn't play" : null;
+                    string? what = weapon is not null && LabWeapon.ClassOf(weapon) is null ? $"{VpkIndex.Normalize(weapon)}, a weapon the lab doesn't play" : null;
                     if (what is not null)
                     {
                         if (unplayable.Count > 0 && unplayable[^1].What == what && f.Tick - unplayable[^1].To <= 8) unplayable[^1] = unplayable[^1] with { To = f.Tick };
@@ -217,7 +226,7 @@ internal sealed class InputTimeline
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
-        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands,
+        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, ShieldWear = shieldWear, Skipped = skipped, HasCommands = commands,
             Build = build, Builds = builds, Unplayable = unplayable, WeaponChanges = weaponChanges };
     }
 

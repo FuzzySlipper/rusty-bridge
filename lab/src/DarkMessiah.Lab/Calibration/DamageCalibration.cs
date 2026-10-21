@@ -53,6 +53,8 @@ internal static class DamageCalibration
             // The weapon in the player's hand as each blow arrived, by model (from Wire v15; before it the short sword), and
             // each victim's sequence the frame before (a blow's own frame can already play the hit reaction it caused).
             var weapons = new Dictionary<int, string>();
+            // The ticks the donor had a shield on the arm: its blows are sword_shield's moves.
+            var shielded = new HashSet<int>();
             var before = new Dictionary<(int Tick, ushort Victim), string>();
             var lastSequence = new Dictionary<ushort, string>();
             using (var stream = File.OpenRead(path))
@@ -64,6 +66,7 @@ internal static class DamageCalibration
                             moveCycles.TryAdd(d.Tick, MoveLayers(f));
                             if (f.Version >= 15 && f.Stats.Valid != 0 && f.Entities.TryGetValue(f.Stats.Weapon, out var held) && f.Models.GetValueOrDefault(held.ModelIndex) is { } model)
                                 weapons.TryAdd(d.Tick, model);
+                            if (f.Version >= 15 && f.Stats.Valid != 0 && f.Entities.ContainsKey(f.Stats.Shield)) shielded.Add(d.Tick);
                             if (lastSequence.TryGetValue(d.Victim, out var was)) before.TryAdd((d.Tick, d.Victim), was);
                         }
                     foreach (var (index, e) in f.Entities)
@@ -83,8 +86,9 @@ internal static class DamageCalibration
                 string? family = kick ? "kick" : swung;
                 string donorMove = d.Attacker.Layers.LastOrDefault(l => Replay.InputTimeline.Family(l) is not null) ?? "";
                 string weapon = weapons.GetValueOrDefault(d.Tick, LabWeapon.ShortSword);
-                if (!kick && combat.ClipsFor(weapon) is null) continue;
-                var set = kick ? clips : combat.ClipsFor(weapon)!;
+                bool shield = shielded.Contains(d.Tick);
+                if (!kick && combat.ClipsFor(weapon, shield) is null) continue;
+                var set = kick ? clips : combat.ClipsFor(weapon, shield)!;
                 string? move = kick ? clips.Kick.Clip : set.Moves.Any(m => m.Clip == donorMove) ? donorMove
                     : family switch { "fast attack" => set.Fast.Clip, "power attack" => set.Power.Clip, _ => null };
                 if (donorMove.Length == 0) donorMove = move ?? "";
@@ -93,7 +97,8 @@ internal static class DamageCalibration
                     Cycle = moveCycles.GetValueOrDefault(d.Tick)?.GetValueOrDefault(donorMove, float.NaN) is float c && !float.IsNaN(c) ? c : d.Attacker.Cycle };
                 // The recorded critical (the byte from v11, or a critical power attack's damage type) is the lab's roll here.
                 float lab = combat.PlayerAsks(player, d.Victim, kick ? null : d.HitGroup, kick, d.HealthBefore, strength,
-                    critical: d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0, weapon: kick ? null : weapon);
+                    critical: d.AttackerCritical || (d.DamageType & CombatModel.CriticalDamage) != 0,
+                    weapon: kick ? null : move == SwordClips.BashClip ? SwordClips.BashWeapon : weapon);
                 string reason =
                     donorMove != move && donorMove.Length > 0 ? $"the donor's variant {donorMove}, which the lab plays as {move}"
                     : d.VictimAlert is int alert && alert <= settings.NotAlertedLevel && d.VictimNpcState != CombatModel.NotAlertedExemptState

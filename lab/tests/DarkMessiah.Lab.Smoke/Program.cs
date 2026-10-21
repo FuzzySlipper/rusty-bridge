@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text;
+using DarkMessiah.Combat;
 using DarkMessiah.Lab;
 using DarkMessiah.Lab.Calibration;
 using DarkMessiah.Lab.Combat;
@@ -9,6 +10,7 @@ using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Sword;
 using Rusty.Engine;
 using Rusty.Engine.Testing;
+using RustyBridge.Wire;
 
 // The combat lab's smoke: the sword's moves need nothing; the fight runs the real product on the pinned Engine,
 // headless, on dm-import's output (local/import, never tracked); calibration reads local/recordings. Exit 0 when
@@ -496,9 +498,15 @@ host.Call(engine =>
         && Refused(file with { Weapon = "models/items/weapons/daggers_kryss/daggers_kryss.mdl" }) is null
         && Refused(file with { Weapon = "models/items/weapons/staff_combat/staff_combat.mdl" }) is null
         && Refused(file with { Weapon = "models/items/weapons/bow_classic/bow_classic.mdl" }) is string bow && bow.Contains("isn't a sword")
-        && Refused(file with { OffHand = "models/items/armors/shield_orc/shield_orc.mdl" }) is string shield && shield.Contains("#10149")
         && Refused(file with { Weapon = "models/items/weapons/nothing/nothing.mdl" }) is string missing && missing.Contains("isn't an imported item"),
-        "swords, daggers and staffs are played (#10148); a bow and shields aren't yet (shields naming #10149); items the import lacks are refused");
+        "swords, daggers and staffs are played (#10148); a bow isn't; items the import lacks are refused");
+    // The shield (#10149): with a sword and combat_shield_enabled (the combat skill's level 2).
+    const string SmallShield = "models/items/armors/shield_orc/shield_orc_small.mdl";
+    Check(Refused(WithSkill("combat", 2) with { OffHand = SmallShield }) is null
+        && Refused(file with { OffHand = SmallShield }) is string unskilled && unskilled.Contains("combat_shield_enabled")
+        && Refused(WithSkill("combat", 2) with { OffHand = SmallShield, Weapon = "models/items/weapons/daggers_kryss/daggers_kryss.mdl" }) is string twoHanded && twoHanded.Contains("goes with a sword")
+        && Refused(WithSkill("combat", 2) with { OffHand = "models/items/armors/helmets/helmet_guard.mdl" }) is string notShield && notShield.Contains("isn't"),
+        "a shield is played with a sword and combat_shield_enabled; without the skill, with daggers, or another off-hand item it's refused");
     combat.Rebuild(WithSkill("stamina", 1));
     Check(combat.Build!.Has("double_sprint") && combat.Stamina.Rules.Max == 12, $"stamina 1 gives double_sprint, and stamina's maximum becomes 12: {combat.Stamina.Rules.Max}");
     combat.Rebuild(file);
@@ -508,6 +516,27 @@ host.Call(engine =>
     for (int i = 0; i < 20; i++) { combat.Step(Tick, step++, false, true, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); parries.Add(combat.Sword.Move); }
     Check(!parries.Contains(SwordMove.Parry), "a build without combat_parry can't parry in the fight");
     combat.Rebuild(file);
+    // The shield on the arm (#10149): sword_shield's set, block held raises it, attack pressed while blocking bashes.
+    combat.Rebuild(WithSkill("combat", 2) with { OffHand = SmallShield });
+    Check(combat.Shield is { } worn && MathF.Abs(worn.ParryCos - .7f) < 1e-4f && combat.ShieldHealth == 240 && combat.Sword.Clips.Idle.Clip == "layer_sword_shield_idle"
+        && combat.Sword.Clips.Bash is { Traced: true } bashClip && bashClip.Clip == SwordClips.BashClip,
+        $"a shield build wears the small orc shield (parry_cos 0.7, health 80 × HealthCoeffShield 3 = {combat.ShieldHealth}) and plays sword_shield's set");
+    var shieldMoves = new List<(SwordMove Move, string Clip, bool Traced)>();
+    for (int i = 0; i < 40; i++)
+    {
+        bool attack = i is >= 20 and < 23;
+        combat.Step(Tick, step++, attack, i < 25, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+        shieldMoves.Add((combat.Sword.Move, combat.Sword.Clip.Clip, combat.Sword.Traced));
+        if (i == 19) Check(combat.Blocking && combat.Sword.Clip.Clip.StartsWith("layer_parry_sword_shield_", StringComparison.Ordinal) && combat.FirstPerson.Facts().Count() == 3,
+            $"block held raises the shield ({combat.Sword.Clip.Clip}), drawn on the arms' Leftshield");
+    }
+    Check(shieldMoves.Skip(20).TakeWhile(m => m.Move == SwordMove.Bash).Count() == 20 && shieldMoves.Any(m => m.Move == SwordMove.Bash && m.Traced),
+        "attack pressed while blocking is the shield bash, which plays on with block let go and traces in its window");
+    Check(combat.Model.PlayerBlock(new ParryCase(0, combat.Orc.Party(), DefenseResult.PlayerParried), .75f, .7f) == DefenseResult.PlayerParried
+        && combat.Model.PlayerBlock(new ParryCase(0, combat.Orc.Party(), DefenseResult.PlayerParried), .5f, .7f) == DefenseResult.Hit,
+        "the shield blocks a blow from within its parry_cos of the facing (41°), not one from the side (60°)");
+    combat.Rebuild(file);
+    Check(combat.Shield is null && combat.FirstPerson.Facts().Count() == 2, "back on build.json the shield is off the arm");
     // The player's stat block is read, not defaulted: the first "skills" block in player_basic.qct is a starting build's.
     Check(product.Donor.Combat.PlayerSkillNumber("player_stamina_base_max") == 9 && product.Donor.Combat.PlayerSkillNumber("player_strength_4") == 6
         && product.Donor.Combat.PlayerStrength(3) == 6 && product.Donor.Combat.PlayerStrength(0) == 0,
@@ -1086,6 +1115,23 @@ host.Call(engine =>
             }
         }
     }
+    // The shield replayed (#10149): its blocks and bashes as the donor's.
+    string shielded = Path.Combine(recordings, "experiments", "l01_a-v17-shield.rbrec");
+    if (File.Exists(shielded))
+    {
+        var report = CombatReplay.Run(combat, shielded, product);
+        var bashes = report.Moves.GetValueOrDefault("bash");
+        Check(bashes.Donor >= 5 && bashes.Together * 10 >= bashes.Donor * 8, $"{report.Name}: the lab bashes with the donor ({bashes.Together} of {bashes.Donor}, lab {bashes.Lab})");
+        var bashBlows = report.PlayerBlows.Matches.Where(m => m.Donor?.Move == SwordClips.BashClip).ToList();
+        Check(bashBlows.Count >= 3 && bashBlows.Count(m => m.Lab?.Verdict == m.Donor!.Verdict) * 10 >= bashBlows.Count * 8,
+            $"{report.Name}: the bashes that landed land in the lab too ({bashBlows.Count(m => m.Lab?.Verdict == m.Donor!.Verdict)} of {bashBlows.Count}; hit groups {bashBlows.Count(m => m.Result == "agree")} alike)");
+        var blocks = report.OrcBlows.Matches.Where(m => m.Donor?.Verdict == DefenseResult.PlayerParried).ToList();
+        Check(blocks.Count >= 15 && blocks.Count(m => m.Lab?.Verdict == DefenseResult.PlayerParried) * 10 >= blocks.Count * 8
+            && report.OrcBlows.Count("agree") * 10 >= report.OrcBlows.Donor * 8,
+            $"{report.Name}: the shield blocks the donor's blocked blows ({blocks.Count(m => m.Lab?.Verdict == DefenseResult.PlayerParried)} of {blocks.Count}) and lets the side blows through (the orc's blows agree {report.OrcBlows.Count("agree")} of {report.OrcBlows.Donor})");
+        Check(report.Shield is { } wear && wear.Alike * 10 >= wear.Donor * 8, $"{report.Name}: blocks wear the shield as the donor's did: {report.Shield}");
+    }
+    else Console.WriteLine("skip the shield replay: no local/recordings/experiments/l01_a-v17-shield.rbrec");
     string switches = WeaponRun("switch");
     if (File.Exists(switches))
     {
@@ -1142,10 +1188,10 @@ host.Call(engine =>
         foreach (var (tick, modules, max) in report.Rebuilt ?? []) Console.WriteLine($"  rebuilt at tick {tick}: {modules} modules, stamina max {max}");
         Check(report.Rebuilt is { Count: > 0 } rebuilt && rebuilt.Any(r => r.MaxStamina == 12),
             $"the replay plays the recording's later builds from their ticks: double_sprint's stamina 12 from tick {report.Rebuilt?.FirstOrDefault(r => r.MaxStamina == 12).Tick}");
-        // Gear the lab doesn't play is said so and left out (R10140-2): this recording's player took a shield.
-        Check(report.Build is string held && held.Contains("not played: a shield", StringComparison.Ordinal)
-            && report.NotCompared.Any(n => n.Contains("holding a shield", StringComparison.Ordinal)),
-            $"a recorded shield isn't presented as played: the report names it and compares nothing while it's held ({report.NotCompared.FirstOrDefault(n => n.Contains("shield"))})");
+        // This recording's player took a shield: since #10149 the lab wears it, and compares what happens while it's held.
+        Check(report.Build is string held && !held.Contains("not played", StringComparison.Ordinal)
+            && !report.NotCompared.Any(n => n.Contains("shield", StringComparison.Ordinal)),
+            "a recorded shield is played: the replay leaves nothing out while it's held (#10149)");
         Check(combat.Build?.Source == BuildFile.Path, "after the replay the lab plays build.json again");
     }
     else Console.WriteLine("skip the v15 build replay: no local/recordings/experiments/l01_a-v15-stats.rbrec");

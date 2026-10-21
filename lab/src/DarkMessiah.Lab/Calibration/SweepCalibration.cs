@@ -40,7 +40,7 @@ internal static class SweepCalibration
                 var (clip, cycle) = (playing[0].Key, playing[0].Value);
                 var move = byClip[clip];
                 int w = move.WindowAt(cycle, cycle);
-                if (w < 0 || tuning.SwingArcs?.GetValueOrDefault(clip) is not { } arc) continue;
+                if (w < 0 || tuning.ArcFor(clip) is not { } arc) continue;
                 var window = move.Windows[w];
                 var (side, up) = arc.At(Math.Clamp((cycle - window.Open) / (window.Close - window.Open), 0, 1));
                 results.Add(new SweepComparison(f.Tick, Path.GetFileNameWithoutExtension(path), clip, cycle, last[^1].Side, last[^1].Up, side, up));

@@ -112,6 +112,19 @@ public sealed class CombatModel(CombatData data)
         Event(c.Attacker, Attack(c.Attacker))?.BreaksParry == true ? DefenseResult.PlayerParryBroken : DefenseResult.PlayerParried;
 
     /// <summary>
+    /// The player's shield block (#10149, `l01_a-v17-shield`): the donor counts it as a parry (PARRY_STATE_PARRY), for a
+    /// blow from within the shield's `parry_cos` of the player's facing, <paramref name="front"/> the cosine to the
+    /// attacker. Blocks held at 0° to 41° (19 of 19) and none at 68° to 126° (12 blows through a raised shield); the small orc
+    /// shield's `parry_cos` is 0.7 (46°), as every shield's is. `breakparade` doesn't break it (the orc's KickSwing,
+    /// whose first part breaks a parry, was blocked twice). `forcebreakparade` (the orc's bashes, which no recorded orc
+    /// played) is taken to break it, as it does a parry: not recorded.
+    /// </summary>
+    public DefenseResult PlayerBlock(ParryCase c, float front, float parryCos) =>
+        front < parryCos ? DefenseResult.Hit
+        : Event(c.Attacker, Attack(c.Attacker))?.ForceBreaksParry == true ? DefenseResult.PlayerParryBroken
+        : DefenseResult.PlayerParried;
+
+    /// <summary>
     /// The part of an attack a blow is: the part whose animation event fired
     /// last (<see cref="CombatData.Part"/>), and that part's entry in the
     /// attack's .qct events. Null past the last entry: an animation can strike

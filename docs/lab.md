@@ -34,7 +34,8 @@ rusty dev
 | --- | --- |
 | Left button, tap | Fast attack (`layer_fastattack_sword_noshield_A`) |
 | Left button, hold | Power attack: winds up (`layer_bigslash_*_in`, held), strikes on release (`_out`) |
-| Right button, hold | Parry (`layer_parry_sword_noshield_*`) |
+| Right button, hold | Parry (`layer_parry_sword_noshield_*`); with a shield, block (`layer_parry_sword_shield_*`) |
+| Left button while blocking | Shield bash (`layer_parry_sword_shield_bash`) |
 | F | Kick (`layer_sword_noshield_kick_medium`), also cutting off a swing whose hit window has passed |
 | E / left button | Pick up a crate / throw it (fptester's cubes) |
 | G | God: the orc's blows still count but take no health |
@@ -86,8 +87,9 @@ slider per skill, saved back to the file):
   those need theirs: `adrenaline` needs `critical_hit` or `extra_damage`, which need `combat` or `projectile`.
 - **Items:** the weapon and the off-hand by model path, each an imported item (its `.qct`). The lab plays the swords,
   the club, the daggers and the staffs (`models/items/weapons/sword_*`, `club`, `daggers*`, `staff_*`; see "Weapons"),
-  and no bow and no shield yet: it refuses those, a shield naming #10149. A new weapon is drawn: the one in hand is put
-  away first.
+  and a shield (`models/items/armors/shield*`) with a sword or the club and `combat_shield_enabled` (the combat skill's
+  level 2; see "The shield"). It refuses a bow, any other off-hand item, and a shield without those. A new weapon is
+  drawn: the one in hand is put away first.
 - **Spells:** known spells by Arkane's id (`air_1`...), each in `spells.txt`; nothing reads them yet.
 
 An invalid file is refused with the field and the reason, and the last build stays. Mechanics ask the build
@@ -102,8 +104,8 @@ An invalid file is refused with the field and the reason, and the last build sta
 **Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats,
 and from v16 its skill levels. Each later change (a skill learned, a shield taken) is played from the tick it was
 streamed (`InputTimeline.Builds`): in `l01_a-v15-stats` the lab's stamina maximum goes to 12 as `double_sprint` is
-learned. Weapon switches come as draws (see "Weapons"). What the lab doesn't play (a shield, #10149; a bow or a spell)
-isn't presented as played: the report names it, and no move or blow while it is held is compared
+learned. Weapon switches come as draws (see "Weapons"), and a shield taken is worn from its tick. What the lab doesn't
+play (a bow or a spell) isn't presented as played: the report names it, and no move or blow while it is held is compared
 (`InputTimeline.Unplayable`). After the replay the lab plays `build.json` again.
 
 ## The player's moves
@@ -228,6 +230,44 @@ The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.
   donor didn't. Its trigger beyond the reach and facing (awareness, the weapon's state) isn't read from server.dll.
 - **Not seen:** no staff run showed the breakneck (17 tries, from behind and in front at 20 to 30 units, tapped and
   held, on unaware orcs), so the lab plays none.
+
+### The shield
+
+With a shield on the arm the sword plays `first_basic`'s `sword_shield` set (#10149; `rbwire scenario shield`,
+`l01_a-v17-shield`: the short sword and the small orc shield against an orc that fights back). The build wears its
+off-hand when that is a shield and it has `combat_shield_enabled`; `LabShield` reads the shield's `.qct`:
+
+| What | Value | Source |
+| --- | --- | --- |
+| The clips | `layer_sword_shield_idle`, `fastattack_sword_shield_A`–`E` and `_end`, `bigslash_sword_shield_*`, `parry_sword_shield_*`, the shield combos | `first_basic`; the chain, ends and power attacks as the sword's (recorded: 15 fast attacks and 3 power attacks, begun with the donor's) |
+| On the arms | `Leftshield` (attachment 6, `SK_L_Wrist`) | Wire `m_iParentAttachment` of `weapon_arxshield` |
+| How far round it blocks | `parry_cos` 0.7 (46°) | the shield's `entity_data`; every shield has 0.7 |
+| Its health | `health` × 3: the small orc shield's 80 is 240 | the settings' player `HealthCoeffShield` (the shields' own 10 isn't the player's) |
+
+- **Blocking:** block held raises it (`parry_sword_shield_in`, `_idle`, `_out`), and the game counts a block as the
+  player's parry (`PlayerParried`). The verdict is `CombatModel.PlayerBlock`: a blow from within `parry_cos` of the
+  facing is blocked. Recorded: 19 of 19 from 0° to 41° blocked, 12 of 12 from 68° to 126° let through to the player
+  with the shield raised. Each blocked blow plays a reaction (`parry_sword_shield_A`, `B` or `C`) the lab doesn't.
+- **What breaks it:** nothing recorded did. The orc's `attack_KickSwing`, whose first part's `breakparade` breaks a
+  sword's parry, was blocked twice. The lab takes `forcebreakparade` (the orc's bashes, which no recorded orc made) to
+  break the block, as a parry's: not recorded.
+- **The shield's wear:** a blocked blow costs the player nothing and the shield its damage (`Stamina_Block` is the
+  AI's settings block, not the player's: the player's stamina stayed at 12 through every block and bash). Replayed,
+  the lab's blocks wear it 19 times by 137.6 against the donor's 136, 17 of 19 alike. The recorded shield was never
+  worn through; the lab takes it off the arm at no health, not recorded.
+- **The bash:** attack pressed while blocking plays `parry_sword_shield_bash` (1.27 s; its window 2186–2190, cycles
+  0.18 to 0.29), 8 of 8, which plays on with block let go. Its blow strikes with the shield (the donor's verdict names
+  `weapon_arxshield`), which has no `WDmg`, so it asks (strength + 1) × `HitPow` 0.01 × the hit group: 0.21 on the
+  head and 0.07 on the body with strength 6, as recorded. It pushes the orc (its event's `push` and `alwayspush`):
+  the three that landed pushed it 1.28 to 1.62 m over 1.2 s, playing `Push_*_Front_small`, and the lab pushes it
+  `LabCombat.BashPush` (1.4 m). Its `breakparade` takes it through a parry (no orc parried one). Its arc is fitted to
+  its 11 recorded sweeps (all within 10°); the shield set's other swings take the sword's arcs
+  (`CombatTuning.ArcFor`: 9 of their 13 recorded sweeps within 10°).
+- **Replayed:** the lab bashes with the donor 8 of 8, and the three bashes that landed land in the lab too, one on the
+  donor's hit group (the others strike the head where the donor's struck the body, as the followed orc's pose goes;
+  #10198). The orc's blows on the player agree 86 of 88.
+- **Not recorded:** other moves with `push` (the staff's power attacks, the daggers' rush) push nothing in the lab;
+  shields other than the small orc shield; the shield combos (`combo_sword_*_shield`), which play by the sword's rules.
 
 ### The jump attack
 
@@ -729,6 +769,6 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   - the first-person camera follows the eye, not `SK_Camera_Eyes`'s animation (Dark Messiah's swing camera motion);
   - the disarm (above), the behead's trigger, and the quick draw after an orc's grab;
   - the daggers' backstab and the staff's breakneck (see "Weapons");
-  - the shield-holding moves.
-- **Stamina:** what empty stamina does to the sprint (the lab stops it at 0), and the costs of parrying, blocking and dodging
-  (`Stamina_Parry`, `Stamina_Block`, `Stamina_Dodge` in the settings) aren't measured or modelled.
+  - the shield's block reactions (`parry_sword_shield_A`–`C`) and its breaking (see "The shield").
+- **Stamina:** what empty stamina does to the sprint (the lab stops it at 0). `Stamina_Parry`, `Stamina_Block` and
+  `Stamina_Dodge` are in the settings' AI block: the player's shield blocks and bashes cost nothing (see "The shield").

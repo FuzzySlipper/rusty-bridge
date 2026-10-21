@@ -9,7 +9,8 @@ namespace DarkMessiah.Lab.Sword;
 /// The player's first-person arms and weapon, as Dark Messiah draws them: Arkane's <c>first_basic</c> arms with the
 /// move's clip laid over their class's idle, placed so their <c>eyes</c> attachment sits at the camera, and the weapon
 /// (the build's, <see cref="Equip"/>; the short sword until one is) on the attachment the donor parents it to
-/// (<see cref="HandOf"/>), the daggers' second blade on <c>RightHand_Daggers</c>. It also places the blade
+/// (<see cref="HandOf"/>), the daggers' second blade on <c>RightHand_Daggers</c>, a shield (<see cref="Shield"/>) on
+/// <c>Leftshield</c> (attachment 6, which the donor parents <c>weapon_arxshield</c> to: <c>l01_a-v17-shield</c>). It also places the blade
 /// for the swing traces: the donor traces from the eye toward the blade, out to the weapon's <c>rangeattack</c> (100
 /// units for the short sword), and records each blow's trace that way.
 /// </summary>
@@ -27,6 +28,8 @@ internal sealed class FirstPerson : IDisposable
     Puppet sword;
     // The daggers' second blade, in the other hand (null for a weapon held in one).
     Puppet? offHand;
+    // The shield on the arm (null for none).
+    Puppet? shield;
     (string Joint, Vector3 Tip) blade;
     float idleCycle;
 
@@ -59,6 +62,16 @@ internal sealed class FirstPerson : IDisposable
         blade = Rig.BladeTip(sword.Model.Info);
     }
 
+    /// <summary>The shield on the arm, or null: a sword with one plays <c>sword_shield</c>'s clips (<see cref="Clips"/>).</summary>
+    internal LabShield? Shield { get; private set; }
+
+    /// <summary>Puts <paramref name="next"/> on the arm (null takes it off): its model is drawn from now.</summary>
+    internal void Wear(LabShield? next)
+    {
+        Shield = next;
+        shield = next is null ? null : Loaded(next.Model);
+    }
+
     Puppet Loaded(string key)
     {
         if (!weapons.TryGetValue(key, out var puppet))
@@ -80,9 +93,9 @@ internal sealed class FirstPerson : IDisposable
         _ => ("RightHand", null),
     };
 
-    /// <summary>A weapon's clips from the arms' model for its class, at its speed.</summary>
+    /// <summary>A weapon's clips from the arms' model for its class, at its speed, with the shield's set while one is worn.</summary>
     internal SwordClips Clips(LabWeapon weapon, CombatTuning tuning) =>
-        SwordClips.From(ArmsModel.Info, weapon.Class, weapon.AttackSpeed, tuning, weapon.Simple);
+        SwordClips.From(ArmsModel.Info, weapon.Class, weapon.AttackSpeed, tuning, weapon.Simple, Shield is not null);
 
     internal DonorModel ArmsModel => arms.Model;
     /// <summary>Where the blade's tip is, as last posed.</summary>
@@ -91,6 +104,8 @@ internal sealed class FirstPerson : IDisposable
     internal Transform Sword { get; private set; }
     /// <summary>The daggers' second blade, as last posed; null for a weapon held in one hand.</summary>
     internal Transform? OffHand { get; private set; }
+    /// <summary>The shield, as last posed; null for none.</summary>
+    internal Transform? ShieldAt { get; private set; }
 
     /// <summary>
     /// Poses the arms for the sword's move at the eye, looking along <paramref name="forward"/>: the idle runs on its
@@ -111,6 +126,7 @@ internal sealed class FirstPerson : IDisposable
         var (main, other) = HandOf(Weapon.Class);
         Sword = Rig.Attached(arms.Model, pose, main) ?? Arms;
         OffHand = offHand is not null && other is not null ? Rig.Attached(arms.Model, pose, other) ?? Arms : null;
+        ShieldAt = shield is not null ? Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms : null;
         var swordPose = Rig.Rest(engine, sword.Instance, Sword);
         Tip = sword.Model.Joints.TryGetValue(blade.Joint, out int j) ? Vector3.Transform(blade.Tip, swordPose[j].World.Rotation) + swordPose[j].World.Translation : Sword.Translation;
     }
@@ -122,8 +138,13 @@ internal sealed class FirstPerson : IDisposable
         return (eye, eye + (toward.LengthSquared() > 1e-6f ? Vector3.Normalize(toward) : Vector3.UnitZ) * Range);
     }
 
-    internal IEnumerable<AppearanceFact> Facts() =>
-        offHand is not null && OffHand is { } left ? [arms.Fact(Arms), sword.Fact(Sword), offHand.Fact(left)] : [arms.Fact(Arms), sword.Fact(Sword)];
+    internal IEnumerable<AppearanceFact> Facts()
+    {
+        yield return arms.Fact(Arms);
+        yield return sword.Fact(Sword);
+        if (offHand is not null && OffHand is { } left) yield return offHand.Fact(left);
+        if (shield is not null && ShieldAt is { } arm) yield return shield.Fact(arm);
+    }
 
     public void Dispose()
     {

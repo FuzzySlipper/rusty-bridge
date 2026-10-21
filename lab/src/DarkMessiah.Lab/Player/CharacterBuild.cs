@@ -50,7 +50,9 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
     /// <item>each skill is one of <c>mm_skills_infos.txt</c>'s, at a level from 0 to its <c>max_level</c>;</item>
     /// <item>a skill above level 0 has what it <c>requires</c>: one of the skills its "a|b" list names, above level 0;</item>
     /// <item>the weapon and off-hand are imported items (their <c>.qct</c>) the lab can play: a sword, the club, daggers or a
-    /// staff (<see cref="Sword.LabWeapon.ClassOf"/>), and no shield yet (#10149);</item>
+    /// staff (<see cref="Sword.LabWeapon.ClassOf"/>), and a shield (<c>models/items/armors/shield*</c>), which needs a
+    /// sword or the club in hand and <c>combat_shield_enabled</c> (the combat skill's level 2), as the game's
+    /// <c>sword_shield</c> moves do (#10149);</item>
     /// <item>each spell is in <c>spells.txt</c>.</item>
     /// </list>
     /// </summary>
@@ -77,7 +79,12 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
         Authored.Require(isItem(file.Weapon), P, "weapon", $"{file.Weapon} isn't an imported item (no .qct).");
         Authored.Require(Sword.LabWeapon.ClassOf(file.Weapon) is not null, P, "weapon", $"{file.Weapon} isn't a sword, the club, daggers or a staff (models/items/weapons/sword_*, club, daggers*, staff_*): the lab plays no other weapon.");
         Authored.Require(file.OffHand is null || isItem(file.OffHand), P, "offHand", $"{file.OffHand} isn't an imported item (no .qct).");
-        Authored.Require(file.OffHand is null, P, "offHand", "the lab doesn't play a shield yet (#10149): use null.");
+        if (file.OffHand is { } offHand)
+        {
+            Authored.Require(Sword.LabShield.IsShield(offHand), P, "offHand", $"{offHand} isn't a shield (models/items/armors/shield*): the lab plays no other off-hand item.");
+            Authored.Require(Sword.LabWeapon.ClassOf(file.Weapon) == Sword.WeaponClass.Sword, P, "offHand", $"a shield goes with a sword or the club, not {file.Weapon}.");
+            Authored.Require(modules.Contains("combat_shield_enabled"), P, "offHand", "a shield needs combat_shield_enabled: the combat skill at level 2.");
+        }
         foreach (var spell in file.Spells)
             Authored.Require(tables.Spells.ContainsKey(spell), P, $"spells.{spell}", $"isn't a spell in spells.txt ({string.Join(", ", tables.Spells.Keys.Order())}).");
         return new CharacterBuild(modules, VpkIndex.Normalize(file.Weapon), file.OffHand is null ? null : VpkIndex.Normalize(file.OffHand), file.Spells, P,

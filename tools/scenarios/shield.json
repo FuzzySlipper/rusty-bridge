@@ -1,0 +1,148 @@
+{
+  "description": "The player's shield (#10149): every skill module (combat_shield_enabled), the short sword and weapon_arxshield given and used, an orc with 100000 health that fights back: six 4 s blocks from the front (+attack2), four turned about 60 degrees to the left, eight bashes (attack pressed 0.4 s into a block), then three cycles of a full fast chain and a 1.2 s power attack with the shield on the arm.",
+  "seconds": 150,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "give weapon_arxshield",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxshield",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    {
+      "wait": 0.3
+    },
+    {
+      "repeat": 6,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 60
+        },
+        "+attack2",
+        {
+          "wait": 4
+        },
+        "-attack2",
+        {
+          "wait": 0.5
+        }
+      ]
+    },
+    {
+      "repeat": 4,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 60
+        },
+        "+left",
+        {
+          "wait": 0.3
+        },
+        "-left",
+        "+attack2",
+        {
+          "wait": 4
+        },
+        "-attack2",
+        {
+          "wait": 0.5
+        }
+      ]
+    },
+    {
+      "repeat": 8,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        "+attack2",
+        {
+          "wait": 0.4
+        },
+        {
+          "click": 1,
+          "ms": 80
+        },
+        {
+          "wait": 0.6
+        },
+        "-attack2",
+        {
+          "wait": 1.5
+        }
+      ]
+    },
+    {
+      "repeat": 3,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "repeat": 8,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        },
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "click": 1,
+          "ms": 1200
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    }
+  ]
+}

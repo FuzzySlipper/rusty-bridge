@@ -37,8 +37,10 @@ internal sealed record CombatEvent(ulong Tick, bool ByPlayer, string Move, Defen
 /// <item>a kick reaches an orc in front within <see cref="CombatTuning.KickRange"/>, asks its damage and pushes it;</item>
 /// <item>an orc's blow isn't traced, as the donor's on the player isn't: it lands when the donor's reach test passes
 /// (<see cref="CombatModel.Reach"/>: a sweep for the attack part's range toward the player, entering the player's
-/// box), the player's parry turns it unless the part breaks parries (<see cref="CombatModel.PlayerParry"/>), and
-/// otherwise it asks its damage.</item>
+/// box), the player's parry turns it unless the part breaks parries (<see cref="CombatModel.PlayerParry"/>), a raised
+/// shield blocks it from in front (<see cref="CombatModel.PlayerBlock"/>) and takes its damage, and otherwise it asks
+/// its damage;</item>
+/// <item>the shield bash is a swing like the others, and pushes the orc it lands on (<see cref="BashPush"/>).</item>
 /// </list>
 /// Hit tests use a spatial session of their own, so the hulls never touch the player's body or the loose cubes.
 /// </summary>
@@ -107,6 +109,7 @@ internal sealed class LabCombat : IDisposable
     {
         Build = build;
         Stamina.Retune(staminaRules.For(build));
+        Wear(ShieldOf(build));
         if (arm && LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
         Sword.CanParry = build.Has("combat_parry");
         Sword.ChainLength = Weapon.Simple ? 2 : build.Has("combat_chained_slash") ? 5 : 2;
@@ -116,16 +119,54 @@ internal sealed class LabCombat : IDisposable
         Sword.CanWhirl = build.Has("combat_trample");
     }
 
-    readonly Dictionary<string, SwordClips?> weaponClips = new(StringComparer.Ordinal);
+    readonly Dictionary<(string, bool), SwordClips?> weaponClips = [];
 
-    /// <summary>A weapon's clips at the tuning the lab started with, by its model; null for one the lab doesn't play (the calibrations' move sets).</summary>
-    internal SwordClips? ClipsFor(string model)
+    /// <summary>
+    /// A weapon's clips at the tuning the lab started with, by its model, with a <paramref name="shield"/> on the arm or
+    /// not; null for one the lab doesn't play (the calibrations' move sets).
+    /// </summary>
+    internal SwordClips? ClipsFor(string model, bool shield = false)
     {
         model = RustyBridge.Wire.Donor.VpkIndex.Normalize(model);
-        if (!weaponClips.TryGetValue(model, out var clips))
-            weaponClips[model] = clips = LabWeapon.ClassOf(model) is null ? null : FirstPerson.Clips(LabWeapon.Of(donor, model), Tuning);
+        if (!weaponClips.TryGetValue((model, shield), out var clips))
+            weaponClips[(model, shield)] = clips = LabWeapon.ClassOf(model) is not { } weaponClass ? null
+                : SwordClips.From(FirstPerson.ArmsModel.Info, weaponClass, LabWeapon.Of(donor, model).AttackSpeed, Tuning, LabWeapon.Of(donor, model).Simple, shield);
         return clips;
     }
+
+    /// <summary>
+    /// The shield a build wears: its off-hand when that is a shield and the build has <c>combat_shield_enabled</c> (the
+    /// combat skill's level 2), which the game's <c>sword_shield</c> moves need; null otherwise.
+    /// </summary>
+    internal LabShield? ShieldOf(CharacterBuild build) =>
+        build.OffHand is { } offHand && LabShield.IsShield(offHand) && build.Has("combat_shield_enabled")
+            ? LabShield.Of(donor, offHand, model.Data.Settings.PlayerShieldHealthCoeff) : null;
+
+    /// <summary>The shield on the arm, or null.</summary>
+    internal LabShield? Shield => FirstPerson.Shield;
+    /// <summary>What is left of the shield's health: blocked blows take their damage from it, and at none it breaks.</summary>
+    internal float ShieldHealth { get; private set; }
+    /// <summary>The shield is raised: blocking, with a sword in hand.</summary>
+    internal bool Blocking => Sword.Parrying && Shield is not null && Weapon.Class == WeaponClass.Sword;
+
+    /// <summary>
+    /// Puts <paramref name="shield"/> on the arm (null takes it off), at its full health, and plays the sword's set for it
+    /// (<c>sword_shield</c> with one, <c>sword_noshield</c> without) from the next move on.
+    /// </summary>
+    void Wear(LabShield? shield)
+    {
+        if (shield?.Model != Shield?.Model) ShieldHealth = shield?.Health ?? 0;
+        bool changed = (shield is null) != (Shield is null);
+        FirstPerson.Wear(shield);
+        if (changed && drawing is null) Sword.Retune(FirstPerson.Clips(Weapon, Tuning));
+    }
+
+    /// <summary>
+    /// How far the shield bash pushes the orc, metres: it was pushed 1.28, 1.62 and 1.32 m by the three that landed in
+    /// <c>l01_a-v17-shield</c>, playing <c>Push_*_Front_small</c> for 1.2 s. The bash's <c>.qct</c> event has
+    /// <c>push</c> and <c>alwayspush</c>; other moves with them (the staff's power attacks) aren't recorded pushing.
+    /// </summary>
+    internal const float BashPush = 1.4f;
 
     /// <summary>The weapon the hand holds, or is drawing: the build's.</summary>
     internal LabWeapon Weapon => drawing ?? FirstPerson.Weapon;
@@ -239,7 +280,7 @@ internal sealed class LabCombat : IDisposable
             decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
         }
-        foreach (var blow in blows) OrcStrikes(tick, blow, feet);
+        foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { PlayerHealth = Tuning.PlayerHealth; deadSeconds = 0; Message = "Back on your feet"; }
     }
 
@@ -270,6 +311,9 @@ internal sealed class LabCombat : IDisposable
         toPlayer.Y = 0;
         float front = toPlayer.LengthSquared() > 1e-6f ? Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) : 0;
         var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, Orc.DefenseState));
+        bool bash = Sword.Move == SwordMove.Bash;
+        // The bash's event has breakparade: it goes through a parry. Not recorded (no orc parried one).
+        if (bash && verdict == DefenseResult.Parry && model.EventOf(player)?.BreaksParry == true) verdict = DefenseResult.Hit;
         string what = struck == Struck.Body ? $"hit group {targets[0].Model.Hitboxes[c.Hitbox].Group}" : struck == Struck.Weapon ? "its cleaver" : "its shield";
         // The swing plays on: the donor's sword doesn't bounce off an orc's parry or shield (none of 23 recorded did).
         if (verdict is DefenseResult.Parry or DefenseResult.Shield)
@@ -281,7 +325,7 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         int? group = struck == Struck.Body ? targets[0].Model.Hitboxes[c.Hitbox].Group : null;
-        float asked = Asked(tick, player, orc, group);
+        float asked = Asked(tick, player, orc, group, bash ? SwordClips.BashWeapon : null);
         // The blow's .qct event gives adrenaline; the Fatality spends it, and a head blow of a cutting move kills.
         var hit = model.EventOf(player);
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
@@ -294,10 +338,11 @@ internal sealed class LabCombat : IDisposable
         Orc.Damage(asked);
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
         if (Sword.Move == SwordMove.Fatality && wasAlive && !Orc.Alive) AskSlowTime(SlowTime.FatalityKill);
+        if (bash) Orc.Push((Orc.Feet - feet) with { Y = 0 }, BashPush, "Push_Body_Front_small");
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
-        Message = Orc.Alive ? FormattableString.Invariant($"Hit for {asked:0.##}") : "The orc falls";
+        Message = !Orc.Alive ? "The orc falls" : bash ? "Bash" : FormattableString.Invariant($"Hit for {asked:0.##}");
     }
 
     /// <summary>
@@ -325,7 +370,7 @@ internal sealed class LabCombat : IDisposable
         var clip = Sword.Clip;
         var window = clip.Windows[Math.Max(0, Sword.Window)];
         float fraction = window.Close > window.Open ? Math.Clamp((cycle - window.Open) / (window.Close - window.Open), 0, 1) : 0;
-        return Tuning.SwingArcs?.GetValueOrDefault(clip.Clip)?.At(fraction) ?? (0, 0);
+        return Tuning.ArcFor(clip.Clip)?.At(fraction) ?? (0, 0);
     }
 
     /// <summary>The widest gap between a step's rays: the donor's came 7° to 11° apart (Wire v17's sweeps).</summary>
@@ -368,14 +413,14 @@ internal sealed class LabCombat : IDisposable
     /// What a swing's blow asks, its critical decided: a move whose .qct event has <c>critical_enable</c> doubles on the
     /// lab's seeded roll, or in a replay on the donor's recorded critical (<see cref="RecordedCritical"/>), and counts it.
     /// </summary>
-    float Asked(ulong tick, Party player, Party victim, int? group)
+    float Asked(ulong tick, Party player, Party victim, int? group, string? weapon = null)
     {
         if (model.EventOf(player)?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
         {
             Criticals++;
-            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true);
+            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true, weapon: weapon);
         }
-        return PlayerAsks(player, victim, group, kick: false, Orc.Health);
+        return PlayerAsks(player, victim, group, kick: false, Orc.Health, weapon: weapon);
     }
 
     /// <summary>
@@ -522,7 +567,7 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The player's strength, from the build's <c>extra_damage</c> level (<see cref="CombatData.PlayerStrength"/>).</summary>
     internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
 
-    void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet)
+    void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet, Vector3 forward)
     {
         OrcStats = OrcStats with { Blows = OrcStats.Blows + 1 };
         Vector3 toPlayer = (feet - Orc.Feet) with { Y = 0 };
@@ -535,7 +580,37 @@ internal sealed class LabCombat : IDisposable
         OrcStats = OrcStats with { Reached = OrcStats.Reached + 1 };
         var orc = Orc.Party() with { Cycle = blow.Cycle };
         bool broken = false;
-        if (Sword.Parrying)
+        var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
+        float asked = model.Damage(new DamageCase((int)tick, player, orc, "weapon_arxorccleaver", null, 0x4, 0, 0, PlayerHealth, PlayerHealth, false,
+            blow.Part, Npc.Orc.Cleaver)) ?? 0;
+        if (Blocking)
+        {
+            Vector3 look = forward with { Y = 0 }, toOrc = (Orc.Feet - feet) with { Y = 0 };
+            float front = look.LengthSquared() > 1e-6f && toOrc.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(look), Vector3.Normalize(toOrc)) : 1;
+            var outcome = model.PlayerBlock(new ParryCase((int)tick, orc, DefenseResult.PlayerParried, blow.Part), front, Shield!.ParryCos);
+            if (outcome == DefenseResult.PlayerParried)
+            {
+                // The shield takes the blow's damage (l01_a-v17-shield: the player none).
+                ShieldHealth -= asked;
+                OrcStats = OrcStats with { Parried = OrcStats.Parried + 1 };
+                Message = "Blocked";
+                Log?.Add(new CombatEvent(tick, false, blow.Attack, DefenseResult.PlayerParried, asked, null));
+                if (ShieldHealth <= 0)
+                {
+                    // Not recorded: no shield was worn through (the recorded one lost 136 of its 240).
+                    Wear(null);
+                    Message = "The shield breaks";
+                }
+                return;
+            }
+            if (outcome == DefenseResult.PlayerParryBroken)
+            {
+                Sword.Break();
+                broken = true;
+                OrcStats = OrcStats with { Broken = OrcStats.Broken + 1 };
+            }
+        }
+        else if (Sword.Parrying)
         {
             var outcome = model.PlayerParry(new ParryCase((int)tick, orc, DefenseResult.PlayerParried, blow.Part));
             if (outcome == DefenseResult.PlayerParried)
@@ -549,9 +624,6 @@ internal sealed class LabCombat : IDisposable
             broken = true;
             OrcStats = OrcStats with { Broken = OrcStats.Broken + 1 };
         }
-        var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
-        float asked = model.Damage(new DamageCase((int)tick, player, orc, "weapon_arxorccleaver", null, 0x4, 0, 0, PlayerHealth, PlayerHealth, false,
-            blow.Part, Npc.Orc.Cleaver)) ?? 0;
         OrcStats = OrcStats with { Dealt = OrcStats.Dealt + asked };
         Log?.Add(new CombatEvent(tick, false, blow.Attack, broken ? DefenseResult.PlayerParryBroken : DefenseResult.Hit, asked, null));
         if (!God)

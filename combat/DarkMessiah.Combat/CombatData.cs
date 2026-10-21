@@ -13,7 +13,7 @@ namespace DarkMessiah.Combat;
 /// Whirlwind's ×0.5 for 2.5 s; null when it asks none).
 /// </summary>
 public sealed record AttackEvent(float HitPow, bool BreaksParry, float Range = AttackEvent.DefaultRange, int Move = 0, float Adrenaline = 0,
-    bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null)
+    bool CutsHead = false, bool CanCritical = false, SlowTime? SlowTime = null, bool ForceBreaksParry = false)
 {
     /// <summary>A combat move's range when its block gives none: the move's constructor sets 120 (server.dll+0x3DD56C).</summary>
     public const float DefaultRange = 120;
@@ -65,12 +65,14 @@ public sealed record CharacterData(string Model, float Strength, IReadOnlyDictio
 /// <see cref="PlayerDamageMultiplier"/>. A player's kick asks <see cref="KickDamage"/>, and costs
 /// <see cref="StaminaKickNpc"/> stamina when it lands on an NPC, <see cref="StaminaKickAll"/> otherwise. With daggers the
 /// backstab readies within <see cref="BackStabDistIn"/> units of a victim's back and lets go beyond <see cref="BackStabDistOut"/>.
+/// The player's shield has its item's <c>health</c> times <see cref="PlayerShieldHealthCoeff"/> (the player block's
+/// <c>HealthCoeffShield</c>: the small orc shield's 80 became 240 in <c>l01_a-v17-shield</c>).
 /// </summary>
 public sealed record GameSettings(float NotAlertedMultiplier, int NotAlertedLevel, float PlayerDamageMultiplier, float KickDamage = 1,
-    float StaminaKickNpc = 3, float StaminaKickAll = 1, float BackStabDistIn = 100, float BackStabDistOut = 200)
+    float StaminaKickNpc = 3, float StaminaKickAll = 1, float BackStabDistIn = 100, float BackStabDistOut = 200, float PlayerShieldHealthCoeff = 3)
 {
     /// <summary>What the shipped file says, for when it can't be read.</summary>
-    public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1, 100, 200);
+    public static readonly GameSettings Shipped = new(3, 0, 1, 1, 3, 1, 100, 200, 3);
 }
 
 /// <summary>A weapon's damage from its model's .qct: `WDmg`, "to be added to damage done", and `WCritHit`, the critical
@@ -224,7 +226,10 @@ public sealed class CombatData
             Deep(game, "stamina_kick_npc") ?? shipped.StaminaKickNpc,
             Deep(game, "stamina_kick_all") ?? shipped.StaminaKickAll,
             Deep(game, "BackStabDist_IN") ?? shipped.BackStabDistIn,
-            Deep(game, "BackStabDist_OUT") ?? shipped.BackStabDistOut);
+            Deep(game, "BackStabDist_OUT") ?? shipped.BackStabDistOut,
+            // The item .qcts have their own HealthCoeffShield (10); the player's is the settings' player block.
+            game.Block("player")?.Number("HealthCoeffShield")
+                ?? shipped.PlayerShieldHealthCoeff);
     }
 
     /// <summary>The tables from a game's VPK folder (local/donor/vpks, or the install's vpks).</summary>
@@ -271,7 +276,8 @@ public sealed class CombatData
             b.Number("range") ?? AttackEvent.DefaultRange, (int)(b.Number("AttackMove") ?? 0), b.Number("adrenalineadd") ?? 0,
             (b.Number("cutheadflag") ?? 0) > 0, (b.Number("critical_enable") ?? 0) > 0,
             b.Number("slowtime_duration") is float duration && duration > 0
-                ? new SlowTime(b.Number("slowtime_delay") ?? 0, duration, b.Number("slowtime_factor") ?? 1) : null);
+                ? new SlowTime(b.Number("slowtime_delay") ?? 0, duration, b.Number("slowtime_factor") ?? 1) : null,
+            (b.Number("forcebreakparade") ?? 0) > 0);
 
     public WeaponData? Weapon(string model)
     {

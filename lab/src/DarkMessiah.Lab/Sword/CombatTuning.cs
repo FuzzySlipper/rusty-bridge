@@ -15,11 +15,21 @@ namespace DarkMessiah.Lab.Sword;
 /// <param name="KickPush">How far a kick pushes the orc back, metres.</param>
 /// <param name="Phases">Each move's windup, active and recovery timing against the donor's clip (1 plays it as the donor does).</param>
 /// <param name="SwingArcs">Where each swing's trace points across its hit window, by first-person clip (docs/lab.md, "The
-/// blade's trace"): calibrated against the donor's recorded traces. A clip not listed traces straight along the view.</param>
+/// blade's trace"): calibrated against the donor's recorded traces. A shield set's clip not listed takes its sword-only
+/// twin's (<see cref="ArcFor"/>); any other clip not listed traces straight along the view.</param>
 internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScale, float[] KickWindow,
     float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc, Dictionary<string, SwingArc>? SwingArcs = null)
 {
     internal const string Path = "combat.json";
+
+    /// <summary>
+    /// A clip's swing arc: its own, else, for the <c>sword_shield</c> set, the same move's <c>sword_noshield</c> arc. Of
+    /// the 13 sweeps <c>l01_a-v17-shield</c> recorded for the shield set's fast and power attacks, 9 lie within 10° of
+    /// the sword-only arcs; the bash has its own.
+    /// </summary>
+    internal SwingArc? ArcFor(string clip) =>
+        SwingArcs?.GetValueOrDefault(clip) ?? (clip.Contains("_shield", StringComparison.Ordinal) && !clip.Contains("_noshield", StringComparison.Ordinal)
+            ? SwingArcs?.GetValueOrDefault(clip.Replace("_shield", "_noshield", StringComparison.Ordinal)) : null);
 
     internal static CombatTuning Load(IEngineContext engine) => Validate(Authored.Read(engine, Path, CombatJson.Default.CombatTuning));
 

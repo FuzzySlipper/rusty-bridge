@@ -45,7 +45,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
-    IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null)
+    IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -61,6 +61,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
         if (Adrenaline is { Ticks: > 0 } a)
             yield return FormattableString.Invariant($"  adrenaline: the lab's gauge, on its own blows from the donor's start, within 1 of the donor's on {a.Near} of {a.Ticks} ticks ({100.0 * a.Near / a.Ticks:0}%)");
         if (Body is { } b) yield return $"  {b}";
+        if (Shield is { } shield) yield return $"  {shield}";
         foreach (var side in new[] { PlayerBlows, OrcBlows })
         {
             yield return $"  {side}";
@@ -70,6 +71,16 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     }
 
     public override string ToString() => string.Join(Environment.NewLine, Lines());
+}
+
+/// <summary>
+/// The shield's wear (#10149): the blows each side blocked that took something off it, paired within
+/// <see cref="CombatReplay.Window"/>, and how many pairs wore it alike (within 0.05).
+/// </summary>
+internal sealed record ShieldWear(int Donor, float DonorWorn, int Lab, float LabWorn, int Paired, int Alike)
+{
+    public override string ToString() => FormattableString.Invariant(
+        $"shield: the donor's blocks wore it {Donor} times by {DonorWorn:0.#}, the lab's {Lab} times by {LabWorn:0.#}; {Paired} paired, {Alike} alike");
 }
 
 /// <summary>
@@ -343,7 +354,8 @@ internal static class CombatReplay
             if (!First(d.Tick, d.Victim.Id)) continue;
             if (Followed(d.Tick) != d.Victim.Id) { Exclude(d.Tick, true, d.Victim.Class); continue; }
             var verdict = fight.Defense.FirstOrDefault(v => v.Tick == d.Tick && v.Victim.Id == d.Victim.Id && v.Attacker.IsPlayer)?.Donor ?? DefenseResult.Hit;
-            bool kick = (d.DamageType & 0x40000) != 0;
+            // The jump and rush attacks' and the bash's blows carry the kick's bit too (they push): a kick is one the newest move doesn't say is a swing.
+            bool kick = (d.DamageType & 0x40000) != 0 && InputTimeline.Family(Move(d.Attacker.Layers)) is null or "kick";
             donorPlayer.Add(new ReplayBlow(d.Tick, TimeOf(d.Tick), kick ? clips.Kick.Clip : Move(d.Attacker.Layers),
                 verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect ? verdict : DefenseResult.Hit,
                 d.Defended ? 0 : d.Requested, kick ? null : d.HitGroup));
@@ -368,8 +380,10 @@ internal static class CombatReplay
         foreach (var p in fight.Parries.Where(p => p.Attacker.Class == InputTimeline.OrcClass && !Unplayable(p.Tick)))
         {
             if (Followed(p.Tick) != p.Attacker.Id) { otherAttackers++; excluded.Add((p.Tick, false, p.Attacker.Class)); continue; }
+            // A broken parry lets the blow's damage through; a shield's block puts it on the shield (#10149).
             float dealt = p.Donor == DefenseResult.PlayerParryBroken
-                ? fight.Damage.Where(d => d.Tick == p.Tick && d.Attacker.Id == p.Attacker.Id && d.Victim.IsPlayer).Sum(d => d.Requested) : 0;
+                ? fight.Damage.Where(d => d.Tick == p.Tick && d.Attacker.Id == p.Attacker.Id && d.Victim.IsPlayer).Sum(d => d.Requested)
+                : timeline.ShieldWear.Where(w => w.Tick == p.Tick).Sum(w => w.Damage);
             donorOrc.Add(new ReplayBlow(p.Tick, TimeOf(p.Tick), p.Attacker.Sequence, p.Donor, dealt, null));
         }
         foreach (var d in fight.Damage.Where(d => d.Attacker.Class == InputTimeline.OrcClass && d.Victim.IsPlayer && !Unplayable(d.Tick)))
@@ -397,6 +411,23 @@ internal static class CombatReplay
             kicks = new KickRequests(requests.Count, requests.Count(r => Began(donorKicks, r)), requests.Count(r => Began(labKicks, r)),
                 requests.Count(r => Began(donorKicks, r) && Began(labKicks, r)));
         }
+        ShieldWear? shieldWear = null;
+        if (timeline.ShieldWear.Count > 0 || labLog.Any(e => !e.ByPlayer && e.Verdict == DefenseResult.PlayerParried && e.Damage > 0))
+        {
+            var donorWear = timeline.ShieldWear.Where(w => !Unplayable(w.Tick)).ToList();
+            var labWear = labLog.Where(e => !e.ByPlayer && e.Verdict == DefenseResult.PlayerParried && e.Damage > 0).ToList();
+            var free = labWear.ToList();
+            int paired = 0, alike = 0;
+            foreach (var (tick, worn) in donorWear)
+            {
+                var near = free.Where(e => Math.Abs(TimeOf((int)e.Tick) - TimeOf(tick)) <= Window).OrderBy(e => Math.Abs((long)e.Tick - tick)).FirstOrDefault();
+                if (near is null) continue;
+                free.Remove(near);
+                paired++;
+                if (MathF.Abs(near.Damage - worn) <= .05f) alike++;
+            }
+            shieldWear = new ShieldWear(donorWear.Count, donorWear.Sum(w => w.Damage), labWear.Count, labWear.Sum(e => e.Damage), paired, alike);
+        }
         BodyReplay? bodyReplay = driveBody
             ? new BodyReplay(donorSpeeds.Count, donorSpeeds.Count > 0 ? donorSpeeds.Average() : 0, labSpeeds.Count > 0 ? labSpeeds.Average() : 0, jumps, labJumps, uses)
             : null;
@@ -407,7 +438,7 @@ internal static class CombatReplay
             notCompared, kicks, bodyReplay, byClip, excluded,
             timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, each played from its tick" : "")}"
                 + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
-            shadow is null ? null : (shadowNear, shadowTicks), applied);
+            shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear);
     }
 
     /// <summary>

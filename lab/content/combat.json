@@ -38,6 +38,16 @@
     "respawnSeconds": 3
   },
   "swingArcs": {
+    "layer_parry_sword_shield_bash": {
+      "side": [
+        -12.4,
+        8.5
+      ],
+      "up": [
+        24.6,
+        -14.4
+      ]
+    },
     "layer_fastattack_sword_noshield_A": {
       "side": [
         -36.5,

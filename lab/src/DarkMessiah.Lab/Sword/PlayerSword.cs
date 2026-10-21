@@ -5,7 +5,7 @@ namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
 internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind, Undraw, Draw,
-    BackstabIn, BackstabIdle, Backstab, BackstabCancel, Transition, Away }
+    BackstabIn, BackstabIdle, Backstab, BackstabCancel, Transition, Away, Bash }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -124,9 +124,21 @@ internal sealed record PowerClips(MoveClip In, MoveClip Hold, MoveClip Out);
 internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirection, PowerClips> Charges, IReadOnlyList<MoveClip> Chain,
     IReadOnlyList<MoveClip?> Ends, MoveClip ParryIn, MoveClip ParryHold, MoveClip ParryOut, MoveClip Kick, MoveClip Broken, LeapClips? Leap = null,
     MoveClip? Rush = null, MoveClip? Fatality = null, MoveClip? Whirlwind = null, bool Wraps = false, MoveClip? Draw = null, MoveClip? QuickDraw = null,
-    MoveClip? Undraw = null, BackstabClips? Backstab = null, IReadOnlyList<MoveClip?>? Transitions = null)
+    MoveClip? Undraw = null, BackstabClips? Backstab = null, IReadOnlyList<MoveClip?>? Transitions = null, MoveClip? Bash = null)
 {
     internal const string Model = "models/npc/player/first_basic.mdl";
+
+    /// <summary>
+    /// The shield bash's clip. Its blow strikes with the shield (the donor's verdict names <c>weapon_arxshield</c>),
+    /// which has no <c>WDmg</c>: it asks the unarmed 1 (<see cref="BashWeapon"/>).
+    /// </summary>
+    internal const string BashClip = "layer_parry_sword_shield_bash";
+
+    /// <summary>
+    /// The weapon a bash's blow asks its damage by: none, so (strength + 1) × its <c>HitPow</c> 0.01 × the hit group's
+    /// multiplier. With strength 6 (<c>extra_damage</c> 3) the recorded bashes asked 0.21 on the head and 0.07 on the body.
+    /// </summary>
+    internal const string BashWeapon = "-";
 
     /// <summary>The fast attack a chain starts with, A.</summary>
     internal MoveClip Fast => Chain[0];
@@ -141,13 +153,14 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     /// <summary>Every clip the set plays, by its name; null for one it lacks.</summary>
     internal MoveClip? Named(string name) =>
         new MoveClip?[] { Idle, ParryIn, ParryHold, ParryOut, Kick, Broken, Rush, Fatality, Whirlwind, Draw, QuickDraw, Undraw,
-            Leap?.In, Leap?.Idle, Leap?.Out, Leap?.Cancel, Backstab?.In, Backstab?.Idle, Backstab?.Out, Backstab?.Cancel }
+            Leap?.In, Leap?.Idle, Leap?.Out, Leap?.Cancel, Backstab?.In, Backstab?.Idle, Backstab?.Out, Backstab?.Cancel, Bash }
             .Concat(Chain).Concat(Ends).Concat(Transitions ?? []).Concat(Charges.Values.SelectMany(c => new[] { c.In, c.Hold, c.Out }))
             .FirstOrDefault(c => c?.Clip == name);
 
     /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release, the kick, the jump attack's strike and the rush.</summary>
     internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush },
-        .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }, .. Backstab is null ? [] : new[] { Backstab.Out }];
+        .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }, .. Backstab is null ? [] : new[] { Backstab.Out },
+        .. Bash is null ? [] : new[] { Bash }];
 
     /// <summary>The power attack's clips for <paramref name="direction"/>, the neutral ones when the model has none for it.</summary>
     internal PowerClips Charge(PowerDirection direction) => Charges.GetValueOrDefault(direction) ?? Charges[PowerDirection.Neutral];
@@ -163,13 +176,18 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     sealed record Names(string Idle, string Fast, string Letters, Func<char, string?> End, string Charge, string Parry, string Kick, string Broken,
         string LeapIn, string Leap, string Rush, string Huge, string Trample, string Set, bool Wraps);
 
-    static Names For(WeaponClass weapon) => weapon switch
+    static Names For(WeaponClass weapon, bool shield) => (weapon, shield) switch
     {
-        WeaponClass.Daggers => new("layer_daggers_idle", "layer_fastattack_daggers_{0}", "ABCDE", c => c == 'E' ? null : $"layer_fastattack_daggers_end_{c}",
+        // With a shield on the arm the sword plays sword_shield's set (l01_a-v17-shield: its fast chain, power attack and block).
+        (WeaponClass.Sword, true) => new("layer_sword_shield_idle", "layer_fastattack_sword_shield_{0}", "ABCDE", c => c is 'A' or 'E' ? "layer_fastattack_sword_shield_end" : null,
+            "layer_bigslash_sword_shield_{0}{1}", "layer_parry_sword_shield_{0}", "layer_sword_shield_kick_medium", "layer_state_sword_parry_breaked",
+            "layer_combo_sword_fall_shield_jump_in", "layer_combo_sword_fall_shield_{0}", "layer_combo_sword_rush_shield", "layer_combo_sword_huge_shield",
+            "layer_combo_sword_trample_shield", "sword_shield", Wraps: false),
+        (WeaponClass.Daggers, _) => new("layer_daggers_idle", "layer_fastattack_daggers_{0}", "ABCDE", c => c == 'E' ? null : $"layer_fastattack_daggers_end_{c}",
             "layer_bigslash_Daggers_{0}{1}", "layer_parry_Daggers_{0}", "layer_daggers_kick_medium", "layer_state_daggers_parry_breaked",
             "layer_combo_daggers_fall_in", "layer_combo_daggers_fall_{0}", "layer_combo_daggers_rush", "layer_combo_daggers_huge", "layer_combo_daggers_trample",
             "daggers", Wraps: true),
-        WeaponClass.Staff => new("layer_staff_idle", "layer_fastattack_staff_{0}", "ABCD", c => c == 'D' ? null : $"layer_fastattack_staff_{c}_end",
+        (WeaponClass.Staff, _) => new("layer_staff_idle", "layer_fastattack_staff_{0}", "ABCD", c => c == 'D' ? null : $"layer_fastattack_staff_{c}_end",
             "layer_bigslash_staff_{0}{1}", "layer_parry_staff_{0}", "layer_staff_kick_medium", "layer_state_staff_parry_breaked",
             "layer_combo_staff_fall_jump_in", "layer_combo_staff_fall_{0}", "layer_combo_staff_rush", "layer_combo_staff_huge", "layer_combo_staff_trample",
             "staff", Wraps: true),
@@ -188,10 +206,13 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     /// <summary>
     /// A weapon's clips from the first-person model for its class: attacks at its <c>speed_attack</c>, draws at the
     /// clips' own rate (the recorded draws took their clips' length), no draw for a <paramref name="simple"/> weapon.
+    /// A sword with a <paramref name="shield"/> on the arm plays <c>sword_shield</c>'s, with the shield bash
+    /// (<c>layer_parry_sword_shield_bash</c>) at its own rate (the recorded ones took its 1.27 s).
     /// </summary>
-    internal static SwordClips From(ModelInfo model, WeaponClass weapon, float attackSpeed, CombatTuning tuning, bool simple = false)
+    internal static SwordClips From(ModelInfo model, WeaponClass weapon, float attackSpeed, CombatTuning tuning, bool simple = false, bool shield = false)
     {
-        var n = For(weapon);
+        shield &= weapon == WeaponClass.Sword;
+        var n = For(weapon, shield);
         MoveClip C(string name, float rate = 1, bool loop = false) => MoveClip.Of(model.Clips[name], rate, loop);
         MoveClip? Maybe(string name, float rate = 1, bool loop = false) => model.Clips.ContainsKey(name) ? C(name, rate, loop) : null;
         string F(string pattern, params object[] args) => string.Format(System.Globalization.CultureInfo.InvariantCulture, pattern, args);
@@ -220,7 +241,8 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
                     C("layer_backstab_cancel"))
                 : null,
             // At the clip's own rate: the recorded ones took 22 ticks, its 0.333 s.
-            weapon == WeaponClass.Daggers ? n.Letters.Select(c => Maybe($"layer_transition_daggers_{c}")).ToList() : null);
+            weapon == WeaponClass.Daggers ? n.Letters.Select(c => Maybe($"layer_transition_daggers_{c}")).ToList() : null,
+            shield ? Maybe(BashClip) : null);
     }
 }
 
@@ -269,7 +291,8 @@ internal sealed record LeapClips(MoveClip In, MoveClip Idle, MoveClip Out, MoveC
 /// (<see cref="CanWhirl"/>) the Whirlwind (<c>layer_combo_sword_trample_noshield</c>);</item>
 /// <item>while sprinting, a charge released from its hold is the rush attack with <c>combat_rush_attack</c>
 /// (<see cref="CanRush"/>; the game's Charge, Sprint+Power Strike), and one released before its hold plays nothing;</item>
-/// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release), from the ground;</item>
+/// <item>holding block parries (<c>layer_parry_*_in</c>, held, then <c>_out</c> on release), from the ground; with a
+/// shield it blocks, and attack pressed while blocking is the shield bash (<c>layer_parry_sword_shield_bash</c>);</item>
 /// <item>a kick asked for (pressed, and still held) plays <c>layer_sword_noshield_kick_medium</c> as soon as it may:
 /// from any move but a kick or a broken parry, when the caller allows it (on the ground, with stamina,
 /// <see cref="PlayerStamina"/>). Starting consumes the press;</item>
@@ -315,7 +338,7 @@ internal sealed class PlayerSword(SwordClips clips)
     internal int Window => Swinging ? Clip.WindowAt(stepFrom, Cycle) : -1;
     /// <summary>A move that swings or kicks plays: its hit window may be open.</summary>
     internal bool Swinging => Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick or SwordMove.LeapOut or SwordMove.Rush or SwordMove.Fatality or SwordMove.Whirlwind
-        or SwordMove.Backstab;
+        or SwordMove.Backstab or SwordMove.Bash;
     /// <summary>The cycle to pose the blade at for this step's trace: inside the window, when the step ran past it.</summary>
     internal float TraceCycle => Window is int w and >= 0 ? Math.Clamp(Cycle, Clip.Windows[w].Open, Clip.Windows[w].Close) : Cycle;
     /// <summary>Where this step's swing came from in its hit window: the previous step's cycle, clamped into the window.</summary>
@@ -548,7 +571,10 @@ internal sealed class PlayerSword(SwordClips clips)
                 else if (done && Clip == charge.In) Play(SwordMove.Charge, charge.Hold);
                 break;
             case SwordMove.Parry:
-                if (!blockHeld) Play(SwordMove.ParryOut, clips.ParryOut);
+                // With a shield, attack pressed while blocking bashes (8 of 8 in l01_a-v17-shield); the bash plays out
+                // whatever the buttons do (all eight let go of block halfway through it).
+                if (attackPressed && clips.Bash is { } bash) Play(SwordMove.Bash, bash, swing: true);
+                else if (!blockHeld) Play(SwordMove.ParryOut, clips.ParryOut);
                 else if (done && Clip == clips.ParryIn) Play(SwordMove.Parry, clips.ParryHold);
                 break;
             case SwordMove.Fast:

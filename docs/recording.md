@@ -159,6 +159,7 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `weapon-daggers` | the same with the kryss daggers | the same at 45 units, then three power and three fast attacks at an unaware orc turned away (no backstab landed) |
 | `weapon-staff` | the same with the combat staff | the same at 65 units with bursts of 24 clicks and 1.8 s holds (its wind-up is 1.4 s), then the same tries at an unaware orc (no breakneck) |
 | `weapon-switch` | every skill, the long sword, kryss daggers, combat staff and club given, a new orc with 100000 health | `use` each in turn, three rounds, attacking 0, 0.3 or 0.8 s after: two clicks, then a 1.2 s hold |
+| `shield` | every skill (`combat_shield_enabled`), the short sword and `weapon_arxshield` (the small orc shield) given and used, an orc with 100000 health that fights back | six 4 s blocks from the front (`+attack2`), four turned about 60° left, eight bashes (a click 0.4 s into a block), three cycles of a fast chain and a 1.2 s power attack |
 | `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
 | `telekinesis` | every skill, telekinesis deployed (`Deploy_Spell_AIR_1`), standing 70 units from the start area's jug, looking 11° down at it | three 2.5 s holds: the first lifted it (mana 26.3 to 22.3) |
 | `spells-probe` | every skill | `Deploy_Spell_FIRE_1` and three casts (mana down 4 to 6.6 each), then telekinesis |

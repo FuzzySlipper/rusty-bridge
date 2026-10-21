@@ -276,15 +276,18 @@ internal sealed class Orc : IDisposable
         else if (State is not (OrcState.Attack or OrcState.Backstabbed)) Play(OrcState.Hurt, "Hit_Body_Front_small");
     }
 
-    /// <summary>A kick: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack interrupted.</summary>
-    internal void Push(Vector3 direction, float metres)
+    /// <summary>
+    /// A kick or a shield bash: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack
+    /// interrupted, playing <paramref name="clip"/> (a bashed orc plays <c>Push_*_Front_small</c>).
+    /// </summary>
+    internal void Push(Vector3 direction, float metres, string clip = "Push_Body_back_small")
     {
         if (!Alive || Following) return;
         direction.Y = 0;
         pushDirection = direction.LengthSquared() > 1e-6f ? Vector3.Normalize(direction) : -Facing;
         pushLeft = metres;
         Layer = null;
-        Play(OrcState.Pushed, "Push_Body_back_small");
+        Play(OrcState.Pushed, clip);
     }
 
     /// <summary>Moves the orc's feet (a developer placement).</summary>

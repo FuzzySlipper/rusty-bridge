@@ -24,7 +24,7 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], .5f, 3, []));
+var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], .5f, 3, 61, []));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
@@ -679,8 +679,22 @@ host.Call(engine =>
             $"the orc picks each attack from the donor's distances: {within.Count} of {compared.Count} lab medians inside the donor's p10–p90 ({string.Join(", ", compared.Except(within).Select(a => a.Key))})");
         Check(MathF.Abs(labOrc.GapMedian - donorOrc.GapMedian) <= donorOrc.GapMedian * .3f,
             FormattableString.Invariant($"its attacks come at the donor's rhythm: {labOrc.GapMedian:0.00} s from one to the next against {donorOrc.GapMedian:0.00} (medians, within 30%)"));
-        Check(MathF.Abs(labOrc.WalkRate - donorOrc.WalkRate) <= donorOrc.WalkRate * .05f && labOrc.WalkRates.Count > 0,
-            FormattableString.Invariant($"it walks in at the donor's pace: CombatWalk at {labOrc.WalkRate:0.00} cycles a second against {donorOrc.WalkRate:0.00}, its root motion 96 units a second"));
+        Console.WriteLine(FormattableString.Invariant($"  orc walking speed (units/s): donor {Spread(donorOrc.WalkSpeeds)}; lab {Spread(labOrc.WalkSpeeds)}"));
+        Console.WriteLine(FormattableString.Invariant($"  orc walks end (units off): donor {Spread(donorOrc.WalkEnds)}; lab {Spread(labOrc.WalkEnds)}"));
+        Check(MathF.Abs(labOrc.WalkSpeed - donorOrc.WalkSpeed) <= donorOrc.WalkSpeed * .15f && MathF.Abs(labOrc.WalkRate - donorOrc.WalkRate) <= donorOrc.WalkRate * .05f,
+            FormattableString.Invariant($"it walks in at the donor's ground speed: {labOrc.WalkSpeed:0} units a second against {donorOrc.WalkSpeed:0} (medians, within 15%), the clip at the donor's {donorOrc.WalkRate:0.00} cycles a second"));
+        float endP25 = OrcBehaviour.Quantile(donorOrc.WalkEnds, .25f), endP75 = OrcBehaviour.Quantile(donorOrc.WalkEnds, .75f), endLab = OrcBehaviour.Quantile(labOrc.WalkEnds, .5f);
+        Check(labOrc.WalkEnds.Count >= 10 && endLab >= endP25 && endLab <= endP75,
+            FormattableString.Invariant($"its walks end where the donor's did: {endLab:0} units off (median) within the donor's middle half, {endP25:0}–{endP75:0}"));
+        // Pressed against a standing player at its hull's distance, it fights on (R10150-1): it steps back and attacks again.
+        orc.Spawn();
+        orc.PlaceAt(Vector3.UnitZ * Orc.BodyGap * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+        int attacksBefore = orc.AttacksMade;
+        float pressed = 0;
+        for (; pressed < 15 && orc.AttacksMade == attacksBefore; pressed += Tick) orc.Step(Tick, Vector3.Zero, false);
+        Check(orc.AttacksMade > attacksBefore,
+            FormattableString.Invariant($"an orc pressed against a standing player at 32 units attacks again, after {pressed:0.0} s (stepping back to its uppercut's 34)"));
+        orc.Spawn();
         if (Environment.GetEnvironmentVariable("RB_ORC") == "1") return;
     }
     else Console.WriteLine("skip the orc's behaviour: no local/recordings");

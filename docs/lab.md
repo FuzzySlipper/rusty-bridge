@@ -73,9 +73,9 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 - movement while attacking;
 - the kick's window, range and push;
 - the player's health;
-- the orc's spawn, parry chance (#10151 reads it from the donor) and respawn time, and the landing window each of its
-  attacks is chosen in (`orc.attackLandings`, fitted to the recordings; see "The orc"). Its health, zones, walk and
-  attack rhythm are its `.qct`'s.
+- the orc's spawn, parry chance (#10151 reads it from the donor) and respawn time, and two numbers fitted to the
+  recordings: the landing window each of its attacks is chosen in (`orc.attackLandings`) and its walking speed
+  (`orc.walkSpeed`; see "The orc"). Its health, zones and attack rhythm are its `.qct`'s.
 
 ## Builds
 
@@ -500,20 +500,24 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
 | Each attack's travel to its strike | attack_Jump 96, attack_Forward 77, attack_right 28, KickSwing and KickBash 18–20, the uppercut, bash and fast attack 0–2 | the clip's root motion (`mstudiomovement_t`, which dm-import now writes; docs/import.md) |
 | Where each attack's strike lands | its middle half over the recordings, e.g. the uppercut 34–43, the side and top swings 53–86, the lunges 24–71 | `combat.json` `orc.attackLandings`, fitted (`OrcCalibration.Landings`; the smoke refits them) |
 | How near it comes | 32 units feet to feet | two human hulls; the donor's closest attacks began 33–37 off |
+| Walking in | 61 units a second | `combat.json` `orc.walkSpeed`, fitted: the donor's orcs' median between position updates (its CombatWalk's root motion would be 96; Source's navigator moves an NPC slower than the clip's feet) |
 
-- **The loop:** it walks in (`CombatWalk`, 96 units a second by its root motion, at the donor's 1.2 cycles a second)
-  to its green zone, or until an attack it may make lands from where it stands. Between its red and yellow zones it
+- **The loop:** it walks in (`CombatWalk`, its clip at the donor's 1.2 cycles a second, its feet at the donor's 61
+  units a second) to its green zone, or until an attack it may make lands from where it stands. Between its red and yellow zones it
   holds its guard or strafes (`Combatmove_left_small`, `_right_small`; inside the red zone `_backward_small`), the
   recorded orcs strafing about four times as often as they idled. Once its wait is over it picks, at random, an attack
-  whose strike lands inside that attack's window from here; nothing landing, it walks in. Every clip moves it by its
-  root motion, as the donor's entity moves.
+  whose strike lands inside that attack's window from here; nothing landing, it walks in, or, pressed nearer than any
+  window allows (at its hull's 32 units, inside the uppercut's 34), steps back (`Combatmove_backward_small`, which the
+  donor's orcs attacked out of) and fights on: 1.1 s from contact to its next attack (R10150-1). Every clip but the
+  walk moves it by its root motion, as the donor's entity moves.
 - **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
   grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
 - **Against the donor** (the smoke; ten minutes of a scripted fight, the player swinging when it is near and backing
-  off 2 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
-  distance for it (8 of 8), the median time from one attack's start to the next is 2.15 s against the donor's 2.88,
-  and it walks at the donor's 1.20 cycles a second. The mix differs: the lab's scripted player stands its ground,
-  where the recorded ones pressed in and backed off, so the uppercut leads the lab's attacks.
+  off 4 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
+  distance for it (10 of 10), the median time from one attack's start to the next is 2.21 s against the donor's
+  2.88, it walks at the donor's 61 units a second, and its walks of half a second or more end a median 164 units off,
+  within the donor's middle half (56–214; R10150-2). The mix differs: the lab's scripted player stands its ground
+  between its backing-off steps, where the recorded ones pressed in, so the uppercut leads the lab's attacks.
 - **`Hold`** (`Orc.Hold`) keeps it from attacking: the smoke's still orc.
 
 ### Stuns and knockdowns

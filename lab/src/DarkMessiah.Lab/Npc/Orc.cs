@@ -259,6 +259,8 @@ internal sealed class Orc : IDisposable
         string playing = Clip;
         Advance(seconds);
         if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt) RootMotion(playing, before, Cycle);
+        // Walking in, it moves at the donor's ground speed, not its walk clip's (R10150-2).
+        if (State == OrcState.Approach && distance > 1e-3f) Feet += Facing * tuning.WalkSpeed * SourceSpace.MetresPerUnit * seconds;
         // The bodies keep apart: its feet no nearer the player's than two hulls (BodyGap).
         Vector3 apart = (Feet - playerFeet) with { Y = 0 };
         if (apart.LengthSquared() > 1e-6f && apart.Length() < BodyGap * SourceSpace.MetresPerUnit)
@@ -287,6 +289,11 @@ internal sealed class Orc : IDisposable
                 }
                 // Past its yellow zone, or ready to attack with nothing landing from here, it walks in.
                 else if (units > data.Yellow || !Hold && mind.Ready && units > data.Green) Play(OrcState.Approach, "CombatWalk");
+                // Ready and too close for any attack to land (pressed against the player at its hull's 32 units,
+                // nearer than the uppercut's 34): it steps back to fight again (R10150-1), as the donor's orcs began
+                // attacks out of Combatmove_backward_small.
+                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings) && Clip != "Combatmove_backward_small")
+                    Play(OrcState.Ready, "Combatmove_backward_small");
                 else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
             case OrcState.Attack:
@@ -518,6 +525,8 @@ internal sealed class Orc : IDisposable
     /// </summary>
     void RootMotion(string clip, float from, float to)
     {
+        // The walk moves by the donor's ground speed instead (Step).
+        if (clip == "CombatWalk") return;
         var played = body.Model.Clip(clip);
         if (played.Movement is not { Count: > 0 }) return;
         Vector2 moved = to >= from ? played.MovedAt(to) - played.MovedAt(from) : played.MovedAt(1) - played.MovedAt(from) + played.MovedAt(to);

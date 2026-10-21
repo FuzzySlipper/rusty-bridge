@@ -121,6 +121,10 @@ internal sealed class OrcMind(OrcMindData data, int seed = OrcMind.Seed)
         return landing.Count == 0 ? null : landing[random.Next(landing.Count)];
     }
 
+    /// <summary>The nearest distance (Source units) any of its attacks can be chosen from: its window's low end plus its travel.</summary>
+    internal float Nearest(IReadOnlyDictionary<string, float[]> windows) =>
+        data.Attacks.Where(a => windows.ContainsKey(a.Clip)).Select(a => windows[a.Clip][0] + a.Travel).DefaultIfEmpty(0).Min();
+
     /// <summary>A random pick, for its waiting moves.</summary>
     internal float Roll() => random.NextSingle();
 }

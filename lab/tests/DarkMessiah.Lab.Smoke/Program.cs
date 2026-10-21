@@ -592,6 +592,24 @@ host.Call(engine =>
         for (int i = 0; i < 80; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
         Check(whirled && during == .5 && asked == new DarkMessiah.Combat.SlowTime(0, 2.5f, .5f) && combat.TimeScale is null,
             FormattableString.Invariant($"the Whirlwind asks ×0.5 for 2.5 s at once, and the world runs at it for 1.25 s of game time ({during}, then {combat.TimeScale?.ToString() ?? "realtime"})"));
+        // Its blow may critical (critical_enable): a recorded critical doubles it and counts (R10146-1).
+        (float Dealt, int Criticals) Whirled(bool critical)
+        {
+            combat.Reset();
+            Face();
+            combat.RecordedCritical = _ => critical;
+            combat.Adrenaline.Set(20, 20);
+            float dealt = combat.Player.Dealt;
+            int crits = combat.Criticals;
+            for (int i = 0; i < 50; i++) combat.Step(Tick, step++, true, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, crouched: true);
+            for (int i = 0; i < 3; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, crouched: true);
+            combat.RecordedCritical = null;
+            return (combat.Player.Dealt - dealt, combat.Criticals - crits);
+        }
+        var plain = Whirled(false);
+        var doubled = Whirled(true);
+        Check(plain.Dealt > 0 && MathF.Abs(doubled.Dealt - 2 * plain.Dealt) < 1e-3f && plain.Criticals == 0 && doubled.Criticals == 1,
+            FormattableString.Invariant($"a Whirlwind takes a recorded critical: {plain.Dealt:0.##}, critical {doubled.Dealt:0.##}, counted {doubled.Criticals}"));
         combat.Rebuild(ownBuild);
         combat.Reset();
     }

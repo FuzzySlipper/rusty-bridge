@@ -279,14 +279,9 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         int? group = struck == Struck.Body ? targets[0].Model.Hitboxes[c.Hitbox].Group : null;
-        float asked = PlayerAsks(player, orc, group, kick: false, Orc.Health);
+        float asked = Asked(tick, player, orc, group);
         // The blow's .qct event gives adrenaline; the Fatality spends it, and a head blow of a cutting move kills.
         var hit = model.EventOf(player);
-        if (hit?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
-        {
-            asked = PlayerAsks(player, orc, group, kick: false, Orc.Health, critical: true);
-            Criticals++;
-        }
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
         AdrenalineGained += hit?.Adrenaline ?? 0;
         if (Sword.Move == SwordMove.Fatality) { Adrenaline.Spend(); FatalityLanded = true; }
@@ -358,12 +353,27 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         var player = new Party("player", "", [Sword.Clip.Clip], 0, "#1", PlayerModel);
-        float asked = PlayerAsks(player, Orc.Party(), 0, kick: false, Orc.Health);
+        // Its .qct event has critical_enable: it rolls (or, replayed, takes the donor's) as any blow does (R10146-1).
+        float asked = Asked(tick, player, Orc.Party(), 0);
         Orc.Damage(asked);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, 0));
         Message = Orc.Alive ? FormattableString.Invariant($"Whirlwind for {asked:0.##}") : "The orc falls";
+    }
+
+    /// <summary>
+    /// What a swing's blow asks, its critical decided: a move whose .qct event has <c>critical_enable</c> doubles on the
+    /// lab's seeded roll, or in a replay on the donor's recorded critical (<see cref="RecordedCritical"/>), and counts it.
+    /// </summary>
+    float Asked(ulong tick, Party player, Party victim, int? group)
+    {
+        if (model.EventOf(player)?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
+        {
+            Criticals++;
+            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true);
+        }
+        return PlayerAsks(player, victim, group, kick: false, Orc.Health);
     }
 
     /// <summary>How far the Whirlwind reaches, metres: authored (the one recorded blow struck at 1.4 m).</summary>

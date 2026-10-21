@@ -134,6 +134,13 @@ internal sealed record SwordClips(MoveClip Idle, IReadOnlyDictionary<PowerDirect
     /// <summary>The neutral power attack's release.</summary>
     internal MoveClip Power => Charges[PowerDirection.Neutral].Out;
 
+    /// <summary>Every clip the set plays, by its name; null for one it lacks.</summary>
+    internal MoveClip? Named(string name) =>
+        new MoveClip?[] { Idle, ParryIn, ParryHold, ParryOut, Kick, Broken, Rush, Fatality, Whirlwind, Draw, QuickDraw, Undraw,
+            Leap?.In, Leap?.Idle, Leap?.Out, Leap?.Cancel }
+            .Concat(Chain).Concat(Ends).Concat(Charges.Values.SelectMany(c => new[] { c.In, c.Hold, c.Out }))
+            .FirstOrDefault(c => c?.Clip == name);
+
     /// <summary>Every move that swings or kicks: the fast attacks, each power attack's release, the kick, the jump attack's strike and the rush.</summary>
     internal IEnumerable<MoveClip> Moves => [.. Chain, .. Charges.Values.Select(c => c.Out), Kick, .. Leap is null ? [] : new[] { Leap.Out }, .. Rush is null ? [] : new[] { Rush },
         .. Fatality is null ? [] : new[] { Fatality }, .. Whirlwind is null ? [] : new[] { Whirlwind }];
@@ -366,11 +373,15 @@ internal sealed class PlayerSword(SwordClips clips)
     /// </summary>
     internal const float LeapReleaseOpen = .5f;
 
-    /// <summary>The same weapon's clips retimed (the tuning changed): the move playing goes on.</summary>
+    /// <summary>
+    /// The same weapon's clips retimed (the tuning changed): the move playing goes on as the new clip of the same name,
+    /// and a chain keeps its place (R10143-2: a queued C to D stays D, E's cap stays).
+    /// </summary>
     internal void Retune(SwordClips nextClips)
     {
-        if (drawing is not null) drawing = nextClips;
-        else clips = nextClips;
+        if (drawing is not null) { drawing = nextClips; return; }
+        clips = nextClips;
+        Clip = nextClips.Named(Clip.Clip) ?? Clip;
     }
 
     /// <summary>
@@ -466,7 +477,7 @@ internal sealed class PlayerSword(SwordClips clips)
             if (fastIn <= 0)
             {
                 fastIn = float.NaN;
-                PlayFast(clips.Fast);
+                PlayFast(0);
                 chained = chainDue && ChainLength > 1;
             }
             return;
@@ -507,7 +518,7 @@ internal sealed class PlayerSword(SwordClips clips)
                 if (attackPressed && !chained && next) { chained = true; under = 0; }
                 if (!done) break;
                 var end = clips.Ends[at];
-                if (chained) PlayFast(clips.Chain[at == last ? 0 : at + 1]);
+                if (chained) PlayFast(at == last ? 0 : at + 1);
                 // A, and the last, recover when nothing chains onto them; the others go on winding up if attack is held,
                 // from the press under them or from now, or recover (the daggers and staff), or end ready (the sword).
                 else if (end is not null && (at == 0 || at == last)) Play(SwordMove.FastEnd, end);
@@ -577,24 +588,24 @@ internal sealed class PlayerSword(SwordClips clips)
         }
     }
 
-    int ChainIndex()
-    {
-        for (int i = 0; i < clips.Chain.Count; i++) if (ReferenceEquals(clips.Chain[i], Clip)) return i;
-        return 0;
-    }
+    // The fast attack playing: its place in the chain, kept by index so a retune doesn't lose it.
+    int chainAt;
+
+    int ChainIndex() => chainAt;
 
     /// <summary>A fast attack A, after <see cref="FastDelay"/>.</summary>
     void StartFast()
     {
         chainDue = false;
-        if (FastDelay <= 0) PlayFast(clips.Fast);
+        if (FastDelay <= 0) PlayFast(0);
         else fastIn = FastDelay;
     }
 
-    void PlayFast(MoveClip clip)
+    void PlayFast(int at)
     {
         chained = false;
-        Play(SwordMove.Fast, clip, swing: true);
+        chainAt = at;
+        Play(SwordMove.Fast, clips.Chain[at], swing: true);
     }
 
     /// <summary>An orc's blow broke the parry: the guard drops and the arm staggers.</summary>

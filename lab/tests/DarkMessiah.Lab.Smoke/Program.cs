@@ -100,6 +100,21 @@ Mash(afterE, 4);
 for (int i = 0; i < 200 && !(afterE.Clip.Clip == "fast-e"); i++) afterE.Step(Tick, i % 12 < 4, false, false);
 for (int i = 0; i < 30 && afterE.Move == SwordMove.Fast; i++) afterE.Step(Tick, i % 12 < 4, false, false);
 Check(afterE.Move == SwordMove.FastEnd, "a press during E chains nothing: E ends in the recovery");
+// A retune mid-chain (an orc slider, combat.json reloaded) keeps the chain's place (R10143-2): a queued C to D stays D,
+// and E's cap holds. The retuned set is a new one, its clips equal but not the same objects.
+SwordClips Retuned() => clips with { Chain = clips.Chain.Select(c => c with { }).ToList() };
+var retunedC = new PlayerSword(clips) { FastDelay = 0, ChainLength = 5 };
+for (int i = 0; i < 400 && retunedC.Clip.Clip != "fast-c"; i++) retunedC.Step(Tick, i % 12 < 4, false, false);
+retunedC.Step(Tick, true, false, false);
+retunedC.Step(Tick, false, false, false);
+retunedC.Retune(Retuned());
+for (int i = 0; i < 60 && retunedC.Clip.Clip == "fast-c"; i++) retunedC.Step(Tick, false, false, false);
+var retunedE = new PlayerSword(clips) { FastDelay = 0, ChainLength = 5 };
+for (int i = 0; i < 400 && retunedE.Clip.Clip != "fast-e"; i++) retunedE.Step(Tick, i % 12 < 4, false, false);
+retunedE.Retune(Retuned());
+for (int i = 0; i < 40 && retunedE.Move == SwordMove.Fast; i++) retunedE.Step(Tick, i % 12 < 4, false, false);
+Check(retunedC.Clip.Clip == "fast-d" && retunedE.Move == SwordMove.FastEnd,
+    $"a retune mid-chain keeps its place: C's queued press plays {retunedC.Clip.Clip}, and E retuned still ends in {retunedE.Clip.Clip}");
 sword = new PlayerSword(clips) { FastDelay = 0 };
 Tap(sword);
 for (int i = 0; i < 40 && sword.Move == SwordMove.Fast; i++) sword.Step(Tick, false, false, false);

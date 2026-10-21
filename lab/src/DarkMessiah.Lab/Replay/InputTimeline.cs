@@ -269,7 +269,7 @@ internal sealed class InputTimeline
                 e.PlaybackRate, layer.Weight > 0 ? Name(layer.Sequence) : null, layer.Cycle, fresh,
                 f.Version >= 10 ? f.Entities.Values.Where(i => i.Owner == index && f.Classes.GetValueOrDefault(i.ClassId) != "prop_ragdoll")
                     .Select(i => f.Models.GetValueOrDefault(i.ModelIndex, "")).Where(m => m.Length > 0).ToList() : null,
-                f.Models.GetValueOrDefault(e.ModelIndex));
+                f.Models.GetValueOrDefault(e.ModelIndex), [.. layers.Select(l => (Name(l.Sequence), l.Cycle, l.Weight))]);
             bestScore = score;
         }
         // Every orc's last streamed state, so freshness holds whichever one is followed.

@@ -184,6 +184,30 @@ public sealed class CombatData
     /// <summary>The events that open and close an NPC's strike window.</summary>
     public const int WindowOpen = 2175, WindowClose = 2176;
 
+    /// <summary>
+    /// The NPC can't be touched at <paramref name="cycle"/> of <paramref name="sequence"/>: it is inside a dodge's
+    /// window, from Arkane's 2133 to the first 2145 or 2134 after it (#10198). Every blow there was the no-effect
+    /// verdict: 50 of 50 player blows in the recordings, at Dodge_right cycles 0.03 to 0.23 and Dodge_left to 0.35
+    /// (its 2145 at 0.37), and Dodgestrike_Right to 0.09 (its 2134 at 0.275). Past it blows land (Dodge_right at 0.36,
+    /// its 2145 at 0.357); the wounded dodges have no events and are struck. A blow's streamed cycle can read a tick
+    /// before the 2133 (0.03 against 0.036), so the window opens <see cref="UntouchableLead"/> early.
+    /// </summary>
+    public bool Untouchable(string model, string sequence, float cycle)
+    {
+        if (model.Length == 0 || sequence.Length == 0) return false;
+        if (!_events.TryGetValue(model, out var events)) _events[model] = events = _eventsOf?.Invoke(model) ?? StudioModel.Events(model, _read);
+        if (!events.TryGetValue(sequence, out var list)) return false;
+        var open = list.Where(e => e.Event == DodgeOpen).Select(e => (float?)e.Cycle).FirstOrDefault();
+        if (open is not float o) return false;
+        float close = list.Where(e => e.Event is DodgeClose or DodgeEnd && e.Cycle > o).Select(e => e.Cycle).DefaultIfEmpty(1).First();
+        return cycle >= o - UntouchableLead && cycle < close;
+    }
+
+    /// <summary>The events that bound a dodge's untouchable window: 2133 opens it, 2145 or 2134 (the dodge's end) closes it.</summary>
+    public const int DodgeOpen = 2133, DodgeClose = 2145, DodgeEnd = 2134;
+    /// <summary>How far before its 2133 a streamed cycle already counts as in the window.</summary>
+    public const float UntouchableLead = .01f;
+
     /// <summary>The cycles at which a sequence's attack parts fire (2102, 2139), in order; empty when it has none.</summary>
     public IReadOnlyList<float> PartCycles(string model, string sequence)
     {

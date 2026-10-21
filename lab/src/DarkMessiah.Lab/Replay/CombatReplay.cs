@@ -161,6 +161,12 @@ internal static class CombatReplay
     static readonly (int, int)? Trace = Environment.GetEnvironmentVariable("RB_TRACE")?.Split('-') is [var from, var to]
         && int.TryParse(from, out int f) && int.TryParse(to, out int t) ? (f, t) : null;
 
+    /// <summary>
+    /// How many ticks apart two of a swing's blows on one victim must be to be two windows' (the huge slash's are 0.26
+    /// of its clip apart, 40 ticks; one window's contacts come within a few ticks).
+    /// </summary>
+    const int WindowApart = 15;
+
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
 
@@ -197,6 +203,11 @@ internal static class CombatReplay
         // A lab blow is a critical where the donor's blow within a few ticks was: replays take the recorded roll.
         var recordedCriticals = timeline.Fight.Damage.Where(d => d.Attacker.IsPlayer && d.AttackerCritical).Select(d => d.Tick).ToArray();
         combat.RecordedCritical = tick => recordedCriticals.Any(c => Math.Abs(c - (long)tick) <= CriticalTicks);
+        // And the victim's alert level where the donor's blow within as many ticks streamed it (v11; #10198).
+        var recordedAlerts = timeline.Fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && d.VictimAlert is not null)
+            .Select(d => (d.Tick, Level: d.VictimAlert!.Value, d.VictimNpcState)).ToArray();
+        combat.RecordedAlert = tick => recordedAlerts.Where(a => Math.Abs(a.Tick - (long)tick) <= CriticalTicks)
+            .OrderBy(a => Math.Abs(a.Tick - (long)tick)).Select(a => ((int, int)?)(a.Level, a.VictimNpcState)).FirstOrDefault();
         combat.God = true;
         combat.Log = log;
         bool grounded = true;
@@ -299,6 +310,7 @@ internal static class CombatReplay
             combat.Log = null;
             combat.Orc.StopFollowing();
             combat.RecordedCritical = null;
+            combat.RecordedAlert = null;
             if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild, draw: false);
             combat.Reset();
             combat.God = god;
@@ -345,8 +357,16 @@ internal static class CombatReplay
             otherVictims[cls] = otherVictims.GetValueOrDefault(cls) + 1;
             excluded.Add((tick, byPlayer, cls));
         }
-        var taken = new HashSet<(int Swing, string Victim)>();
-        bool First(int tick, string victim) => taken.Add((SwingAt(timeline.Swings, tick), victim));
+        // The ticks each swing struck each victim at: one blow a window, and a swing's later windows (the huge slash's
+        // and the rush's two) are their own (#10198).
+        var taken = new Dictionary<(int Swing, string Victim), int>();
+        bool First(int tick, string victim)
+        {
+            var key = (SwingAt(timeline.Swings, tick), victim);
+            if (taken.TryGetValue(key, out int last) && tick - last < WindowApart) return false;
+            taken[key] = tick;
+            return true;
+        }
         // The newest move layer: an earlier move's can still be fading out under it.
         string Move(IReadOnlyList<string> layers) => layers.LastOrDefault(l => InputTimeline.Family(l) is not null) ?? layers.LastOrDefault() ?? "?";
         foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && !Unplayable(d.Tick)).OrderBy(d => d.Tick))

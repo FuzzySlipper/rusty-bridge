@@ -1132,6 +1132,22 @@ host.Call(engine =>
         Check(report.Shield is { } wear && wear.Alike * 10 >= wear.Donor * 8, $"{report.Name}: blocks wear the shield as the donor's did: {report.Shield}");
     }
     else Console.WriteLine("skip the shield replay: no local/recordings/experiments/l01_a-v17-shield.rbrec");
+    // The followed orc's rules (#10198), on the v17 fatality run: the donor's dodges are untouchable in the lab too, the
+    // turn strikes land, and more than half the player's blows agree.
+    string fatality17 = Path.Combine(recordings, "experiments", "l01_a-v17-fatality.rbrec");
+    if (File.Exists(fatality17))
+    {
+        var report = CombatReplay.Run(combat, fatality17, product);
+        var dodged = report.PlayerBlows.Matches.Where(m => m.Donor?.Verdict == DefenseResult.NoEffect).ToList();
+        Check(dodged.Count >= 5 && dodged.Count(m => m.Lab?.Verdict == DefenseResult.NoEffect) * 10 >= dodged.Count * 8,
+            $"{report.Name}: a blow on a dodging orc does nothing in the lab as in the donor ({dodged.Count(m => m.Lab?.Verdict == DefenseResult.NoEffect)} of {dodged.Count})");
+        var turns = report.OrcBlows.Matches.Where(m => m.Donor?.Move.StartsWith("Turn_strike", StringComparison.Ordinal) == true).ToList();
+        Check(turns.Count >= 5 && turns.All(m => m.Result == "agree") && report.OrcBlows.Count("agree") * 10 >= report.OrcBlows.Donor * 9,
+            $"{report.Name}: the followed orc's turn strikes land with the donor's ({turns.Count(m => m.Result == "agree")} of {turns.Count}; its blows {report.OrcBlows.Count("agree")} of {report.OrcBlows.Donor})");
+        Check(report.PlayerBlows.Count("agree") * 2 > report.PlayerBlows.Donor,
+            $"{report.Name}: most of the player's blows agree with the donor's ({report.PlayerBlows.Count("agree")} of {report.PlayerBlows.Donor}; #10205 for the rest)");
+    }
+    else Console.WriteLine("skip the v17 fatality replay: no local/recordings/experiments/l01_a-v17-fatality.rbrec");
     string switches = WeaponRun("switch");
     if (File.Exists(switches))
     {

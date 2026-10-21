@@ -48,8 +48,6 @@ internal sealed class LabCombat : IDisposable
 {
     internal const string Set = "lab.combat";
     const string PlayerModel = "models/npc/player/player_basic.mdl";
-    /// <summary>Source's head hit group.</summary>
-    const int HeadGroup = 1;
     /// <summary>
     /// The trace's radius, metres: the player's sweep is a box of half-size <c>collision_inc_size_ray</c>, 1.5 units (its
     /// type 0; docs/wire.md, "Melee sweeps"), swept as a sphere of that radius.
@@ -310,18 +308,21 @@ internal sealed class LabCombat : IDisposable
         Vector3 toPlayer = feet - Orc.Feet;
         toPlayer.Y = 0;
         float front = toPlayer.LengthSquared() > 1e-6f ? Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) : 0;
-        var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, Orc.DefenseState));
+        // A dodging orc can't be touched in its dodge's window (#10198): the donor's no-effect verdict.
+        bool untouchable = model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle);
+        var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, Orc.DefenseState, untouchable));
         bool bash = Sword.Move == SwordMove.Bash;
         // The bash's event has breakparade: it goes through a parry. Not recorded (no orc parried one).
         if (bash && verdict == DefenseResult.Parry && model.EventOf(player)?.BreaksParry == true) verdict = DefenseResult.Hit;
         string what = struck == Struck.Body ? $"hit group {targets[0].Model.Hitboxes[c.Hitbox].Group}" : struck == Struck.Weapon ? "its cleaver" : "its shield";
         // The swing plays on: the donor's sword doesn't bounce off an orc's parry or shield (none of 23 recorded did).
-        if (verdict is DefenseResult.Parry or DefenseResult.Shield)
+        if (verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect)
         {
-            Player = verdict == DefenseResult.Parry ? Player with { Parried = Player.Parried + 1 } : Player with { Blocked = Player.Blocked + 1 };
+            Player = verdict == DefenseResult.Parry ? Player with { Parried = Player.Parried + 1 }
+                : verdict == DefenseResult.Shield ? Player with { Blocked = Player.Blocked + 1 } : Player with { Missed = Player.Missed + 1 };
             Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, $"{verdict} ({what})"), blow: true);
             Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, 0, null));
-            Message = verdict == DefenseResult.Parry ? "The orc parries" : "The orc blocks";
+            Message = verdict == DefenseResult.Parry ? "The orc parries" : verdict == DefenseResult.Shield ? "The orc blocks" : "The orc dodges";
             return;
         }
         int? group = struck == Struck.Body ? targets[0].Model.Hitboxes[c.Hitbox].Group : null;
@@ -331,9 +332,9 @@ internal sealed class LabCombat : IDisposable
         Adrenaline.Gain(hit?.Adrenaline ?? 0);
         AdrenalineGained += hit?.Adrenaline ?? 0;
         if (Sword.Move == SwordMove.Fatality) { Adrenaline.Spend(); FatalityLanded = true; }
-        // Only a Fatality's head blow cuts the head off: the power attack has cutheadflag too, and its head blows
-        // never killed (#10177). The donor's beheaded orc becomes a ragdoll whatever its health.
-        if (hit?.CutsHead == true && group == HeadGroup && Sword.Move == SwordMove.Fatality) asked = MathF.Max(asked, Orc.Health);
+        // A head blow asks what it asks, the Fatality's too (720 on the head): cutheadflag cuts the head off only a
+        // blow that kills (the one recorded, an orc at 40 health, left npc_orc_noHead), and no head blow killed by
+        // itself (#10198: the 100000-health orcs #10177 saw fall were knocked down and got up).
         bool wasAlive = Orc.Alive;
         Orc.Damage(asked);
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
@@ -418,9 +419,9 @@ internal sealed class LabCombat : IDisposable
         if (model.EventOf(player)?.CanCritical == true && (RecordedCritical?.Invoke(tick) ?? RollCritical()))
         {
             Criticals++;
-            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true, weapon: weapon);
+            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true, weapon: weapon, alert: AlertAt(tick));
         }
-        return PlayerAsks(player, victim, group, kick: false, Orc.Health, weapon: weapon);
+        return PlayerAsks(player, victim, group, kick: false, Orc.Health, weapon: weapon, alert: AlertAt(tick));
     }
 
     /// <summary>
@@ -506,7 +507,7 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
-        float asked = PlayerAsks(player, Orc.Party(), null, kick: true, Orc.Health);
+        float asked = PlayerAsks(player, Orc.Party(), null, kick: true, Orc.Health, alert: AlertAt(tick));
         Orc.Damage(asked);
         Orc.Push(flat, Tuning.KickPush);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
@@ -517,17 +518,31 @@ internal sealed class LabCombat : IDisposable
 
     /// <summary>
     /// What the player's blow asks, as the lab asks it: the weapon's swing by the move's clip, or a kick, on a
-    /// victim it takes as alert (its orc always is) and without a critical (the lab rolls none). The damage
-    /// calibration asks the same of recorded blows.
+    /// victim it takes as alert (its own orc always is; a replay's as the donor's was, <see cref="RecordedAlert"/>) and
+    /// without a critical unless one is passed. The damage calibration asks the same of recorded blows.
     /// </summary>
+    /// <param name="alert">The victim's alert level and NPC state, as the donor's damage record streams them (v11).</param>
     /// <param name="strength">The player's strength; null for the build's (<see cref="PlayerStrength"/>).</param>
     /// <param name="critical">The blow is a critical (×2): the lab's roll, or a recorded one.</param>
     /// <param name="weapon">The weapon's model; null for the one in hand.</param>
     internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false,
-        string? weapon = null) => (kick
-        ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false, VictimAlert: 3))
+        string? weapon = null, (int Level, int NpcState)? alert = null) => (kick
+        ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false,
+            VictimAlert: alert?.Level ?? AlertOrc, VictimNpcState: alert?.NpcState ?? 0))
         : model.Damage(new DamageCase(0, victim, player, weapon ?? FirstPerson.SwordModel, group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: 3, AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? AlertOrc, VictimNpcState: alert?.NpcState ?? 0,
+            AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
+
+    /// <summary>The alert level the lab's own orc fights at: alert, above the settings' not-alerted level (0).</summary>
+    const int AlertOrc = 3;
+
+    /// <summary>
+    /// In a replay, the alert level and NPC state the donor's blow near a tick found its victim at (#10198): an orc
+    /// not yet alert takes the not-alerted ×3, as the fatality run's first power strikes did. Null outside replays.
+    /// </summary>
+    internal Func<ulong, (int Level, int NpcState)?>? RecordedAlert { get; set; }
+
+    (int, int)? AlertAt(ulong tick) => RecordedAlert?.Invoke(tick);
 
     /// <summary>
     /// The player's critical chance, percent, on a blow whose move may critical: from the build's <c>critical_hit</c>
@@ -577,6 +592,7 @@ internal sealed class LabCombat : IDisposable
             Source(toPlayer), Vector2.Normalize(Source(Orc.Facing)), Reaches.PlayerHalfWidth, false));
         LastOrcReach = reach;
         if (!reach.Lands) return;
+        Orc.Landed(blow);
         OrcStats = OrcStats with { Reached = OrcStats.Reached + 1 };
         var orc = Orc.Party() with { Cycle = blow.Cycle };
         bool broken = false;

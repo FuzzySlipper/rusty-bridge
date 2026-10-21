@@ -64,7 +64,8 @@ static class GameData
             }
             """),
         ["models/npc/orc/npc_orc.mdl"] = Mdl(("attack_Fast", [(0.02f, 2192), (0.34f, 2102), (0.46f, 2174), (0.54f, 2139)]),
-            ("attack_KickBash", [(0.18f, 2102), (0.64f, 2139)]), ("attack_Bash", [(0.43f, 2102)])),
+            ("attack_KickBash", [(0.18f, 2102), (0.64f, 2139)]), ("attack_Bash", [(0.43f, 2102)]),
+            ("Dodge_right", [(0.036f, 2133), (0.357f, 2145), (0.964f, 2134)]), ("Dodgestrike_Right", [(0.025f, 2133), (0.275f, 2134), (0.575f, 2102)])),
         ["models/npc/ghoul/npc_ghoul.mdl"] = Mdl(("attack_forward", [(0.24f, 2102), (0.56f, 2139)]), ("attack_bash", [(0.37f, 2102)])),
     };
 
@@ -120,6 +121,20 @@ public sealed class ModelTests
         Assert.Equal(DefenseResult.Parry, CombatModel.Verdict(Blow(Struck.Weapon, Orc())));
         Assert.Equal(DefenseResult.Shield, CombatModel.Verdict(Blow(Struck.OffHand, Orc())));
         Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(Blow(Struck.Body, Orc("Combatmove_left_small"))));
+    }
+
+    /// <summary>A dodge can't be touched from its 2133 to its 2145, or its 2134 when that comes first (#10198).</summary>
+    [Fact]
+    public void ADodgeIsUntouchableInItsWindow()
+    {
+        var data = GameData.Model().Data;
+        Assert.True(data.Untouchable(OrcModel, "Dodge_right", 0.03f));
+        Assert.True(data.Untouchable(OrcModel, "Dodge_right", 0.35f));
+        Assert.False(data.Untouchable(OrcModel, "Dodge_right", 0.36f));
+        Assert.False(data.Untouchable(OrcModel, "Dodge_right", 0.01f));
+        Assert.True(data.Untouchable(OrcModel, "Dodgestrike_Right", 0.09f));
+        Assert.False(data.Untouchable(OrcModel, "Dodgestrike_Right", 0.3f));
+        Assert.False(data.Untouchable(OrcModel, "attack_Fast", 0.1f));
     }
 
     [Fact]
@@ -486,6 +501,30 @@ public sealed class RecordedFightTests(Xunit.Abstractions.ITestOutputHelper outp
     /// player's critical byte and the victims' alert levels: the model agrees
     /// with every verdict and every damage request.
     /// </summary>
+    /// <summary>
+    /// The no-effect byte on a player's blow is the victim's dodge window (#10198): from the recordings that stream it,
+    /// every recorded verdict on an orc agrees with <see cref="CombatData.Untouchable"/> at the victim's sequence and cycle,
+    /// but for the blocks' counters (Block_attack, Block), which the window doesn't cover.
+    /// </summary>
+    [Theory]
+    [InlineData("experiments/l01_a-v17-fatality.rbrec")]
+    [InlineData("experiments/l01_a-v16-fatality.rbrec")]
+    [InlineData("l01_a-v11-damage.rbrec")]
+    public void ADodgesWindowIsTheNoEffectByte(string name)
+    {
+        if (Recording(name) is not string path || Vpks() is null) { output.WriteLine($"no local/recordings/{name} or local/donor/vpks; skipped"); return; }
+        var data = CombatModel().Data;
+        FightCases fight;
+        using (var stream = File.OpenRead(path)) fight = Blows.Read(name, stream);
+        var cases = fight.Defense.Where(d => d.Attacker.IsPlayer && d.Victim.Class == "npc_orc_sword" && d.State is not null
+            && !d.Victim.Sequence.StartsWith("Block", StringComparison.OrdinalIgnoreCase)).ToList();
+        var wrong = cases.Where(d => data.Untouchable(d.Victim.Model, d.Victim.Sequence, d.Victim.Cycle) != d.NoEffect).ToList();
+        foreach (var d in wrong) output.WriteLine($"{d}: no-effect {d.NoEffect}, {d.Victim.Sequence} at {d.Victim.Cycle:F2}");
+        output.WriteLine($"{cases.Count - wrong.Count} of {cases.Count} agree; {cases.Count(d => d.NoEffect)} no-effect");
+        Assert.True(cases.Count > 0);
+        Assert.True(wrong.Count * 20 <= cases.Count, $"{wrong.Count} of {cases.Count} disagree");
+    }
+
     [Theory]
     [InlineData("l01_a-v11-damage.rbrec")]
     [InlineData("l01_a-v11-crit.rbrec")]

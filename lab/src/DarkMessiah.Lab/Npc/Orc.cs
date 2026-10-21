@@ -12,7 +12,8 @@ namespace DarkMessiah.Lab.Npc;
 internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed }
 
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
-internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
+/// <param name="Window">For a strike window's sweep, the cycle its window opens (the key it lands under); null for a part's blow.</param>
+internal readonly record struct OrcBlow(int Part, string Attack, float Cycle, float? Window = null);
 
 /// <summary>
 /// A recorded donor orc as a replay hands it to the lab's (<see cref="Orc.Follow"/>), in lab space: where it
@@ -22,8 +23,11 @@ internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
 /// <param name="Kit">The model paths of the items the recorded orc owns (Wire v10's owners): its cleaver, and a shield
 /// if it has one. Null where the recording doesn't say (before v10): the lab's own kit.</param>
 /// <param name="Model">The recorded orc's body model (its entity's model path); null for the lab's own.</param>
+/// <param name="Overlays">Every overlay the recorded orc played, in its order, with its cycle and weight (#10198): the
+/// pose it is drawn and swept in, as the mirror's Shadow poses it. <see cref="Layer"/> is the one that decides its state.</param>
 internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float Health, string Sequence, float Cycle, float Rate,
-    string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null, string? Model = null);
+    string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null, string? Model = null,
+    IReadOnlyList<(string Clip, float Cycle, float Weight)>? Overlays = null);
 
 /// <summary>
 /// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, and a minimal fight loop, not the donor's AI
@@ -93,6 +97,10 @@ internal sealed class Orc : IDisposable
     bool holdsCleaver = true, holdsShield = true;
     string? followed;
     float followRate = 1;
+    // The followed orc's overlays as last streamed and played on since: what it is posed in (empty for its own loop).
+    (string Clip, float Cycle, float Weight)[] overlays = [];
+    // The overlays as last streamed: a change is taken as it arrives, whether or not the main sequence moved.
+    IReadOnlyList<(string Clip, float Cycle, float Weight)>? streamedOverlays;
     readonly HashSet<(string Clip, int Part, float At)> landed = [];
 
     /// <summary>
@@ -142,6 +150,21 @@ internal sealed class Orc : IDisposable
             Cycle = Looping(Clip) || clip.Looping ? Cycle - MathF.Floor(Cycle) : MathF.Min(Cycle, 1);
             if (Layer is not null) LayerCycle = MathF.Min(1, LayerCycle + (body.Model.Clip(Layer).Seconds is > 0 and var s ? seconds / s : 1));
         }
+        if (pose.Overlays is { } streamed && (streamedOverlays is null || !streamed.SequenceEqual(streamedOverlays)))
+        {
+            streamedOverlays = streamed;
+            overlays = [.. streamed.Where(o => body.Model.Info.Clips.ContainsKey(o.Clip))];
+        }
+        else
+        {
+            for (int i = 0; i < overlays.Length; i++)
+            {
+                var (name, at, weight) = overlays[i];
+                var played = body.Model.Clip(name);
+                at += played.Seconds > 0 ? seconds / played.Seconds : 1;
+                overlays[i] = (name, played.Looping ? at - MathF.Floor(at) : MathF.Min(at, 1), weight);
+            }
+        }
         State = Health <= 0 ? OrcState.Down
             : Layer?.Contains("parry", StringComparison.OrdinalIgnoreCase) == true || Clip.Contains("parry", StringComparison.OrdinalIgnoreCase) ? OrcState.Parry
             : Clip.StartsWith("attack", StringComparison.OrdinalIgnoreCase) || Layer?.StartsWith("layer_attack", StringComparison.OrdinalIgnoreCase) == true ? OrcState.Attack
@@ -161,9 +184,27 @@ internal sealed class Orc : IDisposable
     {
         if (to < from - .05f) { landed.RemoveWhere(x => x.Clip == clip); from = 0; }
         var played = body.Model.Clip(clip);
+        bool parts = false;
         for (int part = 0; part < PartEvents.Length; part++)
             foreach (float at in played.At(PartEvents[part]))
+            {
+                parts = true;
                 if (from < at && to >= at && landed.Add((clip, part, at))) blows.Add(new OrcBlow(part, clip, at));
+            }
+        // A turn strike (Turn_strike_*) has no part events: it sweeps every step inside its window (2175 to 2176), as
+        // the donor's does at every think, until a sweep lands (#10198; CombatModel's reach cases, Reach.cs).
+        if (!parts && played.At(CombatData.WindowOpen).FirstOrDefault(float.NaN) is var open && played.At(CombatData.WindowClose).FirstOrDefault(float.NaN) is var close
+            && float.IsFinite(open) && float.IsFinite(close) && to >= open && from <= close && !landed.Contains((clip, WindowPart, open)))
+            blows.Add(new OrcBlow(0, clip, Math.Clamp(to, open, close), Window: open));
+    }
+
+    // The landed key's part for a strike window.
+    const int WindowPart = -1;
+
+    /// <summary>A blow from a strike window landed: the window strikes no more this play.</summary>
+    internal void Landed(OrcBlow blow)
+    {
+        if (blow.Window is float open) landed.Add((blow.Attack, WindowPart, open));
     }
 
     /// <summary>A body model's puppet, opened on first use; null when the import lacks the model.</summary>
@@ -183,6 +224,8 @@ internal sealed class Orc : IDisposable
         body = ownBody;
         holdsCleaver = holdsShield = true;
         followed = null;
+        overlays = [];
+        streamedOverlays = null;
         landed.Clear();
         Spawn();
     }
@@ -332,7 +375,9 @@ internal sealed class Orc : IDisposable
 
     void Present()
     {
-        if (Layer is null) body.Play(Clip, Cycle);
+        // Followed, it is posed as the recording streamed it: every overlay at its weight.
+        if (Following && overlays.Length > 0) body.Play(Clip, Cycle, overlays);
+        else if (Layer is null) body.Play(Clip, Cycle);
         else body.Play(Clip, Cycle, (Layer, LayerCycle, 1));
     }
 

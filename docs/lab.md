@@ -330,8 +330,10 @@ names, docs/recording.md), with the bot fights' two huge slashes (`l01_a-v11-cri
   its hold plays `layer_combo_sword_huge_noshield` (2.1 s) instead of the power attack (`PlayerSword.Fatal`): none of
   the 25 recorded releases at full was the power attack (22 huge slashes, 2 beheads, 1 Whirlwind).
   A quick release is still a fast attack. It strikes twice (2186–2190 at 0.14–0.22 and 0.40–0.48, HitPow 30: 240 on
-  the body, 720 on the head) and a head blow cuts the head off (`cutheadflag`): it killed orcs of 100000 health
-  (`AttackEvent.CutsHead`). A landed huge slash empties the gauge; one that strikes nothing leaves it full.
+  the body, 720 on the head). Its head blows ask their 720 and no more: `cutheadflag` cuts the head off only a blow that
+  kills (the one recorded, on an orc at 40 health, left `npc_orc_noHead`), and none of the head blows on 100000-health
+  orcs killed (#10198: those #10147 saw fall were knocked down and got up). A landed huge slash empties the gauge; one
+  that strikes nothing leaves it full.
 - **The behead:** twice the Fatality was `layer_behead_sword_noshield_out` instead (hand2 129273; the first
   `adrenaline` run), each time a killing blow, but a huge slash on an orc set to 40 health didn't behead. Not
   explained; the lab plays the huge slash (the replays count both as the Fatality).
@@ -369,8 +371,8 @@ aren't slowed.
 - **The behead** (`layer_behead_sword_noshield_out`): two recorded, both Fatalities at full adrenaline, both killing
   blows; its trigger against the huge slash isn't found (above, "Adrenaline, the Fatality and the Whirlwind"). The lab
   plays the huge slash for it, and replays count both as the Fatality.
-- **Cutting the head off:** the lab kills the orc (a `cutheadflag` head blow) but leaves its body whole: head and limb
-  removal is rusty-engine #10176.
+- **Cutting the head off:** a `cutheadflag` blow that kills cuts the head off in the donor; the lab's orc dies whole
+  (head and limb removal is rusty-engine #10176).
 - **Impales** (`layer_Impal_*`, `layer_Ground_Impal_*`, `impalflag`): never recorded. They need an orc knocked down or
   stunned (#10152).
 
@@ -398,14 +400,33 @@ What a swing strikes is what the donor's sweep would (#10177, #10179; docs/wire.
 - **And its body model** (`OrcPose.Model`, R10177-2): the followed orc is drawn and swept as the recorded entity's
   model, the lab's `npc_orc` when the import lacks it. Every recorded `npc_orc_sword` so far is `npc_orc.mdl`; the
   dismembered orc models (`npc_orc_noRightArm`...) appear only as one-clip ragdoll props, which pose their one clip.
-- **A head cut needs a Fatality:** the power attack has `cutheadflag` too, but its head blows never killed; a
-  Fatality's head blow turned an orc of 100000 health into a ragdoll.
-- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the parry bot 9 of
-  16 (#10177: 8), ghoul2 4 of 6 (1), hand1 4 of 10 (6), hand2 11 of 31 (10), the fatality run 13 of 27 (10), the
-  Whirlwind run 4 of 10 (1). With the aim matching the donor's rays, what still differs is the orc: the lab poses it
-  from states streamed every few ticks, between which it plays on (#10098), and the swing's start a tick or two off;
-  the mirror, posing victims as the blows found them, meets the donor's traces 53 of 53. Replays keep holding the
-  adrenaline gauge to the recording's (its own runs within 1 on 11% to 100% of a replay's ticks).
+- **A head blow doesn't kill by itself** (#10198): no head blow on a 100000-health orc killed, the Fatality's 720
+  included; `cutheadflag` cuts the head off a blow that kills (one recorded).
+- **The followed orc as streamed** (#10198): its sequence and cycle, and every overlay at its streamed cycle and
+  weight (`OrcPose.Overlays`), played on between updates.
+- **Dodges can't be touched** (#10198): from a dodge's 2133 to its 2145, or its 2134 when that comes first
+  (`CombatData.Untouchable`), every player blow was the no-effect verdict, 50 of 50 (Dodge_right to 0.23, Dodge_left to
+  0.35, Dodgestrike_Right to 0.09); past it they land (Dodge_right at 0.36), and the wounded dodges, with no events,
+  are struck. The window matches the donor's streamed no-effect byte on 33 of 34, 31 of 32 and 55 of 56 blows
+  (`ADodgesWindowIsTheNoEffectByte`; the misses are blows on the tick a dodge or block begins). The lab's verdict
+  passes it as the no-effect input, and such a blow does nothing.
+- **An unaware orc takes ×3** in a replay as the donor's did: the replay gives the lab's blow the alert level the
+  donor's damage record streamed within 12 ticks (`LabCombat.RecordedAlert`). The lab's own orc is always alert.
+- **Turn strikes** (`Turn_strike_*`, no part events): the followed orc sweeps every step inside its 2175–2176
+  window until a sweep lands, as the donor's does at every think. The fatality run's orc blows agree 79 of 79 (lab 81).
+- **Each window counted:** a swing's later hit windows (the huge slash's second, 40 ticks on) are blows of their own
+  in the comparison (`WindowApart`, 15 ticks).
+- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the fatality run 26
+  of 43 (before #10198: 15 of 40), the Whirlwind run 6 of 11 (4 of 10), jump-attack-hold 2 of 2, rush-attack 1 of 4,
+  hand1 4 of 10, hand2 10 of 31, the parry bot 9 of 16, ghoul2 4 of 6.
+- **What still differs is the orc's body, not the aim** (#10205): sweeping the donor's own recorded rays through the
+  followed orc gives the same blows as the lab's arcs. At 12472 in the fatality run the same ray meets the lab's orc's
+  head where the donor's met its chest, with the same sequence, cycle, place and facing; in a lunge (`attack_right`,
+  10385) the donor's eye-height ray passed the orc and struck nothing. The mirror's Shadow, posing the victim as the
+  blow found it (v13), agrees on 37 of 51 there. None of these clips is a blend grid: what the Wire lacks is likely
+  the orc's pose parameters, bone controllers or procedural bones. Replays keep holding the adrenaline gauge to the
+  recording's (the lab's own runs within 1 on 28% to 45% of a fill-and-Fatality replay's ticks, ahead on blows only
+  the lab lands).
 
 ### Criticals
 

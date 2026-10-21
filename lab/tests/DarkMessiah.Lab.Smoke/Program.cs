@@ -535,6 +535,17 @@ host.Call(engine =>
     Check(combat.Model.PlayerBlock(new ParryCase(0, combat.Orc.Party(), DefenseResult.PlayerParried), .75f, .7f) == DefenseResult.PlayerParried
         && combat.Model.PlayerBlock(new ParryCase(0, combat.Orc.Party(), DefenseResult.PlayerParried), .5f, .7f) == DefenseResult.Hit,
         "the shield blocks a blow from within its parry_cos of the facing (41°), not one from the side (60°)");
+    // A reset puts the build's shield back whole, worn or broken (R10149-1).
+    combat.WearShield(100);
+    float wornTo = combat.ShieldHealth;
+    combat.Reset();
+    float afterWorn = combat.ShieldHealth;
+    bool broke = combat.WearShield(500);
+    bool offAfterBreak = combat.Shield is null;
+    combat.Reset();
+    Check(wornTo == 140 && afterWorn == 240 && broke && offAfterBreak && combat.Shield is not null && combat.ShieldHealth == 240
+        && combat.Sword.Clips.Idle.Clip == "layer_sword_shield_idle",
+        $"a reset puts the build's shield back whole: worn to {wornTo} then {afterWorn}; broken, off the arm, then back at {combat.ShieldHealth}");
     combat.Rebuild(file);
     Check(combat.Shield is null && combat.FirstPerson.Facts().Count() == 2, "back on build.json the shield is off the arm");
     // The player's stat block is read, not defaulted: the first "skills" block in player_basic.qct is a starting build's.
@@ -1130,6 +1141,13 @@ host.Call(engine =>
             && report.OrcBlows.Count("agree") * 10 >= report.OrcBlows.Donor * 8,
             $"{report.Name}: the shield blocks the donor's blocked blows ({blocks.Count(m => m.Lab?.Verdict == DefenseResult.PlayerParried)} of {blocks.Count}) and lets the side blows through (the orc's blows agree {report.OrcBlows.Count("agree")} of {report.OrcBlows.Donor})");
         Check(report.Shield is { } wear && wear.Alike * 10 >= wear.Donor * 8, $"{report.Name}: blocks wear the shield as the donor's did: {report.Shield}");
+        // Replayed again with the recording's shield already on the arm and worn, it wears and blocks the same (R10149-1).
+        combat.Rebuild(WithSkill("combat", 2) with { OffHand = SmallShield });
+        combat.WearShield(100);
+        var again = CombatReplay.Run(combat, shielded, product);
+        combat.Rebuild(file);
+        Check(again.Shield == report.Shield && again.OrcBlows.Count("agree") == report.OrcBlows.Count("agree") && again.PlayerBlows.Count("agree") == report.PlayerBlows.Count("agree"),
+            $"{report.Name}: replayed again with a worn shield of the same model on the arm, the same blocks and wear ({again.Shield})");
     }
     else Console.WriteLine("skip the shield replay: no local/recordings/experiments/l01_a-v17-shield.rbrec");
     // The followed orc's rules (#10198), on the v17 fatality run: the donor's dodges are untouchable in the lab too, the

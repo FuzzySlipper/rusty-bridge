@@ -144,6 +144,20 @@ internal sealed class LabCombat : IDisposable
     internal LabShield? Shield => FirstPerson.Shield;
     /// <summary>What is left of the shield's health: blocked blows take their damage from it, and at none it breaks.</summary>
     internal float ShieldHealth { get; private set; }
+    /// <summary>
+    /// A blocked blow's damage off the shield's health; at none it breaks and comes off the arm (not recorded: no shield
+    /// was worn through, the recorded one lost 136 of its 240). True when it broke. <see cref="Reset"/> puts it back whole.
+    /// </summary>
+    internal bool WearShield(float damage)
+    {
+        if (Shield is null) return false;
+        ShieldHealth -= damage;
+        if (ShieldHealth > 0) return false;
+        ShieldHealth = 0;
+        Wear(null);
+        return true;
+    }
+
     /// <summary>The shield is raised: blocking, with a sword in hand.</summary>
     internal bool Blocking => Sword.Parrying && Shield is not null && Weapon.Class == WeaponClass.Sword;
 
@@ -607,16 +621,9 @@ internal sealed class LabCombat : IDisposable
             if (outcome == DefenseResult.PlayerParried)
             {
                 // The shield takes the blow's damage (l01_a-v17-shield: the player none).
-                ShieldHealth -= asked;
                 OrcStats = OrcStats with { Parried = OrcStats.Parried + 1 };
-                Message = "Blocked";
                 Log?.Add(new CombatEvent(tick, false, blow.Attack, DefenseResult.PlayerParried, asked, null));
-                if (ShieldHealth <= 0)
-                {
-                    // Not recorded: no shield was worn through (the recorded one lost 136 of its 240).
-                    Wear(null);
-                    Message = "The shield breaks";
-                }
+                Message = WearShield(asked) ? "The shield breaks" : "Blocked";
                 return;
             }
             if (outcome == DefenseResult.PlayerParryBroken)
@@ -686,6 +693,9 @@ internal sealed class LabCombat : IDisposable
 
     internal void Reset()
     {
+        // The build's shield back on the arm at its full health, worn or broken as the last fight left it (R10149-1).
+        Wear(Build is { } build ? ShieldOf(build) : null);
+        ShieldHealth = Shield?.Health ?? 0;
         Sword.Reset();
         Stamina.Reset();
         Adrenaline.Reset();

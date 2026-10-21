@@ -254,7 +254,8 @@ off-hand when that is a shield and it has `combat_shield_enabled`; `LabShield` r
 - **The shield's wear:** a blocked blow costs the player nothing and the shield its damage (`Stamina_Block` is the
   AI's settings block, not the player's: the player's stamina stayed at 12 through every block and bash). Replayed,
   the lab's blocks wear it 19 times by 137.6 against the donor's 136, 17 of 19 alike. The recorded shield was never
-  worn through; the lab takes it off the arm at no health, not recorded.
+  worn through; the lab takes it off the arm at no health, not recorded. A reset (R, and each replay's start and end)
+  puts the build's shield back on whole, worn or broken (R10149-1).
 - **The bash:** attack pressed while blocking plays `parry_sword_shield_bash` (1.27 s; its window 2186–2190, cycles
   0.18 to 0.29), 8 of 8, which plays on with block let go. Its blow strikes with the shield (the donor's verdict names
   `weapon_arxshield`), which has no `WDmg`, so it asks (strength + 1) × `HitPow` 0.01 × the hit group: 0.21 on the

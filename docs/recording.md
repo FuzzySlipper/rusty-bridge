@@ -169,7 +169,23 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `chained-slash-levels` | the short sword, 10 skill points, an orc with 100000 health | combat learned to 1 in the sheet (`point` and a double click), 10 bursts of 8 clicks; to 2, 10 more (#10143) |
 | `charsheet`, `charsheet-keys` | sv_cheats; F7 bound to `togglecharsheet` | the sheet opened and closed from the console, then the keyboard (the action bytes +0x9B, +0x9D) |
 
-**What the console can't stage:**
+**Items, spells and skills from a scenario** (#10170). Everything the sweep needs in hand comes from console lines,
+plus one `point` step for the character sheet; nothing goes through the inventory or belt UI:
+
+| To have | Scenario lines |
+| --- | --- |
+| a melee weapon (swords, club, daggers, staffs) | `mm_player_skills_grosbill 1` (or the weapon's skill), `give weapon_...`, `use weapon_...` |
+| a spell (telekinesis included) | `mm_player_skills_grosbill 1` (it learns them), `Deploy_Spell_AIR_1` ... `Deploy_Spell_EARTH_4` |
+| one skill level | `mm_player_add_skillpoints N`, `mm_open_charsheet`, a `point` at the skill's icon and a double click, `togglecharsheet` |
+| another weapon | `use` it: the one in hand is put away and it's drawn |
+
+`daggers-goblin` (the daggers' clips in all 225 stats states), `telekinesis` (mana down 4 as it grips the jug),
+`spells-probe` and `chained-slash-levels` record this way unattended.
+
+**What the console can't stage, and the details:**
+- **Belt slots:** `usebelt1` ... `usebelt9` use what the belt holds (in the `rb_start` save `usebelt1` put the weapon
+  away and `usebelt5` drew the club); filling a slot is the inventory UI's and isn't scripted. `use` and
+  `Deploy_Spell_*` reach every item without it.
 - **Skills one by one:** the console gives every skill at its maximum level (`mm_player_skills_grosbill 1`) or skill
   points (`mm_player_add_skillpoints N`); a level is learned in the character sheet by double-clicking a skill's
   icon, which a scenario does with a `point` step (`chained-slash-levels`: the combat icon at (884, 336) of the

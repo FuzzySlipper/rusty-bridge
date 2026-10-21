@@ -279,7 +279,7 @@ internal sealed class LabCombat : IDisposable
         }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
-        var blows = orcPose is null ? Orc.Step(seconds, feet, Sword.SwingStarted) : Orc.Follow(orcPose, seconds);
+        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming()) : Orc.Follow(orcPose, seconds);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
@@ -502,6 +502,16 @@ internal sealed class LabCombat : IDisposable
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
         Message = Orc.Alive ? FormattableString.Invariant($"Backstab for {asked:0.##}") : "Backstabbed";
     }
+
+    /// <summary>
+    /// The swing starting this step as the orc sees it (#10151): a kick, one that breaks parries (its first event's
+    /// <c>breakparade</c>: the power attacks), or one it may parry.
+    /// </summary>
+    IncomingSwing Incoming() =>
+        !Sword.SwingStarted ? IncomingSwing.None
+        : Sword.Move == SwordMove.Kick ? IncomingSwing.Kick
+        : model.EventOf(new Party("player", "", [Sword.Clip.Clip], 0, "#1", PlayerModel))?.BreaksParry == true ? IncomingSwing.BreaksParry
+        : IncomingSwing.Parryable;
 
     /// <summary>A blow's stun or knockdown on the orc (#10152), told in the message.</summary>
     void Stagger(AttackEvent? blow, Vector3 from, bool shield = false)

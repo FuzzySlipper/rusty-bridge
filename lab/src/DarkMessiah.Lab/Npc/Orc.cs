@@ -9,7 +9,7 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown }
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging }
 
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
 /// <param name="Window">For a strike window's sweep, the cycle its window opens (the key it lands under); null for a part's blow.</param>
@@ -57,6 +57,10 @@ internal sealed class Orc : IDisposable
     float downSeconds, pushLeft;
     readonly OrcMind mind;
     readonly OrcStagger stagger;
+    readonly OrcDefence defence;
+    // Its own clock, seconds, for the dodge's delay; and the parry layer it played last (it never plays one twice running).
+    double clock;
+    string lastParry = "";
     // A stun's and a knockdown's time left, and the side a knockdown lies on (back or front).
     float stunLeft, groundLeft;
     string groundSide = "back";
@@ -74,6 +78,7 @@ internal sealed class Orc : IDisposable
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
         mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
         stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
+        defence = new OrcDefence(OrcDefenceData.Read(donor, Model));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
@@ -246,19 +251,21 @@ internal sealed class Orc : IDisposable
     /// One step: turns to the player, walks in, attacks, parries, reacts or lies down. Returns the blows whose part
     /// events this step crossed; whether they reach the player is the combat's to decide.
     /// </summary>
-    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, bool swingStarted)
+    /// <param name="swing">A player's swing starting this step, as the orc sees it (#10151).</param>
+    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing)
     {
+        clock += seconds;
         var blows = new List<OrcBlow>();
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
         if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown) && distance > 1e-3f)
             Facing = toPlayer / distance;
-        mind.Step(seconds, swingStarted);
+        mind.Step(seconds, swing != IncomingSwing.None);
         float before = Cycle;
         string playing = Clip;
         Advance(seconds);
-        if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt) RootMotion(playing, before, Cycle);
+        if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt or OrcState.Dodging) RootMotion(playing, before, Cycle);
         // Walking in, it moves at the donor's ground speed, not its walk clip's (R10150-2).
         if (State == OrcState.Approach && distance > 1e-3f) Feet += Facing * tuning.WalkSpeed * SourceSpace.MetresPerUnit * seconds;
         // The bodies keep apart: its feet no nearer the player's than two hulls (BodyGap).
@@ -280,7 +287,9 @@ internal sealed class Orc : IDisposable
                 if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is not null) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
-                if (swingStarted && random.NextSingle() < tuning.ParryChance) Parry();
+                var answer = defence.Decide(swing, clock);
+                if (answer == Defence.Parry) Parry();
+                else if (answer == Defence.Dodge) Dodge();
                 else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is { } attack)
                 {
                     Play(OrcState.Attack, attack.Clip);
@@ -305,6 +314,9 @@ internal sealed class Orc : IDisposable
                 break;
             case OrcState.Parry:
                 if (LayerCycle >= 1) { Layer = null; Play(OrcState.Ready, "combatidle"); }
+                break;
+            case OrcState.Dodging:
+                if (done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Pushed:
                 float step = MathF.Min(pushLeft, seconds * 3);
@@ -432,6 +444,7 @@ internal sealed class Orc : IDisposable
         Layer = null;
         mind.Reset();
         stagger.Reset();
+        defence.Reset();
         Play(OrcState.Approach, "CombatWalk");
     }
 
@@ -471,12 +484,25 @@ internal sealed class Orc : IDisposable
         else body.Play(Clip, Cycle, (Layer, LayerCycle, 1));
     }
 
+    /// <summary>A parry over its guard: one of <c>layer_parry_A</c>–<c>E</c> at random, never the last one again (server.dll's SetParryLayer).</summary>
     void Parry()
     {
-        Layer = "layer_parry_B";
+        string[] layers = ["layer_parry_A", "layer_parry_B", "layer_parry_C", "layer_parry_D", "layer_parry_E"];
+        var choices = layers.Where(l => l != lastParry && body.Model.Info.Clips.ContainsKey(l)).ToList();
+        Layer = lastParry = choices.Count > 0 ? choices[random.Next(choices.Count)] : "layer_parry_B";
         LayerCycle = 0;
         Play(OrcState.Parry, "combatidle");
     }
+
+    /// <summary>A dodge to one side (<c>Dodge_left</c> or <c>Dodge_right</c>): its root motion carries it 75 units, and it can't be touched in its window (#10198).</summary>
+    void Dodge()
+    {
+        Layer = null;
+        Play(OrcState.Dodging, random.Next(2) == 0 ? "Dodge_left" : "Dodge_right");
+    }
+
+    /// <summary>How the orc defends (#10151); its <c>Forced</c> answer sets every one (the smoke's checks).</summary>
+    internal OrcDefence Defending => defence;
 
     void Play(OrcState state, string clip)
     {

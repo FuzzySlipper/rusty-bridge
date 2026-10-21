@@ -24,7 +24,7 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], .5f, 3, 61, []));
+var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], 3, 61, []));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
@@ -604,6 +604,34 @@ host.Call(engine =>
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
+    // The orc's defence (#10151): how often it parries and dodges the swings it sees, ready, against the donor's.
+    {
+        var donorDefence = DefenceCalibration.Donor(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
+        orc.Hold = true;
+        var labDefence = DefenceCalibration.Lab(orc, 1200);
+        orc.Hold = false;
+        static double Rate(int part, int whole) => whole == 0 ? double.NaN : (double)part / whole;
+        foreach (var kind in Enum.GetValues<SwingKind>())
+        {
+            var d = donorDefence[kind, true];
+            var l = labDefence[kind, true];
+            Console.WriteLine(FormattableString.Invariant($"  orc defence, {kind} on a ready orc: donor {d.Swings} swings, parried {Rate(d.Parries, d.Swings):P0}, dodged {Rate(d.Dodges, d.Swings):P0}; lab {l.Swings}, parried {Rate(l.Parries, l.Swings):P0}, dodged {Rate(l.Dodges, l.Swings):P0}"));
+        }
+        // Within two standard deviations of the donor's rate over its swings (and 5 points), per situation.
+        bool Near(SwingKind kind, Func<(int Swings, int Parries, int Dodges), int> part)
+        {
+            var d = donorDefence[kind, true];
+            var l = labDefence[kind, true];
+            double p = Rate(part(d), d.Swings), q = Rate(part(l), l.Swings);
+            return d.Swings >= 15 && l.Swings >= 50 && Math.Abs(p - q) <= 2 * Math.Sqrt(p * (1 - p) / d.Swings) + .05;
+        }
+        Check(Near(SwingKind.Fast, c => c.Parries) && Near(SwingKind.Fast, c => c.Dodges),
+            "a ready orc parries the fast attacks it sees at the donor's rate (a roll over its difficulty, 0.6), and doesn't dodge them");
+        Check(Near(SwingKind.Power, c => c.Dodges) && Near(SwingKind.Power, c => c.Parries),
+            "it dodges the power attacks, which break parries, at the donor's rate (the same roll, then base_dodge_chance 0.5, once in 15 s)");
+        Check(Near(SwingKind.Kick, c => c.Dodges), "and dodges kicks at the donor's rate (dodge_on_kick_init_chance 0.2)");
+    }
+
     // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.
     {
         var (knockBlows, knockSpans) = KnockdownCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories), combat.Model);
@@ -626,14 +654,14 @@ host.Call(engine =>
         orc.Hold = true;
         orc.Spawn();
         orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 1.5f);
-        for (int i = 0; i < 10; i++) orc.Step(Tick, product.Player.Feet, false);
+        for (int i = 0; i < 10; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
         var felled = orc.Struck(new AttackEvent(1, false, ChanceToFall: 1), 100, product.Player.Feet, false, 1);
         string lying = orc.Clip;
         float downFor = 0;
         string? gotUp = null;
         while (orc.State == OrcState.KnockedDown && downFor < 20)
         {
-            orc.Step(Tick, product.Player.Feet, false);
+            orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
             downFor += Tick;
             if (orc.Clip.StartsWith("StandUp_", StringComparison.Ordinal) && !orc.Clip.EndsWith("_firstframe", StringComparison.Ordinal)) gotUp ??= orc.Clip;
         }
@@ -641,7 +669,7 @@ host.Call(engine =>
             FormattableString.Invariant($"a felled orc lies on its back ({lying}), gets up with {gotUp} and is up again after {downFor:0.00} s (the donor's {downP10:0.00}–{downP90:0.00}, {downs.Count} knockdowns)"));
         var stunned = orc.Struck(new AttackEvent(1, false), 200, product.Player.Feet, staff: true, 1);
         string stunClip = orc.Clip;
-        for (int i = 0; i < 120; i++) orc.Step(Tick, product.Player.Feet, false);
+        for (int i = 0; i < 120; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
         string held = orc.Clip;
         orc.Damage(.5f);
         Check(stunned == Stagger.Stunned && stunClip == "hit_stunned_front" && held == "Stunned" && orc.State == OrcState.Hurt,
@@ -691,7 +719,7 @@ host.Call(engine =>
         orc.PlaceAt(Vector3.UnitZ * Orc.BodyGap * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
         int attacksBefore = orc.AttacksMade;
         float pressed = 0;
-        for (; pressed < 15 && orc.AttacksMade == attacksBefore; pressed += Tick) orc.Step(Tick, Vector3.Zero, false);
+        for (; pressed < 15 && orc.AttacksMade == attacksBefore; pressed += Tick) orc.Step(Tick, Vector3.Zero, IncomingSwing.None);
         Check(orc.AttacksMade > attacksBefore,
             FormattableString.Invariant($"an orc pressed against a standing player at 32 units attacks again, after {pressed:0.0} s (stepping back to its uppercut's 34)"));
         orc.Spawn();
@@ -709,7 +737,7 @@ host.Call(engine =>
 
     // A still orc in front: no attacks, no parries, then the player's moves against it.
     combat.Orc.Hold = true;
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { ParryChance = 0 } });
+    combat.Orc.Defending.Forced = Defence.None;
     void Face()
     {
         orc.Spawn();
@@ -749,14 +777,14 @@ host.Call(engine =>
     float expected = body?.Group is int g ? wdmg * powerPow * data.Character(Orc.Model)!.HitGroup(g) : float.NaN;
     Check(body is not null && MathF.Abs(body.Damage - expected) < 1e-3f,
         FormattableString.Invariant($"a power attack on the body asks WDmg × HitPow × the hit group's modifier: {body?.Damage:0.###} = {wdmg} × {powerPow} × group {body?.Group}"));
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { ParryChance = 1 } });
+    combat.Orc.Defending.Forced = Defence.Parry;
     Face();
     int parried = combat.Player.Parried + combat.Player.Blocked;
     Swing(3);
     Console.WriteLine($"  against a parrying orc: {combat.LastBlow}");
     Check(combat.Player.Parried + combat.Player.Blocked == parried + 1, "an orc that parries turns the blade: the verdict reads its parry state");
     Check(swung.Contains(SwordMove.FastEnd), "the parried swing plays on to its recovery: the donor's sword doesn't bounce off a parry");
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { ParryChance = 0 } });
+    combat.Orc.Defending.Forced = Defence.None;
     Face();
     float before = orc.Health;
     combat.Step(Tick, step++, false, false, true, product.Player.Eye, product.Player.Forward, product.Player.Feet);

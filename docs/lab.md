@@ -73,7 +73,7 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 - movement while attacking;
 - the kick's window, range and push;
 - the player's health;
-- the orc's spawn, parry chance (#10151 reads it from the donor) and respawn time, and two numbers fitted to the
+- the orc's spawn and respawn time, and two numbers fitted to the
   recordings: the landing window each of its attacks is chosen in (`orc.attackLandings`) and its walking speed
   (`orc.walkSpeed`; see "The orc"). Its health, zones and attack rhythm are its `.qct`'s.
 
@@ -520,6 +520,26 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   between its backing-off steps, where the recorded ones pressed in, so the uppercut leads the lab's attacks.
 - **`Hold`** (`Orc.Hold`) keeps it from attacking: the smoke's still orc.
 
+### The orc's defence
+
+The orc parries and dodges by its `.qct` (#10151; `Npc/OrcDefence.cs`, server.dll's AI around +0x2A8968 and its
+dodge test at +0x2ACB30), against every player swing a recorded orc saw start within 150 units (`DefenceCalibration`):
+
+| A swing it sees, standing ready | It | Recorded | Lab (20 minutes of a scripted player) |
+| --- | --- | --- | --- |
+| One it may parry (the fast attacks) | parries on a 0–100 roll over its `difficulty` (60): 40% | parried 45% of 336 | 41% |
+| One that breaks parries (the power attacks) | dodges (`Dodge_left`/`_right`) on the same roll and then `base_dodge_chance` (0.5), at most once every `DodgeDelay` (15 s) | dodged 13%, parried 2% of 199 | 7% |
+| A kick | dodges on `dodge_on_kick_init_chance` (0.2), no delay | dodged 16% of 56 | 22% |
+
+- **Its parry** is one of `layer_parry_A`–`E` at random, never the same twice running (server.dll's SetParryLayer).
+- **A dodge** moves it 75 units to the side by its root motion and can't be touched in its window (#10198).
+- **Not modelled:** `dodge_on_kick_add_chance` (0.4 "added after every kick"): one recorded orc took 7 kicks ready
+  and dodged none, so the chance doesn't grow in the lab; the preventive dodge (`PreventiveDodgeChance` 0.2 every
+  15 s against one attack class, not identified); the 6% of fast attacks parried while attacking (in its recovery);
+  `Stamina_Parry`/`_Block`/`_Dodge` (the AI's stamina, which isn't on the Wire). The lab's orc carries a shield but
+  never blocks: no recorded orc carried one.
+- `Orc.Defending.Forced` makes it answer every swing one way: the smoke's checks.
+
 ### Stuns and knockdowns
 
 A player's blow can stun the orc or knock it down (#10152; `Npc/OrcStagger.cs`), by rules read from server.dll and
@@ -842,8 +862,8 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 
 ## Not done yet
 
-- **Orc AI:** its rhythm, zones, walk and attack choice are the donor's (see "The orc"); its parries are a fixed chance
-  (#10151), its reactions one hit and one push clip (#10153), and it neither dodges nor grabs (#10185).
+- **Orc AI:** its rhythm, zones, walk, attack choice, parries and dodges are the donor's (see "The orc" and "The
+  orc's defence"); its reactions are one hit and one push clip (#10153), and it doesn't grab (#10185).
 - **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
   - knockdowns into ragdolls (the orc lies at once in its get-up frame: #10216);

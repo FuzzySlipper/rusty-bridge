@@ -63,7 +63,8 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
 
     private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] OrcControls =
     [
-        ("parry", "Parry chance", 0, 1, .05f, "/orc/parryChance", t => t.Orc.ParryChance, (t, v) => t with { Orc = t.Orc with { ParryChance = v } }),
+        ("walk", "Walk speed units/s", 20, 160, 1, "/orc/walkSpeed", t => t.Orc.WalkSpeed, (t, v) => t with { Orc = t.Orc with { WalkSpeed = v } }),
+        ("respawn", "Respawn s", 0, 20, .5f, "/orc/respawnSeconds", t => t.Orc.RespawnSeconds, (t, v) => t with { Orc = t.Orc with { RespawnSeconds = v } }),
     ];
 
     // The page has no choosers.

@@ -54,7 +54,6 @@ internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScal
         }
         OrcTuning o = t.Orc;
         Authored.Require(o.Spawn.Length == 3, Path, "orc.spawn", "must be [x, y, z].");
-        Authored.Within(Path, "orc.parryChance", o.ParryChance, 0, 1);
         Authored.AtLeast(Path, "orc.respawnSeconds", o.RespawnSeconds, 0);
         Authored.Positive(Path, "orc.walkSpeed", o.WalkSpeed);
         foreach (var (attack, window) in o.AttackLandings)
@@ -88,17 +87,16 @@ internal sealed record SwingArc(float[] Side, float[] Up)
 internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases Kick);
 
 /// <summary>
-/// The lab's own orc numbers: where it spawns, how often it parries (#10151 reads that from the donor), how long it
-/// stays down. Its health, zones, walk and attack rhythm come from its .qct (#10150, <c>OrcMindData</c>).
+/// The lab's own orc numbers: where it spawns and how long it stays down. How it defends is its .qct's (#10151,
+/// <c>OrcDefenceData</c>). Its health, zones and attack rhythm come from its .qct (#10150, <c>OrcMindData</c>).
 /// </summary>
-/// <param name="ParryChance">How often the orc parries a swing it sees coming, when it isn't attacking.</param>
 /// <param name="AttackLandings">Where each attack's strike landed in the recordings (#10150): Source units off the
 /// player once its travel to the strike is done, the middle half (25th to 75th percentile), fitted by <c>OrcCalibration.Landings</c>.
 /// The orc chooses an attack only from where its strike lands inside this window.</param>
 /// <param name="WalkSpeed">How fast it walks in, Source units a second: the donor's orcs covered a median 61 between
 /// position updates while playing CombatWalk (whose root motion would be 96: Source's navigator moves an NPC slower
 /// than its walk clip's feet), fitted by <c>OrcCalibration</c> (R10150-2).</param>
-internal sealed record OrcTuning(float[] Spawn, float ParryChance, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings);
+internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

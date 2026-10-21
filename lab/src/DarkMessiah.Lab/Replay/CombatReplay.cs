@@ -217,7 +217,8 @@ internal static class CombatReplay
             {
                 times[t.Tick] = t.Time;
                 if (t.Orc is { } o) followed[t.Tick] = o.Id;
-                if (t.Kick && timeline.HasCommands) requests.Add(t.Time);
+                // A request while the donor holds gear the lab doesn't play isn't compared, like its moves (R10140-3).
+                if (t.Kick && timeline.HasCommands && !Unplayable(t.Tick)) requests.Add(t.Time);
                 if (t.Adrenaline is float adrenaline)
                 {
                     combat.Adrenaline.Set(adrenaline, t.AdrenalineMax);
@@ -391,8 +392,8 @@ internal static class CombatReplay
         if (timeline.HasCommands)
         {
             bool Began(IEnumerable<DonorSwing> swings, double at) => swings.Any(s => s.Time >= at - .05 && s.Time <= at + Window);
-            var donorKicks = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == "kick").ToList();
-            var labKicks = labSwings.Where(s => InputTimeline.Family(s.Clip) == "kick").ToList();
+            var donorKicks = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == "kick" && !Unplayable(s.Tick)).ToList();
+            var labKicks = labSwings.Where(s => InputTimeline.Family(s.Clip) == "kick" && !Unplayable(s.Tick)).ToList();
             kicks = new KickRequests(requests.Count, requests.Count(r => Began(donorKicks, r)), requests.Count(r => Began(labKicks, r)),
                 requests.Count(r => Began(donorKicks, r) && Began(labKicks, r)));
         }

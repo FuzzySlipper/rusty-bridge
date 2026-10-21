@@ -1149,6 +1149,17 @@ host.Call(engine =>
         Check(combat.Build?.Source == BuildFile.Path, "after the replay the lab plays build.json again");
     }
     else Console.WriteLine("skip the v15 build replay: no local/recordings/experiments/l01_a-v15-stats.rbrec");
+    // Kick requests while the donor holds unplayable gear aren't compared either (R10140-3): a timeline of 200 ticks with
+    // a kick request inside a shield stretch (ticks 40-60) and one outside it (150) counts one request.
+    {
+        Vector3 eye = product.Player.Eye, look = product.Player.Forward, at = product.Player.Feet;
+        var ticks = Enumerable.Range(0, 200).Select(i => new ReplayTick(1000 + i, i * (double)Tick, Tick, RustyBridge.Wire.InputButtons.None, i is 50 or 150, eye, look, at, null,
+            KickHeld: i is >= 50 and < 56 or >= 150 and < 156)).ToList();
+        var synthetic = new InputTimeline { Name = "synthetic", Ticks = ticks, HasCommands = true, Unplayable = [(1040, 1060, "a shield (test)")] };
+        var report = CombatReplay.Run(combat, synthetic);
+        Check(report.Kicks is { Requests: 1 } k && k.LabBegan == 1,
+            $"a kick request in a stretch with unplayable gear isn't compared, one outside it is: {report.Kicks}");
+    }
 });
 return failures == 0 ? 0 : 1;
 

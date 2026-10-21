@@ -48,9 +48,9 @@ internal sealed class InputTimeline
     /// <summary>Dark Messiah's kick damage bit (docs/combat.md).</summary>
     const uint KickDamage = 0x40000;
 
-    internal string Name { get; private init; } = "";
-    internal IReadOnlyList<ReplayTick> Ticks { get; private init; } = [];
-    internal IReadOnlyList<DonorSwing> Swings { get; private init; } = [];
+    internal string Name { get; init; } = "";
+    internal IReadOnlyList<ReplayTick> Ticks { get; init; } = [];
+    internal IReadOnlyList<DonorSwing> Swings { get; init; } = [];
     internal FightCases Fight { get; private init; } = new("", 0, [], [], []);
     /// <summary>
     /// The player's kicks that landed on an NPC: the tick, the victim (<c>#index.serial</c>, as <see cref="Blows"/>
@@ -58,7 +58,7 @@ internal sealed class InputTimeline
     /// </summary>
     internal IReadOnlyList<(int Tick, string Victim, string Class, float Damage)> Kicks { get; private init; } = [];
     /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
-    internal bool HasCommands { get; private init; }
+    internal bool HasCommands { get; init; }
     /// <summary>
     /// From Wire v15, the donor player's build at the first frame with stats (<see cref="CharacterBuild.FromRecording"/>);
     /// null before v15. <see cref="Builds"/> holds each later change of its modules, shield or (v16) skill levels, which
@@ -72,7 +72,7 @@ internal sealed class InputTimeline
     /// The stretches where the donor's player held something the lab doesn't play (a shield, #10149; a weapon of no
     /// class the lab has, such as a bow or a spell), with what: the replay compares no move or blow in them.
     /// </summary>
-    internal IReadOnlyList<(int From, int To, string What)> Unplayable { get; private init; } = [];
+    internal IReadOnlyList<(int From, int To, string What)> Unplayable { get; init; } = [];
     /// <summary>
     /// From Wire v15, each switch to another weapon (#10148): the model taken, and the tick the donor began putting the
     /// last one away (its <c>_undraw</c> starting; the weapon on the Wire changes only as the draw begins). Hands emptied

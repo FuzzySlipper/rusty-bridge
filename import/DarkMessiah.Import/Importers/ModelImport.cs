@@ -386,7 +386,7 @@ public sealed class ModelImport
             channels.Add((map[b], "rotation", [ro.X, ro.Y, ro.Z, ro.W, ro.X, ro.Y, ro.Z, ro.W], true));
         }
 
-        return new PendingClip(seq.Label, times, channels, new JsonObject
+        var extras = new JsonObject
         {
             ["sequence"] = number,
             ["activity"] = seq.Activity,
@@ -401,8 +401,21 @@ public sealed class ModelImport
             ["fadeOut"] = seq.FadeOut,
             ["weighted"] = seq.BoneWeights is not null && seq.BoneWeights.Any(w => w <= 0),
             ["empty"] = empty,
-        });
+        };
+        if (Movement(anim, frames) is { } movement) extras["movement"] = movement;
+        return new PendingClip(seq.Label, times, channels, extras);
     }
+
+    /// <summary>
+    /// The clip's root motion, when its animation has any: [cycle, x, y, angle] at each piece's end, cumulative, in the
+    /// model's frame (Source units, X forward, Y left; degrees). The lab moves an NPC by it: the orc's attack_Jump
+    /// carries it 93 units, as the recordings show its origin travel (#10150).
+    /// </summary>
+    internal static JsonNode? Movement(StudioAnimation anim, int frames) =>
+        anim.Movements is { Length: > 0 } pieces && pieces.Any(m => m.Position != Vector3.Zero || m.Angle != 0)
+            ? new JsonArray(pieces.Select(m => (JsonNode)GltfBuilder.FloatArray(frames > 1 ? Math.Clamp(m.EndFrame / (float)(frames - 1), 0, 1) : 1,
+                m.Position.X, m.Position.Y, m.Angle)).ToArray())
+            : null;
 
     static void Write(GltfBuilder gltf, int[] joints, PendingClip clip)
     {

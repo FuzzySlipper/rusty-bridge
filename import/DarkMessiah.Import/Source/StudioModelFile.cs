@@ -8,7 +8,16 @@ namespace DarkMessiah.Import.Source;
 public sealed record StudioBone(string Name, int Parent, Vector3 Position, Quaternion Rotation, Vector3 Euler,
     Vector3 PositionScale, Vector3 EulerScale, float[] PoseToBone, int Flags, int ProceduralType);
 
-public sealed record StudioAnimation(string Name, float Fps, int Flags, int Frames, int DataOffset, int Block, int SectionFrames)
+/// <summary>
+/// One piece of an animation's root motion (mstudiomovement_t, 44 bytes): from the last piece's end to
+/// <paramref name="EndFrame"/> the model moves to <paramref name="Position"/> (cumulative, in the model's own frame,
+/// Source units: X forward, Y left) and turns to <paramref name="Angle"/> degrees. Source strips this from the root
+/// bone and moves the entity by it.
+/// </summary>
+public sealed record StudioMovement(int EndFrame, int Flags, float Angle, Vector3 Position);
+
+public sealed record StudioAnimation(string Name, float Fps, int Flags, int Frames, int DataOffset, int Block, int SectionFrames,
+    StudioMovement[]? Movements = null)
 {
     public const int Looping = 0x1, Delta = 0x4, AllZeros = 0x20;
     public bool IsDelta => (Flags & Delta) != 0;
@@ -44,6 +53,7 @@ public sealed record StudioBodyPart(string Name, StudioSubModel[] Models);
 /// </summary>
 public sealed class StudioModelFile
 {
+    const int MovementBytes = 44;
     const int BoneBytes = 216, AnimDescBytes = 100, SeqDescBytes = 212, TextureBytes = 64, BodyPartBytes = 16, ModelBytes = 148, MeshBytes = 116, VertexBytes = 48, AttachmentBytes = 92,
         HitboxBytes = 68;
 
@@ -89,7 +99,14 @@ public sealed class StudioModelFile
         for (int i = 0; i < Animations.Length; i++)
         {
             int o = I(184) + i * AnimDescBytes;
-            Animations[i] = new StudioAnimation(Str(o + I(o + 4)), F(o + 8), I(o + 12), I(o + 16), o + I(o + 56), I(o + 52), I(o + 84));
+            // nummovements at +20, movementindex at +24 (relative to the animdesc).
+            var movements = new StudioMovement[Math.Max(0, I(o + 20))];
+            for (int m = 0; m < movements.Length; m++)
+            {
+                int p = o + I(o + 24) + m * MovementBytes;
+                movements[m] = new StudioMovement(I(p), I(p + 4), F(p + 16), V3(p + 32));
+            }
+            Animations[i] = new StudioAnimation(Str(o + I(o + 4)), F(o + 8), I(o + 12), I(o + 16), o + I(o + 56), I(o + 52), I(o + 84), movements);
         }
 
         Sequences = new StudioSequence[I(188)];

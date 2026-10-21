@@ -30,10 +30,11 @@ internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float He
     IReadOnlyList<(string Clip, float Cycle, float Weight)>? Overlays = null);
 
 /// <summary>
-/// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, and a minimal fight loop, not the donor's AI
-/// (which is a later task). It walks in (<c>CombatWalk</c>), then attacks in turn with <c>attack_Fast</c>,
-/// <c>attack_right</c> and <c>attack_Bash</c> at the cleaver's <c>speed_attack</c>. Each attack part's event (2102,
-/// 2139) the step crosses is a blow. When not attacking it may parry a swing it sees coming (<c>layer_parry_B</c>
+/// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, fighting by its <c>.qct</c> (#10150,
+/// <see cref="OrcMind"/>): it walks in (<c>CombatWalk</c>) to its green zone, holds or strafes (<c>Combatmove_*</c>)
+/// between its red and yellow zones while it waits out its cool or berserk interval, then picks an attack whose strike
+/// lands from where it stands, played at the cleaver's <c>speed_attack</c>. Every clip moves it by its root motion
+/// (mstudiomovement_t), as the donor's entity moves. Each attack part's event (2102, 2139) the step crosses is a blow. When not attacking it may parry a swing it sees coming (<c>layer_parry_B</c>
 /// over its idle, which sets its defense state's parry bit), and it reacts to hits (<c>Hit_Body_Front_small</c>) and
 /// kicks (<c>Push_Body_back_small</c>, pushed back). At no health it drops and comes back after a while.
 /// </summary>
@@ -42,7 +43,6 @@ internal sealed class Orc : IDisposable
     internal const string Model = "models/npc/orc/npc_orc.mdl", Cleaver = "models/Items/Weapons/sword_orc/sword_orc.mdl",
         Shield = "models/items/armors/shield_orc/shield_orc.mdl";
     internal const ulong BodyId = 0x4C41_0010, CleaverId = 0x4C41_0011, ShieldId = 0x4C41_0012;
-    static readonly string[] Attacks = ["attack_Fast", "attack_right", "attack_Bash"];
     static readonly int[] PartEvents = [2102, 2139];
 
     readonly IEngineContext engine;
@@ -54,8 +54,8 @@ internal sealed class Orc : IDisposable
     const ulong OtherBodyIds = 0x4C41_0200;
     readonly Random random = new(1);
     OrcTuning tuning;
-    float cooldown, downSeconds, pushLeft;
-    int attackIndex;
+    float downSeconds, pushLeft;
+    readonly OrcMind mind;
     Vector3 pushDirection;
 
     internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning)
@@ -68,9 +68,16 @@ internal sealed class Orc : IDisposable
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
+        mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
+
+    /// <summary>It holds off: no attack starts (a developer switch, and the smoke's still orc).</summary>
+    internal bool Hold { get; set; }
+
+    /// <summary>What it fights by, from its .qct (#10150).</summary>
+    internal OrcMindData Mind => mind.Data;
 
     internal float AttackSpeed { get; }
     internal Vector3 Feet { get; private set; }
@@ -241,10 +248,19 @@ internal sealed class Orc : IDisposable
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
         if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed) && distance > 1e-3f) Facing = toPlayer / distance;
-        cooldown = MathF.Max(0, cooldown - seconds);
+        mind.Step(seconds, swingStarted);
         float before = Cycle;
+        string playing = Clip;
         Advance(seconds);
+        if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt) RootMotion(playing, before, Cycle);
+        // The bodies keep apart: its feet no nearer the player's than two hulls (BodyGap).
+        Vector3 apart = (Feet - playerFeet) with { Y = 0 };
+        if (apart.LengthSquared() > 1e-6f && apart.Length() < BodyGap * SourceSpace.MetresPerUnit)
+            Feet = playerFeet with { Y = Feet.Y } + Vector3.Normalize(apart) * BodyGap * SourceSpace.MetresPerUnit;
         bool done = Cycle >= 1 && !Looping(Clip);
+        // Distances in Source units, as the .qct's zones and ranges are.
+        float units = distance / SourceSpace.MetresPerUnit;
+        var data = mind.Data;
         switch (State)
         {
             case OrcState.Down:
@@ -252,25 +268,27 @@ internal sealed class Orc : IDisposable
                 if (downSeconds >= tuning.RespawnSeconds) Spawn();
                 break;
             case OrcState.Approach:
-                // A margin: stepping exactly the remaining gap leaves it a rounding error outside.
-                if (distance <= tuning.EngageDistance + .05f) Play(OrcState.Ready, "combatidle");
-                else Feet += Facing * MathF.Min(tuning.WalkSpeed * seconds, distance - tuning.EngageDistance);
+                // It walks in to its green zone, or until an attack it may make lands from here.
+                if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is not null) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
-                if (distance > tuning.EngageDistance * 1.25f) Play(OrcState.Approach, "CombatWalk");
-                else if (swingStarted && random.NextSingle() < tuning.ParryChance) Parry();
-                else if (cooldown <= 0)
+                if (swingStarted && random.NextSingle() < tuning.ParryChance) Parry();
+                else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is { } attack)
                 {
-                    Play(OrcState.Attack, Attacks[attackIndex++ % Attacks.Length]);
+                    Play(OrcState.Attack, attack.Clip);
+                    mind.Attacked();
                     AttacksMade++;
                 }
+                // Past its yellow zone, or ready to attack with nothing landing from here, it walks in.
+                else if (units > data.Yellow || !Hold && mind.Ready && units > data.Green) Play(OrcState.Approach, "CombatWalk");
+                else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
             case OrcState.Attack:
                 var clip = body.Model.Clip(Clip);
                 for (int part = 0; part < PartEvents.Length; part++)
                     foreach (float at in clip.At(PartEvents[part]))
                         if (before < at && Cycle >= at) blows.Add(new OrcBlow(part, Clip, at));
-                if (done) { cooldown = tuning.AttackCooldown; Play(OrcState.Ready, "combatidle"); }
+                if (done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Parry:
                 if (LayerCycle >= 1) { Layer = null; Play(OrcState.Ready, "combatidle"); }
@@ -339,9 +357,9 @@ internal sealed class Orc : IDisposable
     internal void Spawn()
     {
         Feet = Shared(tuning.Spawn);
-        Health = tuning.Health;
+        Health = mind.Data.Health;
         Layer = null;
-        cooldown = tuning.AttackCooldown;
+        mind.Reset();
         Play(OrcState.Approach, "CombatWalk");
     }
 
@@ -410,6 +428,37 @@ internal sealed class Orc : IDisposable
     }
 
     bool Looping(string clip) => clip is "combatidle" or "CombatWalk";
+
+    /// <summary>
+    /// How near its feet come to the player's, Source units: two human hulls (16 each; the donor's player and NPC hulls
+    /// stop each other). The recorded orcs began their closest attacks 33 to 37 units off (10th percentiles).
+    /// </summary>
+    internal const float BodyGap = 32;
+
+    /// <summary>
+    /// Waiting out its interval within its zones: backing off inside the red zone, else a strafe either way
+    /// (<c>Combatmove_left_small</c>, <c>_right_small</c>) or its guard (<c>combatidle</c>), each played through. The
+    /// recorded orcs between 20 and 140 units strafed (<c>Combatmove_*</c>) about four times as often as they idled.
+    /// </summary>
+    void Wait(float units)
+    {
+        if (units < mind.Data.Red) { Play(OrcState.Ready, "Combatmove_backward_small"); return; }
+        float roll = mind.Roll();
+        Play(OrcState.Ready, roll < .4f ? "Combatmove_left_small" : roll < .8f ? "Combatmove_right_small" : "combatidle");
+    }
+
+    /// <summary>
+    /// Moves it by <paramref name="clip"/>'s root motion from cycle <paramref name="from"/> to <paramref name="to"/>
+    /// (around the loop when <paramref name="to"/> wrapped), turned to its facing: forward along it, left of it.
+    /// </summary>
+    void RootMotion(string clip, float from, float to)
+    {
+        var played = body.Model.Clip(clip);
+        if (played.Movement is not { Count: > 0 }) return;
+        Vector2 moved = to >= from ? played.MovedAt(to) - played.MovedAt(from) : played.MovedAt(1) - played.MovedAt(from) + played.MovedAt(to);
+        var left = new Vector3(Facing.Z, 0, -Facing.X);
+        Feet += (Facing * moved.X + left * moved.Y) * SourceSpace.MetresPerUnit;
+    }
 
     static Vector3 Shared(float[] xyz) => new(xyz[0], xyz[1], xyz[2]);
 

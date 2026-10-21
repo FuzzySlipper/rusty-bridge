@@ -53,13 +53,11 @@ internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScal
             Authored.Require(arc.Up.Length == 2 && arc.Up.All(a => a is >= -90 and <= 90), Path, $"swingArcs.{clip}.up", "must be two angles, degrees, within ±90.");
         }
         OrcTuning o = t.Orc;
-        Authored.Positive(Path, "orc.health", o.Health);
         Authored.Require(o.Spawn.Length == 3, Path, "orc.spawn", "must be [x, y, z].");
-        Authored.Positive(Path, "orc.engageDistance", o.EngageDistance);
-        Authored.Positive(Path, "orc.walkSpeed", o.WalkSpeed);
-        Authored.AtLeast(Path, "orc.attackCooldown", o.AttackCooldown, 0);
         Authored.Within(Path, "orc.parryChance", o.ParryChance, 0, 1);
         Authored.AtLeast(Path, "orc.respawnSeconds", o.RespawnSeconds, 0);
+        foreach (var (attack, window) in o.AttackLandings)
+            Authored.Require(window.Length == 2 && window[0] <= window[1], Path, $"orc.attackLandings.{attack}", "must be [low, high], Source units.");
         return t;
     }
 }
@@ -88,10 +86,15 @@ internal sealed record SwingArc(float[] Side, float[] Up)
 /// <summary>The phase timing of the player's three traced moves.</summary>
 internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases Kick);
 
-/// <param name="EngageDistance">The orc walks toward the player until this close, metres, then fights.</param>
+/// <summary>
+/// The lab's own orc numbers: where it spawns, how often it parries (#10151 reads that from the donor), how long it
+/// stays down. Its health, zones, walk and attack rhythm come from its .qct (#10150, <c>OrcMindData</c>).
+/// </summary>
 /// <param name="ParryChance">How often the orc parries a swing it sees coming, when it isn't attacking.</param>
-internal sealed record OrcTuning(float Health, float[] Spawn, float EngageDistance, float WalkSpeed,
-    float AttackCooldown, float ParryChance, float RespawnSeconds);
+/// <param name="AttackLandings">Where each attack's strike landed in the recordings (#10150): Source units off the
+/// player once its travel to the strike is done, the middle half (25th to 75th percentile), fitted by <c>OrcCalibration.Landings</c>.
+/// The orc chooses an attack only from where its strike lands inside this window.</param>
+internal sealed record OrcTuning(float[] Spawn, float ParryChance, float RespawnSeconds, Dictionary<string, float[]> AttackLandings);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

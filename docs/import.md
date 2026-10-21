@@ -72,6 +72,11 @@ A studio model is one skinned GLB:
   animation events, `events` lists them as `[cycle, id]` pairs. Those are
   Arkane's ids: 2186 opens a hit window and 2190 closes it, and 2102 and
   2139 are the struck parts. A few events with a non-finite cycle are left out.
+  When the sequence's animation has root motion (Source's `mstudiomovement_t`, which
+  it keeps out of the root bone), `movement` lists `[cycle, x, y, angle]` at each
+  piece's end, cumulative, in the model's frame (Source units, X forward, Y left;
+  degrees). The orc's `attack_Jump` carries it 120 units, 100 by its strike; the
+  combat lab moves NPCs by it (#10150).
 - **Game data:** the level import writes each model's `.qct` beside its GLB,
   under the same lowercased name, and copies the gameplay tables (below).
   The combat lab reads Arkane's numbers from them at run time ([lab.md](lab.md)).

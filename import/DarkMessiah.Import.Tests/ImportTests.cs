@@ -242,6 +242,19 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
             float centerZ = hitboxes[6]!["center"]![2]!.GetValue<float>(), halfZ = hitboxes[6]!["halfExtents"]![2]!.GetValue<float>();
             Assert.Equal(-1f * 0.0254f, centerZ - halfZ, 3);
             Assert.Equal(13f * 0.0254f, centerZ + halfZ, 3);
+
+            // Each clip's root motion (mstudiomovement_t), which Source strips from the root bone (#10150): attack_Jump
+            // carries the orc 120 units forward, 100 by its strike (its 2102 at 0.37; the recordings show 93).
+            var animations = json["animations"]!.AsArray();
+            var jump = animations.First(a => a!["name"]!.GetValue<string>() == "attack_Jump")!["extras"]!["movement"]!.AsArray();
+            Assert.Equal(1f, jump[^1]![0]!.GetValue<float>());
+            Assert.Equal(120f, jump[^1]![1]!.GetValue<float>(), 1);
+            Assert.Equal(0f, jump[^1]![2]!.GetValue<float>(), 1);
+            Assert.Contains(jump, p => p![0]!.GetValue<float>() is > .38f and < .4f && p[1]!.GetValue<float>() is > 99 and < 101);
+            // A strafe moves left (+Y); a clip that stays put has none.
+            var strafe = animations.First(a => a!["name"]!.GetValue<string>() == "Combatmove_left_small")!["extras"]!["movement"]!.AsArray();
+            Assert.Equal(50f, strafe[^1]![2]!.GetValue<float>(), 1);
+            Assert.Null(animations.First(a => a!["name"]!.GetValue<string>() == "attack_Uppercut")!["extras"]!["movement"]);
         }
         finally { Directory.Delete(dir, true); }
     }

@@ -25,17 +25,26 @@
     }
   },
   "orc": {
-    "health": 35,
     "spawn": [
       12,
       0,
       8
     ],
-    "engageDistance": 1.6,
-    "walkSpeed": 1.6,
-    "attackCooldown": 1.0,
     "parryChance": 0.5,
-    "respawnSeconds": 3
+    "respawnSeconds": 3,
+    "attackLandings": {
+      "attack_Bash": [41, 59],
+      "attack_Fast": [37, 70],
+      "attack_Forward": [24, 71],
+      "attack_Jump": [37, 68],
+      "attack_KickBash": [52, 65],
+      "attack_KickSwing": [38, 66],
+      "attack_Uppercut": [34, 43],
+      "attack_bottom": [43, 83],
+      "attack_left": [53, 81],
+      "attack_right": [62, 86],
+      "attack_top": [56, 86]
+    }
   },
   "swingArcs": {
     "layer_parry_sword_shield_bash": {

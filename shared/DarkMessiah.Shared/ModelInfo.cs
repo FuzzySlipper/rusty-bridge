@@ -21,10 +21,31 @@ public sealed record ConvexHull(string Joint, Vector3[] Points, Triangle[] Trian
 /// <summary>
 /// One of a model's clips as dm-import wrote it: its Source sequence's frame rate and frame count, whether it loops,
 /// and Arkane's animation events as (cycle, id) pairs: 2186 opens a hit window and 2190 closes it, 2102 and 2139 are
-/// the struck parts.
+/// the struck parts. <see cref="Movement"/> is its root motion, which Source keeps out of the root bone (#10150).
 /// </summary>
-public sealed record ModelClip(string Name, float Fps, int Frames, bool Looping, IReadOnlyList<(float Cycle, int Event)> Events)
+/// <param name="Movement">Where the clip has moved the model by each cycle, cumulative, in the model's own frame (Source
+/// units: X forward, Y left), piece by piece as Source's mstudiomovement_t has it; empty for a clip that stays put.</param>
+public sealed record ModelClip(string Name, float Fps, int Frames, bool Looping, IReadOnlyList<(float Cycle, int Event)> Events,
+    IReadOnlyList<(float Cycle, Vector2 Position)>? Movement = null)
 {
+    /// <summary>
+    /// How far the clip has moved the model by <paramref name="cycle"/> (Source units, X forward, Y left): linear within
+    /// each movement piece, from nothing at cycle 0.
+    /// </summary>
+    public Vector2 MovedAt(float cycle)
+    {
+        if (Movement is not { Count: > 0 } pieces) return Vector2.Zero;
+        cycle = Math.Clamp(cycle, 0, 1);
+        (float Cycle, Vector2 Position) from = (0, Vector2.Zero);
+        foreach (var piece in pieces)
+        {
+            if (cycle <= piece.Cycle)
+                return piece.Cycle > from.Cycle ? Vector2.Lerp(from.Position, piece.Position, (cycle - from.Cycle) / (piece.Cycle - from.Cycle)) : piece.Position;
+            from = piece;
+        }
+        return from.Position;
+    }
+
     /// <summary>Seconds the clip runs at playback rate 1: its frames over its rate, as Source plays a sequence.</summary>
     public float Seconds => Fps > 0 && Frames > 1 ? (Frames - 1) / Fps : 0;
 
@@ -116,7 +137,8 @@ public sealed class ModelInfo
         {
             var e = a?["extras"];
             var events = (e?["events"]?.AsArray() ?? []).Select(p => (p![0]!.GetValue<float>(), (int)p[1]!.GetValue<float>())).ToList();
+            var movement = (e?["movement"]?.AsArray() ?? []).Select(p => (p![0]!.GetValue<float>(), new Vector2(p[1]!.GetValue<float>(), p[2]!.GetValue<float>()))).ToList();
             return new ModelClip(a?["name"]?.GetValue<string>() ?? "", e?["fps"]?.GetValue<float>() ?? 0, e?["frames"]?.GetValue<int>() ?? 0,
-                e?["looping"]?.GetValue<bool>() ?? false, events);
+                e?["looping"]?.GetValue<bool>() ?? false, events, movement);
         }).ToList();
 }

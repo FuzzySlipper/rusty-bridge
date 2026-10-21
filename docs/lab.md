@@ -73,7 +73,9 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
 - movement while attacking;
 - the kick's window, range and push;
 - the player's health;
-- the orc's spawn, engage distance, walk speed, attack cooldown, parry chance and health.
+- the orc's spawn, parry chance (#10151 reads it from the donor) and respawn time, and the landing window each of its
+  attacks is chosen in (`orc.attackLandings`, fitted to the recordings; see "The orc"). Its health, zones, walk and
+  attack rhythm are its `.qct`'s.
 
 ## Builds
 
@@ -484,6 +486,36 @@ speed of 229 units/s, against 195 for all running ticks. The lab's body sprints 
 action, from 3 stamina, and drains it while moving; the sprint stops at 0 (not measured: the recordings stopped
 sprinting first).
 
+## The orc
+
+The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the donor's recorded orcs
+(`OrcCalibration`: every `npc_orc_sword` that fought the player in `local/recordings`, 1700-odd attacks):
+
+| What | Number | Source |
+| --- | --- | --- |
+| Health | 35 | `entity_data` `npc_health` |
+| Zones | red 10, green 70, yellow 140 units | `Red_zone`, `Green_zone`, `Yellow_zone` |
+| Wait between attacks (from one's start) | 1–4 s cool, 0–2 s berserk | `AttackCoolMinTime`/`MaxTime`, `AttackBersekerMinTime`/`MaxTime` |
+| Cool ↔ berserk | every 7–10 s; berserk after 2 s with no player attack | `AttackRythmMinTime`/`MaxTime`, `PlayerNoAttackDelayToGoBersekerMode` |
+| Each attack's travel to its strike | attack_Jump 96, attack_Forward 77, attack_right 28, KickSwing and KickBash 18–20, the uppercut, bash and fast attack 0–2 | the clip's root motion (`mstudiomovement_t`, which dm-import now writes; docs/import.md) |
+| Where each attack's strike lands | its middle half over the recordings, e.g. the uppercut 34–43, the side and top swings 53–86, the lunges 24–71 | `combat.json` `orc.attackLandings`, fitted (`OrcCalibration.Landings`; the smoke refits them) |
+| How near it comes | 32 units feet to feet | two human hulls; the donor's closest attacks began 33–37 off |
+
+- **The loop:** it walks in (`CombatWalk`, 96 units a second by its root motion, at the donor's 1.2 cycles a second)
+  to its green zone, or until an attack it may make lands from where it stands. Between its red and yellow zones it
+  holds its guard or strafes (`Combatmove_left_small`, `_right_small`; inside the red zone `_backward_small`), the
+  recorded orcs strafing about four times as often as they idled. Once its wait is over it picks, at random, an attack
+  whose strike lands inside that attack's window from here; nothing landing, it walks in. Every clip moves it by its
+  root motion, as the donor's entity moves.
+- **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
+  grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
+- **Against the donor** (the smoke; ten minutes of a scripted fight, the player swinging when it is near and backing
+  off 2 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
+  distance for it (8 of 8), the median time from one attack's start to the next is 2.15 s against the donor's 2.88,
+  and it walks at the donor's 1.20 cycles a second. The mix differs: the lab's scripted player stands its ground,
+  where the recorded ones pressed in and backed off, so the uppercut leads the lab's attacks.
+- **`Hold`** (`Orc.Hold`) keeps it from attacking: the smoke's still orc.
+
 ## Calibration
 
 `lab/tests/DarkMessiah.Lab.Smoke` measures the moves against every local recording of Wire v9 or later. Those recordings carry the client's view-model layers.
@@ -781,7 +813,8 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 
 ## Not done yet
 
-- **Orc AI:** a minimal loop stands in for it. It walks in, attacks in turn, sometimes parries, reacts to hits and kicks. Its behaviour is next to measure against Shadow decisions.
+- **Orc AI:** its rhythm, zones, walk and attack choice are the donor's (see "The orc"); its parries are a fixed chance
+  (#10151), its reactions one hit and one push clip (#10153), and it neither dodges, grabs (#10185) nor stuns (#10152).
 - **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
   - knockdowns into ragdolls;

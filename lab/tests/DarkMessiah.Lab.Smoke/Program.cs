@@ -24,7 +24,7 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning(35, [0, 0, 0], 1.6f, 1.6f, 1, .5f, 3));
+var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], .5f, 3, []));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
@@ -410,7 +410,7 @@ host.Call(engine =>
         step += steps;
     }
     static ProductInputEvent Primary(InputEdge edge) => default(ProductInputEvent) with { Kind = InputEventKind.PointerButton, PointerButton = PointerButton.Primary, Edge = edge };
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000 } });
+    combat.Orc.Hold = true;
     combat.Orc.PlaceAt(new System.Numerics.Vector3(0, -50, 0));
     Feed(30);
     int swingsBefore = combat.Player.Swings;
@@ -458,7 +458,7 @@ host.Call(engine =>
         combat.Orc.PlaceAt(waited);
         combat.Reset();
     }
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1 } });
+    combat.Orc.Hold = false;
     combat.Orc.Spawn();
     Console.WriteLine($"donor content: {product.Donor.Source}");
     Check(combat.FirstPerson.Range > 2.4f && combat.FirstPerson.Range < 2.6f, FormattableString.Invariant($"the short sword's range is its rangeattack, 100 units: {combat.FirstPerson.Range:0.00} m"));
@@ -590,16 +590,50 @@ host.Call(engine =>
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
+    // The orc fights by its .qct (#10150): its attack choice by distance, its rhythm and its walk against the donor's
+    // recorded orcs, the lab's over ten minutes of a scripted fight.
+    string orcRecordings = Path.Combine(repo!, "local", "recordings");
+    if (Directory.Exists(orcRecordings))
+    {
+        var donorOrc = OrcCalibration.Donor(Directory.EnumerateFiles(orcRecordings, "*.rbrec", SearchOption.AllDirectories));
+        // The landing windows the orc chooses by, refitted to the recordings: combat.json's must stay within 10 units.
+        var fitted = OrcCalibration.Landings(donorOrc, orc.Mind);
+        foreach (var (name, w) in fitted.OrderBy(f => f.Key, StringComparer.Ordinal))
+            Console.WriteLine(FormattableString.Invariant($"  orc landing {name}: fitted [{w.Low:0}, {w.High:0}], authored {(combat.Tuning.Orc.AttackLandings.TryGetValue(name, out var a) ? $"[{a[0]:0}, {a[1]:0}]" : "none")}"));
+        Check(fitted.Count >= 8 && fitted.All(f => combat.Tuning.Orc.AttackLandings.TryGetValue(f.Key, out var a) && MathF.Abs(a[0] - f.Value.Low) <= 10 && MathF.Abs(a[1] - f.Value.High) <= 10),
+            $"combat.json's attack landing windows are the recordings' ({fitted.Count} attacks, each within 10 units of the refit)");
+        var labOrc = OrcCalibration.Lab(orc, 600);
+        static string Spread(IReadOnlyList<float> d) => d.Count == 0 ? "none" : FormattableString.Invariant(
+            $"{d.Count}, p10 {OrcBehaviour.Quantile(d, .1f):0} median {OrcBehaviour.Quantile(d, .5f):0} p90 {OrcBehaviour.Quantile(d, .9f):0}");
+        foreach (var name in labOrc.AttackDistances.Keys.Union(donorOrc.AttackDistances.Keys).OrderByDescending(n => donorOrc.AttackDistances.GetValueOrDefault(n)?.Count ?? 0))
+            Console.WriteLine($"  orc {name}: donor {Spread(donorOrc.AttackDistances.GetValueOrDefault(name) ?? [])}; lab {Spread(labOrc.AttackDistances.GetValueOrDefault(name) ?? [])}");
+        Console.WriteLine(FormattableString.Invariant($"  orc gaps start to start: donor {Spread(donorOrc.Gaps)}; lab {Spread(labOrc.Gaps)}"));
+        if (donorOrc.Cut is { Count: > 0 } cutShort) Console.WriteLine($"  orc recordings cut short (read up to the cut): {string.Join(", ", cutShort)}");
+        Console.WriteLine(FormattableString.Invariant($"  orc walk (CombatWalk cycles/s): donor {Spread(donorOrc.WalkRates)}; lab {Spread(labOrc.WalkRates)}"));
+        var compared = labOrc.AttackDistances.Where(a => a.Value.Count >= 5 && donorOrc.AttackDistances.GetValueOrDefault(a.Key) is { Count: >= 10 }).ToList();
+        var within = compared.Where(a => OrcBehaviour.Quantile(a.Value, .5f) is var m
+            && m >= OrcBehaviour.Quantile(donorOrc.AttackDistances[a.Key], .1f) && m <= OrcBehaviour.Quantile(donorOrc.AttackDistances[a.Key], .9f)).ToList();
+        Check(compared.Count >= 6 && within.Count == compared.Count,
+            $"the orc picks each attack from the donor's distances: {within.Count} of {compared.Count} lab medians inside the donor's p10–p90 ({string.Join(", ", compared.Except(within).Select(a => a.Key))})");
+        Check(MathF.Abs(labOrc.GapMedian - donorOrc.GapMedian) <= donorOrc.GapMedian * .3f,
+            FormattableString.Invariant($"its attacks come at the donor's rhythm: {labOrc.GapMedian:0.00} s from one to the next against {donorOrc.GapMedian:0.00} (medians, within 30%)"));
+        Check(MathF.Abs(labOrc.WalkRate - donorOrc.WalkRate) <= donorOrc.WalkRate * .05f && labOrc.WalkRates.Count > 0,
+            FormattableString.Invariant($"it walks in at the donor's pace: CombatWalk at {labOrc.WalkRate:0.00} cycles a second against {donorOrc.WalkRate:0.00}, its root motion 96 units a second"));
+        if (Environment.GetEnvironmentVariable("RB_ORC") == "1") return;
+    }
+    else Console.WriteLine("skip the orc's behaviour: no local/recordings");
+
     // The orc walks in and fights the standing player.
     float start = Vector3.Distance(orc.Feet with { Y = 0 }, product.Player.Feet with { Y = 0 });
     Advance(720);
     float near = Vector3.Distance(orc.Feet with { Y = 0 }, product.Player.Feet with { Y = 0 });
-    Check(near < start && near <= combat.Tuning.Orc.EngageDistance * 1.3f, FormattableString.Invariant($"the orc walks in from {start:0.0} m to {near:0.0} m"));
+    Check(near < start && near <= 140 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, FormattableString.Invariant($"the orc walks in from {start:0.0} m to {near:0.0} m, inside its yellow zone"));
     Check(combat.OrcStats.Blows > 0 && combat.OrcStats.Reached > 0, $"the orc's blows reach the player: {combat.OrcStats.Blows} blows, {combat.OrcStats.Reached} reached");
     Check(combat.PlayerHealth < combat.Tuning.PlayerHealth || combat.OrcStats.Deaths > 0, FormattableString.Invariant($"they take the player's health: {combat.PlayerHealth:0.#} left"));
 
     // A still orc in front: no attacks, no parries, then the player's moves against it.
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000, ParryChance = 0 } });
+    combat.Orc.Hold = true;
+    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { ParryChance = 0 } });
     void Face()
     {
         orc.Spawn();
@@ -724,7 +758,7 @@ host.Call(engine =>
     combat.Retune(untuned);
 
     // The player's parry against the orc's attacks: parried, or broken by a part that breaks parries.
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 0 } });
+    combat.Orc.Hold = false;
     Face();
     var (p0, b0) = (combat.OrcStats.Parried, combat.OrcStats.Broken);
     for (int i = 0; i < 600; i++) combat.Step(Tick, step++, false, true, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
@@ -1001,7 +1035,7 @@ host.Call(engine =>
 
     // Replay: recordings of Wire v12 and later carry the player's input; it drives the lab's sword against the
     // donor orc the player faced, and the report compares both sides' moves and blows.
-    combat.Retune(combat.Tuning with { Orc = combat.Tuning.Orc with { AttackCooldown = 1000 } });
+    combat.Orc.Hold = true;
     foreach (var path in found.Where(p => RecordingVersion(p) >= 12))
     {
         var report = CombatReplay.Run(combat, path, product);

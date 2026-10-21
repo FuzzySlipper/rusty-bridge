@@ -15,7 +15,8 @@
 //   rbwire run                                  let the donor run
 //   rbwire exec COMMAND...                      run a console command in the donor (staging a
 //                                               hidden donor, which takes no keyboard input)
-//   rbwire scenario NAME [--out OUT.rbrec] [--reuse] [--hand]
+//   rbwire scenario NAME [--out OUT.rbrec] [--reuse] [--hand] [--replace]
+//   rbwire close-game                         closes the game rbwire launched, and no other
 //                                               launch into a save, stage a mechanic and record it,
 //                                               with scripted input through the desktop lease
 //                                               (scenarios/NAME.json; docs/recording.md, "Scenarios")
@@ -35,7 +36,7 @@ double seconds = double.PositiveInfinity;
 string? gameDir = null;
 string agentUrl = "http://192.168.1.12:48300";  // the agent listens on the LAN address only
 string? outPath = null;
-bool reuse = false, hand = false;
+bool reuse = false, hand = false, replace = false;
 var positional = new List<string>();
 for (int i = 1; i < args.Length; i++)
 {
@@ -48,6 +49,7 @@ for (int i = 1; i < args.Length; i++)
         case "--out": outPath = args[++i]; break;
         case "--reuse": reuse = true; break;
         case "--hand": hand = true; break;
+        case "--replace": replace = true; break;
         default: positional.Add(args[i]); break;
     }
 }
@@ -64,9 +66,10 @@ switch (command)
     case "step": return Control(c => c.Step(positional.Count > 0 ? int.Parse(positional[0]) : 1));
     case "run": return Control(c => { c.Run(); return -1; });
     case "scenario" when positional.Count == 1: return RunScenario(positional[0]);
+    case "close-game": return Scenario.CloseOwned();
     case "exec" when positional.Count > 0: return Control(c => { c.Command(string.Join(' ', positional)); Console.WriteLine($"sent: {string.Join(' ', positional)}"); return -2; });
     default:
-        Console.Error.WriteLine("usage: rbwire tail|dump|record OUT.rbrec|info IN.rbrec|sequences MODEL.mdl|hold|step [N]|run|exec COMMAND|scenario NAME [--wire PATH] [--game DIR] [--seconds N] [--out OUT.rbrec] [--reuse] [--hand]");
+        Console.Error.WriteLine("usage: rbwire tail|dump|record OUT.rbrec|info IN.rbrec|sequences MODEL.mdl|hold|step [N]|run|exec COMMAND|scenario NAME [--wire PATH] [--game DIR] [--seconds N] [--out OUT.rbrec] [--reuse] [--hand] [--replace]|close-game");
         return 2;
 }
 
@@ -186,7 +189,7 @@ int RunScenario(string name)
     var plan = Scenario.Load(name);
     string game = gameDir ?? Path.GetFullPath(Path.Combine(Path.GetDirectoryName(wirePath)!, "..", ".."));
     string output = outPath ?? Path.Combine(AppContext.BaseDirectory, "..", "recordings", $"l01_a-v{WireLayout.Version}-{plan.Name}.rbrec");
-    int result = Scenario.Run(plan, game, wirePath, Path.GetFullPath(output), agentUrl, reuse, hand, (path, duration) => { seconds = duration; return Follow(path); });
+    int result = Scenario.Run(plan, game, wirePath, Path.GetFullPath(output), agentUrl, reuse, hand, replace, (path, duration) => { seconds = duration; return Follow(path); });
     if (result == 0) Info(Path.GetFullPath(output));
     return result;
 }

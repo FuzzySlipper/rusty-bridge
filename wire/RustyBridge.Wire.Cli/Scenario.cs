@@ -8,7 +8,9 @@ using RustyBridge.Wire;
 /// <c>rbwire scenario NAME</c> (docs/recording.md, "Scenarios"): stages and records one mechanic on den-win11.
 /// <list type="number">
 /// <item>Launches the game straight into a save (<c>mm.exe -game mm -steam ... +load rb_start</c>, with Steam's app id in
-/// the environment, so Steam's own launch options are left alone), after closing a running one unless <c>--reuse</c>.</item>
+/// the environment, so Steam's own launch options are left alone). A game rbwire launched before (its process id and
+/// start time in <c>game.pid</c> beside rbwire) is closed first, or reused with <c>--reuse</c>. Any other running game is
+/// someone else's: the scenario stops and leaves it alone, unless <c>--replace</c> says to close it.</item>
 /// <item>Waits for the tap's <c>dump (level+5s)</c> line: commands sent while the save loads shut the game down.</item>
 /// <item>Runs the scenario's setup console lines through the tap's control file.</item>
 /// <item>Records for the scenario's seconds, and meanwhile plays its scripted input through the playtest agent's
@@ -42,7 +44,8 @@ static class Scenario
     }
 
     /// <param name="record">Records the live Wire to a file for the given seconds (rbwire record).</param>
-    internal static int Run(Plan plan, string game, string wirePath, string outPath, string agent, bool reuse, bool hand,
+    /// <param name="replace">Close a running game rbwire didn't launch (otherwise the scenario stops and leaves it).</param>
+    internal static int Run(Plan plan, string game, string wirePath, string outPath, string agent, bool reuse, bool hand, bool replace,
         Func<string, double, int> record)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
@@ -52,6 +55,8 @@ static class Scenario
         try
         {
             Console.WriteLine($"{DateTime.Now:HH:mm:ss} scenario {plan.Name}: {plan.Description}");
+            if (Game() is { } running && !Owned(running) && !replace)
+                throw new InvalidOperationException($"mm.exe {running.Id} is running and rbwire didn't launch it: leaving it alone (--replace closes it)");
             if (!reuse || Game() is null) Launch(game, plan.Launch);
             WaitForLevel(game);
             using var control = new TapControl(TapControl.PathBeside(wirePath));
@@ -94,11 +99,36 @@ static class Scenario
 
     static Process? Game() => Process.GetProcessesByName("mm").FirstOrDefault();
 
+    /// <summary>Where rbwire notes the game it launched: its process id and start time (a reused id isn't the same game).</summary>
+    static string OwnedPath => Path.Combine(AppContext.BaseDirectory, "game.pid");
+
+    static string Identity(Process p) => FormattableString.Invariant($"{p.Id} {p.StartTime.ToUniversalTime().Ticks}");
+
+    /// <summary>Whether rbwire launched this running game.</summary>
+    internal static bool Owned(Process p)
+    {
+        try { return File.Exists(OwnedPath) && File.ReadAllText(OwnedPath).Trim() == Identity(p); }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or IOException) { return false; }
+    }
+
+    /// <summary><c>rbwire close-game</c>: closes the game rbwire launched; a game it didn't launch is left running.</summary>
+    internal static int CloseOwned()
+    {
+        if (Game() is not { } running) { Console.WriteLine("no game running"); return 0; }
+        if (!Owned(running)) { Console.WriteLine($"mm.exe {running.Id} wasn't launched by rbwire: leaving it running"); return 1; }
+        running.Kill();
+        running.WaitForExit(15_000);
+        File.Delete(OwnedPath);
+        Console.WriteLine($"closed mm.exe {running.Id}");
+        return 0;
+    }
+
     static void Launch(string game, string[] arguments)
     {
         if (Game() is { } running)
         {
-            Console.WriteLine($"closing the running game ({running.Id})");
+            // Run already refused another's game unless --replace said to close it.
+            Console.WriteLine($"closing the running game ({running.Id}{(Owned(running) ? ", launched by rbwire" : ", --replace")})");
             running.Kill();
             running.WaitForExit(15_000);
         }
@@ -110,6 +140,7 @@ static class Scenario
         start.Environment["SteamAppId"] = "2100";
         start.Environment["SteamGameId"] = "2100";
         var p = Process.Start(start)!;
+        File.WriteAllText(OwnedPath, Identity(p));
         Console.WriteLine($"{DateTime.Now:HH:mm:ss} launched {p.Id}: mm.exe {string.Join(' ', start.ArgumentList)}");
     }
 

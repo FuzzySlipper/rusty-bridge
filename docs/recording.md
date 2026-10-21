@@ -106,9 +106,12 @@ ssh den-win11 'C:\Users\agent\crew\bin\run-on-desktop.ps1 -NoWait -Command "C:\U
 ```
 
 **What it does:**
-1. **Launch:** closes a running game (unless `--reuse`) and starts `mm.exe -game mm -steam` straight into `rb_start`
+1. **Launch:** closes the game rbwire launched last (unless `--reuse`), and starts `mm.exe -game mm -steam` straight into `rb_start`
    (below, "A save past the ride"), with Steam's app id in the environment (`SteamAppId`/`SteamGameId` 2100; without
    them the game can't mount its content). Steam's own launch options are left alone, and no Steam restart is needed.
+   **Another's game:** rbwire notes each game it launches (process id and start time, `game.pid` beside rbwire). A
+   running game it didn't launch is another agent's or someone's session: the scenario stops and leaves it running,
+   unless `--replace` says to close it. `rbwire close-game` closes rbwire's own game and no other, for batch scripts.
 2. **The level:** waits for the tap log's `dump (level+5s)` line.
 3. **Setup:** sends the scenario's console lines through the tap's control file, one at a time.
 4. **Record and play:** records for the scenario's seconds to `C:\Users\agent\rusty-bridge\recordings\l01_a-v<Wire version>-NAME.rbrec`

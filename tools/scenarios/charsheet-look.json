@@ -1,0 +1,16 @@
+{
+  "description": "The character sheet with skill points, to see where the combat skill's buy button sits (#10143 R10143-1): sv_cheats, 10 skill points, the sheet open; hand-played (nothing scripted).",
+  "seconds": 45,
+  "setup": [
+    "sv_cheats 1",
+    "mm_player_add_skillpoints 10",
+    {
+      "wait": 1
+    },
+    "mm_open_charsheet",
+    {
+      "wait": 1
+    }
+  ],
+  "play": []
+}

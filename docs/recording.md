@@ -130,7 +130,8 @@ front, and input would land in them.
   that many units in front of the nearest living NPC of that class on the Wire, facing it (`"height"`: that many
   units above the NPC's feet, default 4, to drop from; `"pitch"`: that many degrees down). NPCs spawned with `mm_npc_create` land where the view points,
   often out of reach: set the position and view first;
-- `play`: console lines, `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
+- `play`: console lines, `{"point": [x, y], "of": [1280, 720]}` (the cursor to a place in a desktop capture of that
+  size, for the game's menus), `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
   digits, `SPACE`, `SHIFT`, `CTRL`, `ALT`, `ESC`, `ENTER`, `TAB` or virtual-key codes), `{"wait": seconds}`,
   `{"repeat": n, "steps": [...]}`, and `approach` as in the setup (with no NPC left to approach, the input stops and
   the recording carries on).
@@ -165,12 +166,15 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `breakneck` | every skill, the combat staff, the same orcs | approached from behind and in front to 20-30 units, tapped or held: no breakneck in 17 tries over two rounds |
 | `sword-timing` | the short sword, a new game's skills | presses 0.15-0.6 s after a kick, holds through B with a strafe or back/forward from 0.15 or 0.35 s in, taps of 1-4 ticks (#10142) |
 | `sword-timing2` | the same | a second tap through A's recovery (`FastEndOpen`); a kick, a jump, and attack held 0.2 s at points of the kick (`KickAttackOpen`) |
+| `chained-slash-levels` | the short sword, 10 skill points, an orc with 100000 health | combat learned to 1 in the sheet (`point` and a double click), 10 bursts of 8 clicks; to 2, 10 more (#10143) |
 | `charsheet`, `charsheet-keys` | sv_cheats; F7 bound to `togglecharsheet` | the sheet opened and closed from the console, then the keyboard (the action bytes +0x9B, +0x9D) |
 
 **What the console can't stage:**
-- **Skills one by one:** only `mm_player_skills_grosbill 1` (every skill at its maximum level) or none. `skills_set` and `skills_add`
-  are item data keys, not commands; learning a skill is the character sheet's. Wire v15 records which modules the
-  player had either way.
+- **Skills one by one:** the console gives every skill at its maximum level (`mm_player_skills_grosbill 1`) or skill
+  points (`mm_player_add_skillpoints N`); a level is learned in the character sheet by double-clicking a skill's
+  icon, which a scenario does with a `point` step (`chained-slash-levels`: the combat icon at (884, 336) of the
+  1280×720 desktop capture, `charsheet-look` to see it). `skills_set` and `skills_add` are item data keys, not
+  commands. Wire v15 and v16 record the modules and levels either way.
 - **Weapons in hand:** `give` then `use` draws a weapon only when the player has its skill: without skills only the
   short sword and the club came to hand, and the daggers and staffs stayed in the inventory. With
   `mm_player_skills_grosbill 1` every melee weapon tried draws (`weapons-probe`, #10148), and `use` on another switches.

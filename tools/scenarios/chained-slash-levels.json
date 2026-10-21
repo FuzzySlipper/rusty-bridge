@@ -1,0 +1,153 @@
+{
+  "description": "The chained slash at combat levels 1 and 2 (#10143, R10143-1): the short sword and 10 skill points; the character sheet opened and the combat skill's icon double-clicked (the sheet's own way to learn a level), then 10 bursts of 8 quick clicks at an orc with 1000 health; then level 2 the same way and 10 more bursts. The v16 skill levels show which level each burst had.",
+  "seconds": 120,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    "mm_player_add_skillpoints 10",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"health 100000\"",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "mm_open_charsheet",
+    {
+      "wait": 1.5
+    },
+    {
+      "point": [
+        884,
+        336
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 1.5
+    },
+    "togglecharsheet",
+    {
+      "wait": 1
+    },
+    {
+      "repeat": 10,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "repeat": 8,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    },
+    "mm_open_charsheet",
+    {
+      "wait": 1.5
+    },
+    {
+      "point": [
+        884,
+        336
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 1.5
+    },
+    "togglecharsheet",
+    {
+      "wait": 1
+    },
+    {
+      "repeat": 10,
+      "steps": [
+        {
+          "approach": "npc_orc_sword",
+          "distance": 55
+        },
+        {
+          "wait": 0.2
+        },
+        {
+          "repeat": 8,
+          "steps": [
+            {
+              "click": 1,
+              "ms": 60
+            },
+            {
+              "wait": 0.12
+            }
+          ]
+        },
+        {
+          "wait": 1.5
+        }
+      ]
+    }
+  ]
+}

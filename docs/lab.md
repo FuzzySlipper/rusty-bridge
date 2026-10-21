@@ -138,6 +138,10 @@ clips and differences (see "Weapons").
   scenario, docs/recording.md) each burst of quick clicks plays A, B, C, D, E, then `_end`: every next clip begins as
   the last ends (20, 24, 26 and 24 ticks), a press queues one clip, more presses in it do nothing, and nothing chains
   after E. An E nothing chains onto recovers like A. C and D unchained aren't recorded: the lab ends them ready, as B.
+  At each level (`chained-slash-levels`, R10143-1: combat learned to 1, then 2, in the character sheet) the chain is
+  the same: A to E, then `_end`, 10 bursts of 10 at level 1 and at level 2 as at level 3. Level 1 brings
+  `combat_chained_slash` and `combat_rush_attack`, level 2 `combat_disarm` and `combat_shield_enabled`. Replayed, the
+  build rebuilt at each purchase, the lab begins all 100 fast attacks with the donor, 20 of 20 of each clip.
 - **A's recovery:** an A nothing chains onto plays `layer_fastattack_*_end`. A press late in it starts A again at once
   (`PlayerSword.FastEndOpen`). Of every press in the recovery over the sword-class runs (the `sword-timing2` sweep, the
   long sword and the club; #10142), those up to a streamed cycle of 0.53 did nothing (10 of 10), at 0.56 and 0.57 five

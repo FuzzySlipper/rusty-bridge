@@ -195,6 +195,8 @@ static class Scenario
     /// <summary>
     /// The scripted input, through the playtest agent's desktop lease: <c>{"click": button, "ms": n}</c>,
     /// <c>{"hold": ["F", "W"], "ms": n}</c> (keys by letter, digit or name, or virtual-key code), <c>{"wait": s}</c>,
+    /// <c>{"point": [x, y], "of": [width, height]}</c> (the cursor to a place in a desktop capture of that size, for the
+    /// game's menus: the character sheet's skill icons),
     /// <c>{"repeat": n, "steps": [...]}</c>, <c>{"approach": ...}</c> as in the setup, and console lines. A key held
     /// across a click goes as a console line (<c>+forward</c>, <c>+jump</c>, <c>+sprint</c>, then <c>-forward</c>...):
     /// the agent plays its steps one after another.
@@ -231,6 +233,8 @@ static class Scenario
                 else if (step["repeat"] is { } n) for (int i = 0; i < (int)n; i++) Steps(step["steps"]!.AsArray());
                 else if (step["click"] is { } button) Input(new { kind = "click", button = (int)button, ms = (int?)step["ms"] ?? 100 });
                 else if (step["hold"] is JsonArray keys) Input(new { kind = "hold", keys = keys.Select(k => Key(k!)).ToArray(), ms = (int?)step["ms"] ?? 150 });
+                else if (step["point"] is JsonArray at && step["of"] is JsonArray of)
+                    Input(new { kind = "point", x = (int)at[0]!, y = (int)at[1]!, width = (int)of[0]!, height = (int)of[1]!, ms = (int?)step["ms"] ?? 100 });
                 else throw new InvalidDataException($"play step {step.ToJsonString()}");
             }
         }

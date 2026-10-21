@@ -1078,6 +1078,18 @@ host.Call(engine =>
     }
     else Console.WriteLine("skip the switching replay: no local/recordings/experiments/l01_a-v17-weapon-switch.rbrec");
 
+    // The chained slash at combat levels 1 and 2 (#10143, R10143-1): learned in the character sheet mid-recording, the
+    // replay rebuilding at each purchase; every clip of the chain begun with the donor's.
+    string levels = Path.Combine(recordings, "experiments", "l01_a-v17-chained-slash-levels.rbrec");
+    if (File.Exists(levels))
+    {
+        var report = CombatReplay.Run(combat, levels, product);
+        var clips = "ABCDE".Select(c => report.Clips!.GetValueOrDefault($"layer_fastattack_sword_noshield_{c}")).ToList();
+        Check(report.Rebuilt is { Count: >= 2 } && clips.All(c => c.Donor >= 10 && c.Together * 10 >= c.Donor * 8),
+            $"{report.Name}: at combat levels 1 and 2 the lab chains A to E with the donor ({string.Join(", ", clips.Select((c, i) => $"{"ABCDE"[i]} {c.Together} of {c.Donor}"))})");
+    }
+    else Console.WriteLine("skip the chained-slash levels replay: no local/recordings/experiments/l01_a-v17-chained-slash-levels.rbrec");
+
     // The sword's timing sweeps (#10142, R10142-1): presses after kicks, directions after B, short taps, presses through A's
     // recovery and held in the air through kicks, each move begun with the donor's and each power attack as its own clip.
     foreach (var name in new[] { "sword-timing", "sword-timing2-fastend", "sword-timing2" })

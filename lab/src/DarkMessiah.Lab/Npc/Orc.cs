@@ -4,6 +4,7 @@ using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Sword;
 using DarkMessiah.Shared;
 using Rusty.Engine;
+using RustyBridge.Wire.Donor;
 
 namespace DarkMessiah.Lab.Npc;
 
@@ -20,8 +21,9 @@ internal readonly record struct OrcBlow(int Part, string Attack, float Cycle);
 /// </summary>
 /// <param name="Kit">The model paths of the items the recorded orc owns (Wire v10's owners): its cleaver, and a shield
 /// if it has one. Null where the recording doesn't say (before v10): the lab's own kit.</param>
+/// <param name="Model">The recorded orc's body model (its entity's model path); null for the lab's own.</param>
 internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float Health, string Sequence, float Cycle, float Rate,
-    string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null);
+    string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null, string? Model = null);
 
 /// <summary>
 /// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, and a minimal fight loop, not the donor's AI
@@ -40,7 +42,12 @@ internal sealed class Orc : IDisposable
     static readonly int[] PartEvents = [2102, 2139];
 
     readonly IEngineContext engine;
-    readonly Puppet body, cleaver, shield;
+    readonly DonorContent donor;
+    readonly Puppet ownBody, cleaver, shield;
+    // The body drawn and swept: the lab's own, or in a replay the recorded orc's model (R10177-2), one puppet per model.
+    Puppet body;
+    readonly Dictionary<string, Puppet?> bodies = new(StringComparer.OrdinalIgnoreCase);
+    const ulong OtherBodyIds = 0x4C41_0200;
     readonly Random random = new(1);
     OrcTuning tuning;
     float cooldown, downSeconds, pushLeft;
@@ -50,8 +57,10 @@ internal sealed class Orc : IDisposable
     internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning)
     {
         this.engine = engine;
+        this.donor = donor;
         this.tuning = tuning;
-        body = new Puppet(engine, donor.Model(Model), BodyId);
+        body = ownBody = new Puppet(engine, donor.Model(Model), BodyId);
+        bodies[Model] = ownBody;
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
@@ -95,6 +104,19 @@ internal sealed class Orc : IDisposable
     {
         Following = true;
         if (pose.Id != followed) { followed = pose.Id; landed.Clear(); }
+        // The recorded body model, if the import has it; else the lab's. A body that lacks the clip playing (the
+        // one-clip ragdoll bodies) takes the pose's sequence, or its idle, or its only clip.
+        if (pose.Model is { Length: > 0 } model && (Body(model) ?? ownBody) is var next && next != body)
+        {
+            body = next;
+            var has = body.Model.Info.Clips;
+            if (!has.ContainsKey(Clip))
+            {
+                Clip = has.ContainsKey(pose.Sequence) ? pose.Sequence : has.ContainsKey("combatidle") ? "combatidle" : has.Keys.First();
+                Cycle = 0;
+            }
+            if (Layer is not null && !has.ContainsKey(Layer)) Layer = null;
+        }
         Feet = pose.Feet;
         Facing = pose.Facing;
         Health = pose.Health;
@@ -143,10 +165,21 @@ internal sealed class Orc : IDisposable
                 if (from < at && to >= at && landed.Add((clip, part, at))) blows.Add(new OrcBlow(part, clip, at));
     }
 
+    /// <summary>A body model's puppet, opened on first use; null when the import lacks the model.</summary>
+    Puppet? Body(string model)
+    {
+        model = VpkIndex.Normalize(model);
+        if (bodies.TryGetValue(model, out var puppet)) return puppet;
+        puppet = donor.Read(Path.ChangeExtension(model, ".glb")) is null ? null : new Puppet(engine, donor.Model(model), OtherBodyIds + (ulong)bodies.Count);
+        bodies[model] = puppet;
+        return puppet;
+    }
+
     /// <summary>Back to the lab's own loop after a replay.</summary>
     internal void StopFollowing()
     {
         Following = false;
+        body = ownBody;
         holdsCleaver = holdsShield = true;
         followed = null;
         landed.Clear();
@@ -311,7 +344,7 @@ internal sealed class Orc : IDisposable
 
     public void Dispose()
     {
-        body.Dispose();
+        foreach (var b in bodies.Values) b?.Dispose();
         cleaver.Dispose();
         shield.Dispose();
     }

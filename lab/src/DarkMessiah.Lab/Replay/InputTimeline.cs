@@ -256,7 +256,8 @@ internal sealed class InputTimeline
                 e.Flags.HasFlag(WireEntityFlags.HasHealth) ? e.Health : float.MaxValue, Name(e.Sequence), e.Cycle,
                 e.PlaybackRate, layer.Weight > 0 ? Name(layer.Sequence) : null, layer.Cycle, fresh,
                 f.Version >= 10 ? f.Entities.Values.Where(i => i.Owner == index && f.Classes.GetValueOrDefault(i.ClassId) != "prop_ragdoll")
-                    .Select(i => f.Models.GetValueOrDefault(i.ModelIndex, "")).Where(m => m.Length > 0).ToList() : null);
+                    .Select(i => f.Models.GetValueOrDefault(i.ModelIndex, "")).Where(m => m.Length > 0).ToList() : null,
+                f.Models.GetValueOrDefault(e.ModelIndex));
             bestScore = score;
         }
         // Every orc's last streamed state, so freshness holds whichever one is followed.

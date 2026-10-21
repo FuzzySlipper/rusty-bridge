@@ -321,6 +321,9 @@ What a swing strikes is what the donor's sweep would (#10177, #10179; docs/wire.
   69° off the view, 22° to 69° down), which struck legs where the donor struck heads.
 - **The replay's orc carries the recording's kit** (`OrcPose.Kit`, from Wire v10's owners): no recorded orc has had
   a shield, so a followed orc shows and traces only its cleaver. The lab's own orc keeps its shield.
+- **And its body model** (`OrcPose.Model`, R10177-2): the followed orc is drawn and swept as the recorded entity's
+  model, the lab's `npc_orc` when the import lacks it. Every recorded `npc_orc_sword` so far is `npc_orc.mdl`; the
+  dismembered orc models (`npc_orc_noRightArm`...) appear only as one-clip ragdoll props, which pose their one clip.
 - **A head cut needs a Fatality:** the power attack has `cutheadflag` too, but its head blows never killed; a
   Fatality's head blow turned an orc of 100000 health into a ragdoll.
 - **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the parry bot 9 of

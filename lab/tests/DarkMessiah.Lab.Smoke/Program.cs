@@ -576,6 +576,24 @@ host.Call(engine =>
     Check(MathF.Abs(before - orc.Health - data.Settings.KickDamage) < 1e-3f && orc.State == OrcState.Pushed,
         FormattableString.Invariant($"a kick asks the settings' kick_damage and pushes the orc: {before:0.##} → {orc.Health:0.##}, {orc.State}"));
 
+    // The followed orc takes the recorded body model (R10177-2). Every recorded npc_orc_sword is npc_orc.mdl, so
+    // another model with an idle stands in (the goblin's), whose hit boxes the sweep then uses; a one-clip ragdoll
+    // body (npc_orc_noRightArm) still poses. After the replay the lab's own body comes back.
+    {
+        const string goblin = "models/npc/goblin/npc_goblin.mdl", armless = "models/npc/orc/npc_orc_noRightArm.mdl";
+        orc.Follow(new OrcPose("#9.1", orc.Feet, orc.Facing, 50, "combatidle", 0, 1, null, 0, true, [Orc.Cleaver], goblin), Tick);
+        string followedModel = orc.BodyModel.DonorPath;
+        int followedBoxes = orc.Targets()[0].Model.Hitboxes.Count;
+        int drawn = orc.Facts().Count();
+        orc.Follow(new OrcPose("#9.1", orc.Feet, orc.Facing, 50, "attack_Fast", 0, 1, null, 0, true, [Orc.Cleaver], armless), Tick);
+        string ragdollClip = orc.Clip;
+        orc.Facts().ToList();
+        orc.StopFollowing();
+        Check(followedModel.Equals(goblin, StringComparison.OrdinalIgnoreCase) && followedBoxes == donor.Model(goblin).Info.Hitboxes.Count && drawn > 0
+            && ragdollClip == "reference" && orc.BodyModel.DonorPath == Orc.Model,
+            $"a replay's orc is drawn and swept as the recorded model ({followedModel}, {followedBoxes} hit boxes; a ragdoll body poses its {ragdollClip}), and the lab's own body comes back after");
+    }
+
     // Slow motion (#10147): the Whirlwind asks its .qct ×0.5 for 2.5 s as it begins, which the world runs at for
     // 1.25 s of game time; the lab's world time follows TimeScale.
     {

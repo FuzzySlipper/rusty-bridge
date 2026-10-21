@@ -144,6 +144,27 @@ internal static class CombatReplay
     /// Which of the donor's swings a blow at <paramref name="tick"/> belongs to: the latest move started on the view
     /// model at or before it (its index in <paramref name="swings"/>), or -1 before the first.
     /// </summary>
+    /// <summary>
+    /// Which of a replay's donor blows are compared, by index, in tick order (then <c>Order</c>): the first of each swing's
+    /// window on each victim. A swing's later windows (the huge slash's and the rush's two) are their own, at least
+    /// <see cref="WindowApart"/> ticks after the last kept one (#10198); whichever pass found a blow, a blocked first
+    /// window and a damaging second one are both kept (R10198-1).
+    /// </summary>
+    internal static List<int> FirstPerWindow(IReadOnlyList<DonorSwing> swings, IReadOnlyList<(int Tick, int Order, string Victim)> blows)
+    {
+        var taken = new Dictionary<(int Swing, string Victim), int>();
+        var kept = new List<int>();
+        foreach (int i in Enumerable.Range(0, blows.Count).OrderBy(i => blows[i].Tick).ThenBy(i => blows[i].Order))
+        {
+            var (tick, _, victim) = blows[i];
+            var key = (SwingAt(swings, tick), victim);
+            if (taken.TryGetValue(key, out int last) && tick - last < WindowApart) continue;
+            taken[key] = tick;
+            kept.Add(i);
+        }
+        return kept;
+    }
+
     internal static int SwingAt(IReadOnlyList<DonorSwing> swings, int tick)
     {
         int at = -1;
@@ -165,7 +186,7 @@ internal static class CombatReplay
     /// How many ticks apart two of a swing's blows on one victim must be to be two windows' (the huge slash's are 0.26
     /// of its clip apart, 40 ticks; one window's contacts come within a few ticks).
     /// </summary>
-    const int WindowApart = 15;
+    internal const int WindowApart = 15;
 
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
@@ -357,40 +378,32 @@ internal static class CombatReplay
             otherVictims[cls] = otherVictims.GetValueOrDefault(cls) + 1;
             excluded.Add((tick, byPlayer, cls));
         }
-        // The ticks each swing struck each victim at: one blow a window, and a swing's later windows (the huge slash's
-        // and the rush's two) are their own (#10198).
-        var taken = new Dictionary<(int Swing, string Victim), int>();
-        bool First(int tick, string victim)
-        {
-            var key = (SwingAt(timeline.Swings, tick), victim);
-            if (taken.TryGetValue(key, out int last) && tick - last < WindowApart) return false;
-            taken[key] = tick;
-            return true;
-        }
         // The newest move layer: an earlier move's can still be fading out under it.
         string Move(IReadOnlyList<string> layers) => layers.LastOrDefault(l => InputTimeline.Family(l) is not null) ?? layers.LastOrDefault() ?? "?";
-        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && !Unplayable(d.Tick)).OrderBy(d => d.Tick))
-        {
-            if (!First(d.Tick, d.Victim.Id)) continue;
-            if (Followed(d.Tick) != d.Victim.Id) { Exclude(d.Tick, true, d.Victim.Class); continue; }
-            var verdict = fight.Defense.FirstOrDefault(v => v.Tick == d.Tick && v.Victim.Id == d.Victim.Id && v.Attacker.IsPlayer)?.Donor ?? DefenseResult.Hit;
-            // The jump and rush attacks' and the bash's blows carry the kick's bit too (they push): a kick is one the newest move doesn't say is a swing.
-            bool kick = (d.DamageType & 0x40000) != 0 && InputTimeline.Family(Move(d.Attacker.Layers)) is null or "kick";
-            donorPlayer.Add(new ReplayBlow(d.Tick, TimeOf(d.Tick), kick ? clips.Kick.Clip : Move(d.Attacker.Layers),
-                verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect ? verdict : DefenseResult.Hit,
-                d.Defended ? 0 : d.Requested, kick ? null : d.HitGroup));
-        }
+        // Every donor blow, damage records, defense-only verdicts and kicks alike, deduplicated in tick order (R10198-1):
+        // a blocked first window and a damaging second one are both kept. At one tick a damage record comes before a
+        // verdict and a verdict before a kick, as each pass had them.
+        var candidates = new List<(int Tick, int Order, string Victim, string Class, Func<ReplayBlow> Blow)>();
+        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && !Unplayable(d.Tick)))
+            candidates.Add((d.Tick, 0, d.Victim.Id, d.Victim.Class, () =>
+            {
+                var verdict = fight.Defense.FirstOrDefault(v => v.Tick == d.Tick && v.Victim.Id == d.Victim.Id && v.Attacker.IsPlayer)?.Donor ?? DefenseResult.Hit;
+                // The jump and rush attacks' and the bash's blows carry the kick's bit too (they push): a kick is one the newest move doesn't say is a swing.
+                bool kick = (d.DamageType & 0x40000) != 0 && InputTimeline.Family(Move(d.Attacker.Layers)) is null or "kick";
+                return new ReplayBlow(d.Tick, TimeOf(d.Tick), kick ? clips.Kick.Clip : Move(d.Attacker.Layers),
+                    verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect ? verdict : DefenseResult.Hit,
+                    d.Defended ? 0 : d.Requested, kick ? null : d.HitGroup);
+            }));
         // A parried or blocked swing makes no damage call: its verdict is its only record.
-        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield && !Unplayable(v.Tick)).OrderBy(v => v.Tick))
+        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield && !Unplayable(v.Tick)))
+            candidates.Add((v.Tick, 1, v.Victim.Id, v.Victim.Class, () => new ReplayBlow(v.Tick, TimeOf(v.Tick), Move(v.Attacker.Layers), v.Donor, 0, null)));
+        foreach (var k in timeline.Kicks.Where(k => !Unplayable(k.Tick)))
+            candidates.Add((k.Tick, 2, k.Victim, k.Class, () => new ReplayBlow(k.Tick, TimeOf(k.Tick), clips.Kick.Clip, DefenseResult.Hit, k.Damage, null)));
+        foreach (int i in FirstPerWindow(timeline.Swings, [.. candidates.Select(c => (c.Tick, c.Order, c.Victim))]))
         {
-            if (!First(v.Tick, v.Victim.Id)) continue;
-            if (Followed(v.Tick) != v.Victim.Id) { Exclude(v.Tick, true, v.Victim.Class); continue; }
-            donorPlayer.Add(new ReplayBlow(v.Tick, TimeOf(v.Tick), Move(v.Attacker.Layers), v.Donor, 0, null));
-        }
-        foreach (var k in timeline.Kicks.Where(k => !Unplayable(k.Tick) && First(k.Tick, k.Victim)))
-        {
-            if (Followed(k.Tick) != k.Victim) { Exclude(k.Tick, true, k.Class); continue; }
-            donorPlayer.Add(new ReplayBlow(k.Tick, TimeOf(k.Tick), clips.Kick.Clip, DefenseResult.Hit, k.Damage, null));
+            var c = candidates[i];
+            if (Followed(c.Tick) != c.Victim) { Exclude(c.Tick, true, c.Class); continue; }
+            donorPlayer.Add(c.Blow());
         }
         foreach (var (cls, n) in otherVictims) notCompared.Add($"{n} player blows on {cls} the lab wasn't following");
 

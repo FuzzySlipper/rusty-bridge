@@ -548,6 +548,31 @@ host.Call(engine =>
         $"a reset puts the build's shield back whole: worn to {wornTo} then {afterWorn}; broken, off the arm, then back at {combat.ShieldHealth}");
     combat.Rebuild(file);
     Check(combat.Shield is null && combat.FirstPerson.Facts().Count() == 2, "back on build.json the shield is off the arm");
+    // A recorded overlay's weight reaches the engine (R10198-2): the followed orc's parry overlay at 0.25 poses it
+    // between none and full, and a change of weight alone is taken.
+    {
+        var orcAt = combat.Orc;
+        Vector3 Hands(float weight)
+        {
+            orcAt.Follow(new OrcPose("#weights", orcAt.Feet, orcAt.Facing, 100, "combatidle", .3f, 1, null, 0, true,
+                Overlays: weight > 0 ? [("layer_parry_B", .5f, weight)] : []), 0);
+            var target = orcAt.Targets()[0];
+            return target.Joints.Where(j => j.Key.Contains("Hand", StringComparison.OrdinalIgnoreCase))
+                .Select(j => target.Pose[j.Value].World.Translation).Aggregate(Vector3.Zero, (a, b) => a + b);
+        }
+        var none = Hands(0);
+        var full = Hands(1);
+        var quarter = Hands(.25f);
+        var half = Hands(.5f);
+        orcAt.StopFollowing();
+        float toFull = Vector3.Distance(none, full);
+        Check(toFull > .01f && Vector3.Distance(none, quarter) > .001f && Vector3.Distance(quarter, full) > .001f && Vector3.Distance(quarter, half) > .001f,
+            FormattableString.Invariant($"an overlay's weight poses the orc in between: its hands move {Vector3.Distance(none, quarter):0.000} m at 0.25, {Vector3.Distance(none, half):0.000} at 0.5, {toFull:0.000} at 1, and a weight-only change is taken"));
+    }
+    // The donor's blows are kept one a window in tick order, whichever pass found them (R10198-1): a parry in a swing's
+    // first window and a hit in its second, 40 ticks on, are both compared; a second contact in the first window isn't.
+    Check(CombatReplay.FirstPerWindow([new DonorSwing(90, 0, "layer_combo_sword_huge_noshield")], [(140, 0, "#5"), (100, 1, "#5"), (103, 0, "#5")]) is [1, 0],
+        "a blocked first window and a damaging second one are both kept, whichever pass found them");
     // The player's stat block is read, not defaulted: the first "skills" block in player_basic.qct is a starting build's.
     Check(product.Donor.Combat.PlayerSkillNumber("player_stamina_base_max") == 9 && product.Donor.Combat.PlayerSkillNumber("player_strength_4") == 6
         && product.Donor.Combat.PlayerStrength(3) == 6 && product.Donor.Combat.PlayerStrength(0) == 0,

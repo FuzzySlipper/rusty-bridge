@@ -60,7 +60,7 @@ internal sealed class Puppet : IDisposable
     readonly IEngineContext engine;
     readonly AnimationLayerSet layers = new();
     (string Clip, float Cycle) playing = ("", -1);
-    (uint Clip, float Cycle)[] laid = [];
+    (uint Clip, float Cycle, float Weight)[] laid = [];
 
     internal Puppet(IEngineContext engine, DonorModel model, ulong id)
     {
@@ -80,7 +80,10 @@ internal sealed class Puppet : IDisposable
     /// <summary>Whether it has been handed to a publish: from then on its current playback can be sampled.</summary>
     internal bool Drawn { get; private set; }
 
-    /// <summary>Holds <paramref name="clip"/> at <paramref name="cycle"/> (the Engine's Sample playback), with optional override layers over it.</summary>
+    /// <summary>
+    /// Holds <paramref name="clip"/> at <paramref name="cycle"/> (the Engine's Sample playback), with optional override
+    /// layers over it, each at its weight (a recorded overlay's streamed weight; R10198-2).
+    /// </summary>
     internal void Play(string clip, float cycle, params (string Clip, float Cycle, float Weight)[] over)
     {
         if (clip.Length > 0 && (clip, cycle) != playing)
@@ -89,10 +92,10 @@ internal sealed class Puppet : IDisposable
             playing = (clip, cycle);
         }
         var wanted = over.Where(o => o.Weight > 0 && Model.ClipIndices.ContainsKey(o.Clip))
-            .Select(o => (Model.ClipIndices[o.Clip], Math.Clamp(o.Cycle, 0, 1))).ToArray();
+            .Select(o => (Model.ClipIndices[o.Clip], Math.Clamp(o.Cycle, 0, 1), Math.Clamp(o.Weight, 0, 1))).ToArray();
         if (wanted.SequenceEqual(laid)) return;
         layers.Clear();
-        foreach (var (index, c) in wanted) layers.Override(index, c, 1);
+        foreach (var (index, c, w) in wanted) layers.Override(index, c, w);
         engine.Animation.SetLayers(layers.ToRequest(Instance));
         laid = wanted;
     }

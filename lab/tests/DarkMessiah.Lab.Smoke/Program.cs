@@ -900,6 +900,14 @@ host.Call(engine =>
         Console.WriteLine($"  {report.Name}: build: {report.Build}");
         Check(report.Build is string b && b.StartsWith("l01_a-v15-stats.rbrec: 4 modules", StringComparison.Ordinal) && b.Contains("sword_short.mdl") && b.Contains("changed"),
             "a v15 recording's replay runs the recording's build, and says when it changed later");
+        // Its later changes play from their ticks (R10140-1): every skill learned at once gives double_sprint, stamina 12.
+        foreach (var (tick, modules, max) in report.Rebuilt ?? []) Console.WriteLine($"  rebuilt at tick {tick}: {modules} modules, stamina max {max}");
+        Check(report.Rebuilt is { Count: > 0 } rebuilt && rebuilt.Any(r => r.MaxStamina == 12),
+            $"the replay plays the recording's later builds from their ticks: double_sprint's stamina 12 from tick {report.Rebuilt?.FirstOrDefault(r => r.MaxStamina == 12).Tick}");
+        // Gear the lab doesn't play is said so and left out (R10140-2): this recording's player took a shield.
+        Check(report.Build is string held && held.Contains("not played: a shield", StringComparison.Ordinal)
+            && report.NotCompared.Any(n => n.Contains("holding a shield", StringComparison.Ordinal)),
+            $"a recorded shield isn't presented as played: the report names it and compares nothing while it's held ({report.NotCompared.FirstOrDefault(n => n.Contains("shield"))})");
         Check(combat.Build?.Source == BuildFile.Path, "after the replay the lab plays build.json again");
     }
     else Console.WriteLine("skip the v15 build replay: no local/recordings/experiments/l01_a-v15-stats.rbrec");

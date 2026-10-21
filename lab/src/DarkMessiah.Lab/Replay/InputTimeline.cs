@@ -2,6 +2,7 @@ using System.Numerics;
 using DarkMessiah.Combat;
 using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Player;
+using DarkMessiah.Lab.Sword;
 using RustyBridge.Wire;
 using RustyBridge.Wire.Donor;
 
@@ -60,11 +61,18 @@ internal sealed class InputTimeline
     internal bool HasCommands { get; private init; }
     /// <summary>
     /// From Wire v15, the donor player's build at the first frame with stats (<see cref="CharacterBuild.FromRecording"/>);
-    /// null before v15. <see cref="BuildChanges"/> counts later changes to its modules or shield, which the replay doesn't
-    /// follow; the weapon's it does (<see cref="WeaponChanges"/>).
+    /// null before v15. <see cref="Builds"/> holds each later change of its modules, shield or (v16) skill levels, which
+    /// the replay applies at its tick; the weapon's changes are <see cref="WeaponChanges"/>.
     /// </summary>
     internal CharacterBuild? Build { get; private init; }
-    internal int BuildChanges { get; private init; }
+    /// <summary>The build as it changed later in the recording, from the tick each change was first streamed.</summary>
+    internal IReadOnlyList<(int Tick, CharacterBuild Build)> Builds { get; private init; } = [];
+    internal int BuildChanges => Builds.Count;
+    /// <summary>
+    /// The stretches where the donor's player held something the lab doesn't play (a shield, #10149; a weapon of no
+    /// class the lab has, such as a bow or a spell), with what: the replay compares no move or blow in them.
+    /// </summary>
+    internal IReadOnlyList<(int From, int To, string What)> Unplayable { get; private init; } = [];
     /// <summary>
     /// From Wire v15, each switch to another weapon (#10148): the model taken, and the tick the donor began putting the
     /// last one away (its <c>_undraw</c> starting; the weapon on the Wire changes only as the draw begins). Hands emptied
@@ -107,8 +115,9 @@ internal sealed class InputTimeline
         int skipped = 0;
         bool commands = false;
         CharacterBuild? build = null;
-        int buildChanges = 0;
-        (SkillModules, string?) lastKit = default;
+        (SkillModules, string?, string) lastKit = default;
+        var builds = new List<(int, CharacterBuild)>();
+        var unplayable = new List<(int From, int To, string What)>();
         var weaponChanges = new List<(int, string)>();
         string? lastWeapon = null;
         var lastCommand = (Buttons: InputButtons.None, Actions: PlayerActions.None);
@@ -123,11 +132,20 @@ internal sealed class InputTimeline
                 if (f.Version >= 15 && f.Stats.Valid != 0)
                 {
                     string? Model(ushort index) => index != WireLayout.NoEntity && f.Entities.TryGetValue(index, out var e) ? f.Models.GetValueOrDefault(e.ModelIndex) : null;
-                    var kit = (f.Stats.Modules, Model(f.Stats.Shield));
                     string? weapon = Model(f.Stats.Weapon);
+                    var kit = (f.Stats.Modules, Model(f.Stats.Shield),
+                        f.Version >= 16 ? string.Join(",", SkillNames.ByIndex.Select(n => f.Stats.SkillLevel(n))) : "");
                     if (build is null) build = CharacterBuild.FromRecording(f.Stats, f.Version, weapon, kit.Item2, Path.GetFileName(path));
-                    else if (kit != lastKit) buildChanges++;
+                    else if (kit != lastKit)
+                        builds.Add((f.Tick, CharacterBuild.FromRecording(f.Stats, f.Version, weapon, kit.Item2, $"{Path.GetFileName(path)} at tick {f.Tick}")));
                     lastKit = kit;
+                    string? what = kit.Item2 is { } shield ? $"a shield ({VpkIndex.Normalize(shield)}; #10149)"
+                        : weapon is not null && LabWeapon.ClassOf(weapon) is null ? $"{VpkIndex.Normalize(weapon)}, a weapon the lab doesn't play" : null;
+                    if (what is not null)
+                    {
+                        if (unplayable.Count > 0 && unplayable[^1].What == what && f.Tick - unplayable[^1].To <= 8) unplayable[^1] = unplayable[^1] with { To = f.Tick };
+                        else unplayable.Add((f.Tick, f.Tick, what));
+                    }
                     if (weapon is not null && lastWeapon is not null && weapon != lastWeapon)
                     {
                         // From the put-away that began within the last second, else now.
@@ -197,7 +215,7 @@ internal sealed class InputTimeline
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
         return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, Skipped = skipped, HasCommands = commands,
-            Build = build, BuildChanges = buildChanges, WeaponChanges = weaponChanges };
+            Build = build, Builds = builds, Unplayable = unplayable, WeaponChanges = weaponChanges };
     }
 
     /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>

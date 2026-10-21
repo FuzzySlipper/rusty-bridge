@@ -100,8 +100,11 @@ An invalid file is refused with the field and the reason, and the last build sta
   name, not checked against the donor.
 
 **Replays** of Wire v15 recordings run the donor player's build: its modules and items at the first frame with stats,
-and from v16 its skill levels. They follow the donor's weapon switches (see "Weapons"), not its later changes of
-modules or shield: the report says how often those changed. After the replay the lab plays `build.json` again.
+and from v16 its skill levels. Each later change (a skill learned, a shield taken) is played from the tick it was
+streamed (`InputTimeline.Builds`): in `l01_a-v15-stats` the lab's stamina maximum goes to 12 as `double_sprint` is
+learned. Weapon switches come as draws (see "Weapons"). What the lab doesn't play (a shield, #10149; a bow or a spell)
+isn't presented as played: the report names it, and no move or blow while it is held is compared
+(`InputTimeline.Unplayable`). After the replay the lab plays `build.json` again.
 
 ## The player's moves
 

@@ -44,7 +44,8 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyDictionary<string, (int Donor, int Lab, int Together)> Moves, double MeanLagSeconds,
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
-    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null)
+    IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
+    IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -178,7 +179,11 @@ internal static class CombatReplay
         combat.God = true;
         combat.Log = log;
         bool grounded = true;
-        int switched = 0;
+        int switched = 0, rebuilt = 0;
+        // Each recorded build change as the lab applied it: its tick, the modules and the stamina maximum it gave.
+        var applied = new List<(int, int, float)>();
+        // A tick in a stretch the donor held something the lab doesn't play: nothing there is compared (#10140).
+        bool Unplayable(int tick) => timeline.Unplayable.Any(u => tick >= u.From && tick <= u.To);
         SwordMove lastMove = combat.Sword.Move;
         PlayerAdrenaline? shadow = null;
         int shadowTicks = 0, shadowNear = 0;
@@ -194,6 +199,12 @@ internal static class CombatReplay
                 {
                     combat.Adrenaline.Set(adrenaline, t.AdrenalineMax);
                     if (shadow is null) { shadow = new PlayerAdrenaline(); shadow.Set(adrenaline, t.AdrenalineMax); }
+                }
+                // The donor's build changed (a skill learned, a shield taken): the lab plays it from this tick (#10140).
+                for (; rebuilt < timeline.Builds.Count && timeline.Builds[rebuilt].Tick <= t.Tick; rebuilt++)
+                {
+                    combat.Rebuild(timeline.Builds[rebuilt].Build, draw: false, arm: false);
+                    applied.Add((t.Tick, timeline.Builds[rebuilt].Build.Modules.Count, combat.Stamina.Rules.Max));
                 }
                 // The donor took another weapon: the lab's sword puts its own away and draws that one (#10148).
                 for (; switched < timeline.WeaponChanges.Count && timeline.WeaponChanges[switched].Tick <= t.Tick; switched++)
@@ -252,8 +263,8 @@ internal static class CombatReplay
         var lags = new List<double>();
         (int, int, int) Pair(Func<string, bool> of, bool lag)
         {
-            var donor = timeline.Swings.Where(s => of(s.Clip)).ToList();
-            var lab = labSwings.Where(s => of(s.Clip)).ToList();
+            var donor = timeline.Swings.Where(s => of(s.Clip) && !Unplayable(s.Tick)).ToList();
+            var lab = labSwings.Where(s => of(s.Clip) && !Unplayable(s.Tick)).ToList();
             var used = new HashSet<DonorSwing>();
             int together = 0;
             foreach (var d in donor)
@@ -286,7 +297,7 @@ internal static class CombatReplay
         bool First(int tick, string victim) => taken.Add((SwingAt(timeline.Swings, tick), victim));
         // The newest move layer: an earlier move's can still be fading out under it.
         string Move(IReadOnlyList<string> layers) => layers.LastOrDefault(l => InputTimeline.Family(l) is not null) ?? layers.LastOrDefault() ?? "?";
-        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc).OrderBy(d => d.Tick))
+        foreach (var d in fight.Damage.Where(d => d.Attacker.IsPlayer && d.Victim.IsNpc && !Unplayable(d.Tick)).OrderBy(d => d.Tick))
         {
             if (!First(d.Tick, d.Victim.Id)) continue;
             if (Followed(d.Tick) != d.Victim.Id) { Exclude(d.Tick, true, d.Victim.Class); continue; }
@@ -297,13 +308,13 @@ internal static class CombatReplay
                 d.Defended ? 0 : d.Requested, kick ? null : d.HitGroup));
         }
         // A parried or blocked swing makes no damage call: its verdict is its only record.
-        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield).OrderBy(v => v.Tick))
+        foreach (var v in fight.Defense.Where(v => v.Attacker.IsPlayer && v.Victim.IsNpc && v.Donor is DefenseResult.Parry or DefenseResult.Shield && !Unplayable(v.Tick)).OrderBy(v => v.Tick))
         {
             if (!First(v.Tick, v.Victim.Id)) continue;
             if (Followed(v.Tick) != v.Victim.Id) { Exclude(v.Tick, true, v.Victim.Class); continue; }
             donorPlayer.Add(new ReplayBlow(v.Tick, TimeOf(v.Tick), Move(v.Attacker.Layers), v.Donor, 0, null));
         }
-        foreach (var k in timeline.Kicks.Where(k => First(k.Tick, k.Victim)))
+        foreach (var k in timeline.Kicks.Where(k => !Unplayable(k.Tick) && First(k.Tick, k.Victim)))
         {
             if (Followed(k.Tick) != k.Victim) { Exclude(k.Tick, true, k.Class); continue; }
             donorPlayer.Add(new ReplayBlow(k.Tick, TimeOf(k.Tick), clips.Kick.Clip, DefenseResult.Hit, k.Damage, null));
@@ -313,14 +324,14 @@ internal static class CombatReplay
         // The followed orc's blows that reached the player: parried, breaking the parry, or landing.
         var donorOrc = new List<ReplayBlow>();
         int otherAttackers = 0;
-        foreach (var p in fight.Parries.Where(p => p.Attacker.Class == InputTimeline.OrcClass))
+        foreach (var p in fight.Parries.Where(p => p.Attacker.Class == InputTimeline.OrcClass && !Unplayable(p.Tick)))
         {
             if (Followed(p.Tick) != p.Attacker.Id) { otherAttackers++; excluded.Add((p.Tick, false, p.Attacker.Class)); continue; }
             float dealt = p.Donor == DefenseResult.PlayerParryBroken
                 ? fight.Damage.Where(d => d.Tick == p.Tick && d.Attacker.Id == p.Attacker.Id && d.Victim.IsPlayer).Sum(d => d.Requested) : 0;
             donorOrc.Add(new ReplayBlow(p.Tick, TimeOf(p.Tick), p.Attacker.Sequence, p.Donor, dealt, null));
         }
-        foreach (var d in fight.Damage.Where(d => d.Attacker.Class == InputTimeline.OrcClass && d.Victim.IsPlayer))
+        foreach (var d in fight.Damage.Where(d => d.Attacker.Class == InputTimeline.OrcClass && d.Victim.IsPlayer && !Unplayable(d.Tick)))
         {
             if (fight.Parries.Any(p => p.Tick == d.Tick && p.Attacker.Id == d.Attacker.Id)) continue;
             if (Followed(d.Tick) != d.Attacker.Id) { otherAttackers++; excluded.Add((d.Tick, false, d.Attacker.Class)); continue; }
@@ -329,8 +340,12 @@ internal static class CombatReplay
         if (otherAttackers > 0) notCompared.Add($"{otherAttackers} blows on the player by an orc the lab wasn't following");
         int otherNpcs = fight.Damage.Count(d => d.Victim.IsPlayer && d.Attacker.IsNpc && d.Attacker.Class != InputTimeline.OrcClass);
         if (otherNpcs > 0) notCompared.Add($"{otherNpcs} blows on the player by other NPCs");
+        foreach (var group in timeline.Unplayable.GroupBy(u => u.What))
+            notCompared.Add(FormattableString.Invariant(
+                $"{group.Sum(u => (TimeOf(u.To) - TimeOf(u.From)) is double s && double.IsFinite(s) ? s : 0):0.#} s holding {group.Key}: no move or blow there is compared"));
 
         ReplayBlow Lab(CombatEvent e) => new((int)e.Tick, TimeOf((int)e.Tick), e.Move, e.Verdict, e.Damage, e.Group);
+        var labLog = log.Where(e => !Unplayable((int)e.Tick)).ToList();
         // Each kick request against the kicks each side began after it, within the window.
         KickRequests? kicks = null;
         if (timeline.HasCommands)
@@ -346,11 +361,12 @@ internal static class CombatReplay
             : null;
         return new ReplayReport(timeline.Name, timeline.Ticks.Count, timeline.Ticks.Sum(t => t.Seconds), timeline.Skipped,
             moveCounts, lags.Count > 0 ? lags.Average() : double.NaN,
-            Compare("the player's blows on the followed orc", donorPlayer, log.Where(e => e.ByPlayer).Select(Lab).ToList()),
-            Compare("the followed orc's blows on the player", donorOrc, log.Where(e => !e.ByPlayer).Select(Lab).ToList()),
+            Compare("the player's blows on the followed orc", donorPlayer, labLog.Where(e => e.ByPlayer).Select(Lab).ToList()),
+            Compare("the followed orc's blows on the player", donorOrc, labLog.Where(e => !e.ByPlayer).Select(Lab).ToList()),
             notCompared, kicks, bodyReplay, byClip, excluded,
-            timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, which the replay doesn't follow" : "")}" : null,
-            shadow is null ? null : (shadowNear, shadowTicks));
+            timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, each played from its tick" : "")}"
+                + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
+            shadow is null ? null : (shadowNear, shadowTicks), applied);
     }
 
     /// <summary>

@@ -100,13 +100,14 @@ internal sealed class LabCombat : IDisposable
     /// <summary>
     /// Plays <paramref name="build"/>: stamina takes its maximum, the hand its weapon (<see cref="Arm"/>; a weapon the lab
     /// doesn't play, or none, keeps the one in hand), and the sword its gated moves (the parry, the chained slash, the
-    /// jump and rush attacks).
+    /// jump and rush attacks). Not <paramref name="arm"/>ing keeps the weapon in hand (a replay's build change mid-run:
+    /// its weapon switches come on their own, <see cref="Arm"/>).
     /// </summary>
-    internal void Rebuild(CharacterBuild build, bool draw = true)
+    internal void Rebuild(CharacterBuild build, bool draw = true, bool arm = true)
     {
         Build = build;
         Stamina.Retune(staminaRules.For(build));
-        if (LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
+        if (arm && LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
         Sword.CanParry = build.Has("combat_parry");
         Sword.ChainLength = Weapon.Simple ? 2 : build.Has("combat_chained_slash") ? 5 : 2;
         Sword.CanLeap = build.Has("combat_vertical_attack");

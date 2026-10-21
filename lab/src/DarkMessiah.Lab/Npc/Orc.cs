@@ -58,12 +58,18 @@ internal sealed class Orc : IDisposable
     readonly OrcMind mind;
     readonly OrcStagger stagger;
     readonly OrcDefence defence;
+    readonly OrcStamina stamina;
+    int seenSwing = -1, answeredSwing = -1;
+    bool wasAttacking;
     // Its own clock, seconds, for the dodge's delay; and the parry layer it played last (it never plays one twice running).
     double clock;
     string lastParry = "";
     // A stun's and a knockdown's time left, and the side a knockdown lies on (back or front).
     float stunLeft, groundLeft;
     string groundSide = "back";
+    // The fall into a knockdown: the pose it was struck in, blended into the lying one (R10152-2).
+    string fallFrom = "combatidle";
+    float fallFromCycle, fallElapsed = float.PositiveInfinity;
     Vector3 pushDirection;
 
     internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning)
@@ -79,6 +85,7 @@ internal sealed class Orc : IDisposable
         mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
         stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
         defence = new OrcDefence(OrcDefenceData.Read(donor, Model));
+        stamina = new OrcStamina(OrcStaminaData.Read(donor, Model));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
@@ -88,6 +95,9 @@ internal sealed class Orc : IDisposable
 
     /// <summary>What it fights by, from its .qct (#10150).</summary>
     internal OrcMindData Mind => mind.Data;
+
+    /// <summary>Its wait since its last attack began is over: in a stance it may attack.</summary>
+    internal bool MayAttack => mind.Ready;
 
     internal float AttackSpeed { get; }
     internal Vector3 Feet { get; private set; }
@@ -251,17 +261,24 @@ internal sealed class Orc : IDisposable
     /// One step: turns to the player, walks in, attacks, parries, reacts or lies down. Returns the blows whose part
     /// events this step crossed; whether they reach the player is the combat's to decide.
     /// </summary>
-    /// <param name="swing">A player's swing starting this step, as the orc sees it (#10151).</param>
-    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing)
+    /// <param name="swing">A player's swing coming, as the orc sees it (#10151): from its start until its hit window
+    /// closes. The orc answers it once, as soon as it stands ready (R10151-1).</param>
+    /// <param name="swingId">Which swing it is (the sword's count), so each is answered once.</param>
+    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0)
     {
         clock += seconds;
         var blows = new List<OrcBlow>();
+        // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
+        // while the NPC is flagged attacking, +0x2DFD59, and when its attack task completes, +0x2B06D2).
+        if (wasAttacking && State != OrcState.Attack) mind.Attacked(Wounded);
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
         if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown) && distance > 1e-3f)
             Facing = toPlayer / distance;
-        mind.Step(seconds, swing != IncomingSwing.None);
+        bool fresh = swing != IncomingSwing.None && swingId != seenSwing;
+        if (fresh) seenSwing = swingId;
+        mind.Step(seconds, fresh);
         float before = Cycle;
         string playing = Clip;
         Advance(seconds);
@@ -283,17 +300,23 @@ internal sealed class Orc : IDisposable
                 if (downSeconds >= tuning.RespawnSeconds) Spawn();
                 break;
             case OrcState.Approach:
+                // Walking it defends as standing (R10151-1: the parry's gate, +0x2A897C, skips attacking, not moving).
+                var walkingAnswer = swing != IncomingSwing.None && swingId != answeredSwing ? defence.Decide(swing, clock, Wounded) : Defence.None;
+                if (swing != IncomingSwing.None) answeredSwing = swingId;
+                if (walkingAnswer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
+                else if (walkingAnswer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
                 // It walks in to its green zone, or until an attack it may make lands from here.
-                if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is not null) Play(OrcState.Ready, "combatidle");
+                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is not null) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
-                var answer = defence.Decide(swing, clock);
-                if (answer == Defence.Parry) Parry();
-                else if (answer == Defence.Dodge) Dodge();
+                // A swing it saw while busy it answers now, if it hasn't yet and the swing is still coming.
+                var answer = swing != IncomingSwing.None && swingId != answeredSwing ? defence.Decide(swing, clock, Wounded) : Defence.None;
+                if (swing != IncomingSwing.None) answeredSwing = swingId;
+                if (answer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
+                else if (answer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
                 else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is { } attack)
                 {
                     Play(OrcState.Attack, attack.Clip);
-                    mind.Attacked();
                     AttacksMade++;
                 }
                 // Past its yellow zone, or ready to attack with nothing landing from here, it walks in.
@@ -306,6 +329,14 @@ internal sealed class Orc : IDisposable
                 else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
             case OrcState.Attack:
+                // Its dodge test doesn't ask whether it attacks, as its parry does (R10151-1: server.dll's defence skips
+                // an NPC flagged attacking, +0x2A897C; its dodge test, +0x2ACB30, doesn't): a power attack or a kick
+                // coming it may dodge out of its own attack. The donor's dodged 13% of power attacks attacking, as ready.
+                if (swing is IncomingSwing.BreaksParry or IncomingSwing.Kick && swingId != answeredSwing)
+                {
+                    answeredSwing = swingId;
+                    if (defence.Decide(swing, clock, Wounded) == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); break; }
+                }
                 var clip = body.Model.Clip(Clip);
                 for (int part = 0; part < PartEvents.Length; part++)
                     foreach (float at in clip.At(PartEvents[part]))
@@ -335,12 +366,14 @@ internal sealed class Orc : IDisposable
                 else if (Clip == "Stunned_out" && done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.KnockedDown:
-                // Lying (StandUp_<side>_firstframe) while the donor's ragdoll would fall and rest, then getting up.
+                // Falling, then lying (StandUp_<side>_firstframe) while the donor's ragdoll would fall and rest, then getting up.
                 groundLeft -= seconds;
+                fallElapsed += seconds;
                 if (Clip.EndsWith("_firstframe", StringComparison.Ordinal) && groundLeft <= 0) Play(OrcState.KnockedDown, $"StandUp_{groundSide}");
                 else if (!Clip.EndsWith("_firstframe", StringComparison.Ordinal) && done) Play(OrcState.Ready, "combatidle");
                 break;
         }
+        wasAttacking = State == OrcState.Attack;
         return blows;
     }
 
@@ -390,8 +423,14 @@ internal sealed class Orc : IDisposable
         Play(OrcState.Pushed, clip);
     }
 
-    /// <summary>Below its <c>life_tohurt</c> share of its health: wounded, which makes stuns and falls likelier.</summary>
-    internal bool Wounded => Alive && Health <= stagger.Data.HurtFraction * mind.Data.Health;
+    /// <summary>
+    /// Wounded, which makes stuns and falls likelier: below its <c>life_tohurt</c> share of its health, or out of
+    /// stamina (R10151-2: server.dll's one flag for both).
+    /// </summary>
+    internal bool Wounded => Alive && (Health <= stagger.Data.HurtFraction * mind.Data.Health || stamina.Exhausted);
+
+    /// <summary>Its stamina (R10151-2): spent by its parries, dodges and stuns, never restored.</summary>
+    internal OrcStamina Stamina => stamina;
 
     /// <summary>What the stun and knockdown rules work from (#10152).</summary>
     internal OrcStaggerData StaggerData => stagger.Data;
@@ -409,10 +448,11 @@ internal sealed class Orc : IDisposable
     /// player's feet). Knocked down it lies on its back to a blow from in front, else on its front (the donor's lay on
     /// their backs 31 of 35 times: the stand-in doesn't roll); stunned it plays the side the blow came from.
     /// </summary>
-    internal Stagger Struck(AttackEvent? blow, double now, Vector3 from, bool staff, float stunMultiplier)
+    /// <param name="jumpDrop">For a jump attack, how far the player has dropped since leaving the ground, Source units: it fells only after 50.</param>
+    internal Stagger Struck(AttackEvent? blow, double now, Vector3 from, bool staff, float stunMultiplier, float? jumpDrop = null)
     {
         if (!Alive || Following || State is OrcState.KnockedDown or OrcState.Backstabbed) return Stagger.None;
-        var outcome = stagger.Decide(blow, now, Wounded, staff, stunMultiplier);
+        var outcome = stagger.Decide(blow, now, Wounded, staff, stunMultiplier, jumpDrop);
         if (outcome == Stagger.None || State == OrcState.Stunned && outcome == Stagger.Stunned) return Stagger.None;
         Vector3 toward = (from - Feet) with { Y = 0 };
         float ahead = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), Facing) : 1;
@@ -421,6 +461,9 @@ internal sealed class Orc : IDisposable
         {
             groundSide = ahead >= 0 ? "back" : "front";
             groundLeft = stagger.Data.KnockedDownSeconds + RagdollFallSeconds;
+            fallFrom = Clip;
+            fallFromCycle = Cycle;
+            fallElapsed = 0;
             Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
         }
         else
@@ -429,14 +472,62 @@ internal sealed class Orc : IDisposable
             float side = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), left) : 0;
             string from_ = ahead >= .707f ? "front" : ahead <= -.707f ? "back" : side > 0 ? "left" : "right";
             stunLeft = stagger.Data.StunSeconds;
+            stamina.Spend(stamina.Data.Stun);
             Play(OrcState.Stunned, $"hit_stunned_{from_}");
         }
         return outcome;
     }
 
+    /// <summary>Starts its dice again (mind, stagger, defence) from their seeds.</summary>
+    internal void Reseed()
+    {
+        mind.Reset(reseed: true);
+        stagger.Reset(reseed: true);
+        defence.Reset(reseed: true);
+    }
+
+    /// <summary>
+    /// How long a knockdown's fall takes, seconds, before it lies: authored (R10152-2). The orc's model has no fall
+    /// clip (the donor drops a <c>prop_ragdoll</c>, #10216, and its NPC waits on the get-up's first frame), so the pose it
+    /// was struck in blends into <c>StandUp_&lt;side&gt;_firstframe</c>, its root tipping from upright to lying; a body
+    /// falling its 1.1 m from rest takes about half a second. The lie that follows keeps the donor's timing.
+    /// </summary>
+    internal const float FallSeconds = .6f;
+
+    /// <summary>Knocked down and still falling (<see cref="FallSeconds"/>).</summary>
+    internal bool Falling => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal) && fallElapsed < FallSeconds;
+
+    /// <summary>How far into its fall the orc is, 0 to 1, eased in and out.</summary>
+    float FallWeight => Falling ? MathF.Min(1, fallElapsed / FallSeconds) is var t ? t * t * (3 - 2 * t) : 1 : 1;
+
+    /// <summary>Lying on the ground: past halfway through its fall, until it begins to get up.</summary>
+    internal bool Lying => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal) && FallWeight >= .5f;
+
+    /// <summary>
+    /// The orc's body as the player's meets it (R10152-2), a world-aligned box (the Engine's character obstacles are):
+    /// standing, 0.8 m across and 1.8 m tall around its feet; lying, 0.6 m high around a body 0.9 m across and 2.1 m
+    /// long along its facing, from behind its head to its toes (<c>StandUp_*_firstframe</c> spans −0.9 to 1.2 m along
+    /// its facing and rises 0.6 m).
+    /// </summary>
+    internal (Vector3 Center, Vector3 HalfExtents) Hull
+    {
+        get
+        {
+            if (!Lying) return (Feet + Vector3.UnitY * .9f, new Vector3(.4f, .9f, .4f));
+            var forward = Vector3.Normalize(Facing with { Y = 0 });
+            var side = new Vector3(forward.Z, 0, -forward.X);
+            Vector3 Half(Vector3 axis, float extent) => new(MathF.Abs(axis.X) * extent, MathF.Abs(axis.Y) * extent, MathF.Abs(axis.Z) * extent);
+            return (Feet + Vector3.UnitY * .3f + forward * .15f, Half(forward, 1.05f) + Half(side, .45f) + Vector3.UnitY * .3f);
+        }
+    }
+
     /// <summary>Moves the orc's feet (a developer placement).</summary>
     internal void PlaceAt(Vector3 feet) => Feet = feet;
 
+    /// <summary>
+    /// A new orc. Its dice go on from the last one's (a fresh roll sequence each life would replay its first rolls);
+    /// <see cref="Reseed"/> starts them again, as a fight's reset does, so fights repeat.
+    /// </summary>
     internal void Spawn()
     {
         Feet = Shared(tuning.Spawn);
@@ -445,6 +536,9 @@ internal sealed class Orc : IDisposable
         mind.Reset();
         stagger.Reset();
         defence.Reset();
+        stamina.Reset();
+        seenSwing = answeredSwing = -1;
+        wasAttacking = false;
         Play(OrcState.Approach, "CombatWalk");
     }
 
@@ -480,6 +574,8 @@ internal sealed class Orc : IDisposable
     {
         // Followed, it is posed as the recording streamed it: every overlay at its weight.
         if (Following && overlays.Length > 0) body.Play(Clip, Cycle, overlays);
+        // Falling: the pose it was struck in gives way to the lying one.
+        else if (Falling) body.Play(fallFrom, fallFromCycle, (Clip, 0, FallWeight));
         else if (Layer is null) body.Play(Clip, Cycle);
         else body.Play(Clip, Cycle, (Layer, LayerCycle, 1));
     }

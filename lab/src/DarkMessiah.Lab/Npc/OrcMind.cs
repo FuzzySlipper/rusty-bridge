@@ -21,7 +21,7 @@ internal sealed record OrcAttackChoice(string Clip, float Travel, float Range)
 /// <summary>
 /// The numbers the orc fights by, from its <c>.qct</c>'s <c>entity_data</c> (#10150; docs/lab.md, "The orc"):
 /// <list type="bullet">
-/// <item>its rhythm: between attacks it waits <c>AttackCoolMinTime</c>–<c>MaxTime</c> (1–4 s) when cool and
+/// <item>its rhythm: from one attack's end to the next it waits <c>AttackCoolMinTime</c>–<c>MaxTime</c> (1–4 s) when cool and
 /// <c>AttackBersekerMinTime</c>–<c>MaxTime</c> (0–2 s) when berserk; it changes mode every
 /// <c>AttackRythmMinTime</c>–<c>MaxTime</c> (7–10 s), and goes berserk when the player hasn't attacked for
 /// <c>PlayerNoAttackDelayToGoBersekerMode</c> (2 s);</item>
@@ -79,9 +79,9 @@ internal sealed class OrcMind(OrcMindData data, int seed = OrcMind.Seed)
     /// <summary>It may attack: its wait since the last attack is over.</summary>
     internal bool Ready => wait <= 0;
 
-    internal void Reset()
+    internal void Reset(bool reseed = false)
     {
-        random = new Random(Seed);
+        if (reseed) random = new Random(Seed);
         Berserk = false;
         modeLeft = Between(data.RhythmMin, data.RhythmMax);
         wait = Between(data.CoolMin, data.CoolMax);
@@ -108,8 +108,9 @@ internal sealed class OrcMind(OrcMindData data, int seed = OrcMind.Seed)
         }
     }
 
-    /// <summary>An attack began: the wait until the next may begin, by the mode (counted from this one's start).</summary>
-    internal void Attacked() => wait = Berserk ? Between(data.BerserkMin, data.BerserkMax) : Between(data.CoolMin, data.CoolMax);
+    /// <summary>An attack ended: the wait until the next may begin, by the mode (counted from this one's end, R10151-1).</summary>
+    /// <param name="wounded">A wounded (or exhausted) orc waits the cool times, berserk or not (server.dll+0x2BBB72).</param>
+    internal void Attacked(bool wounded = false) => wait = Berserk && !wounded ? Between(data.BerserkMin, data.BerserkMax) : Between(data.CoolMin, data.CoolMax);
 
     /// <summary>
     /// One of the attacks whose strike lands from <paramref name="distance"/> (Source units) inside its window, at

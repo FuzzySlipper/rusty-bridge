@@ -495,7 +495,7 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
 | --- | --- | --- |
 | Health | 35 | `entity_data` `npc_health` |
 | Zones | red 10, green 70, yellow 140 units | `Red_zone`, `Green_zone`, `Yellow_zone` |
-| Wait between attacks (from one's start) | 1–4 s cool, 0–2 s berserk | `AttackCoolMinTime`/`MaxTime`, `AttackBersekerMinTime`/`MaxTime` |
+| Wait between attacks (from one's end, R10151-1) | 1–4 s cool, 0–2 s berserk; wounded always cool | `AttackCoolMinTime`/`MaxTime`, `AttackBersekerMinTime`/`MaxTime`; server.dll stamps the time while the NPC attacks (+0x2DFD59) and picks the cool times for a wounded one (+0x2BBB72) |
 | Cool ↔ berserk | every 7–10 s; berserk after 2 s with no player attack | `AttackRythmMinTime`/`MaxTime`, `PlayerNoAttackDelayToGoBersekerMode` |
 | Each attack's travel to its strike | attack_Jump 96, attack_Forward 77, attack_right 28, KickSwing and KickBash 18–20, the uppercut, bash and fast attack 0–2 | the clip's root motion (`mstudiomovement_t`, which dm-import now writes; docs/import.md) |
 | Where each attack's strike lands | its middle half over the recordings, e.g. the uppercut 34–43, the side and top swings 53–86, the lunges 24–71 | `combat.json` `orc.attackLandings`, fitted (`OrcCalibration.Landings`; the smoke refits them) |
@@ -508,13 +508,13 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   recorded orcs strafing about four times as often as they idled. Once its wait is over it picks, at random, an attack
   whose strike lands inside that attack's window from here; nothing landing, it walks in, or, pressed nearer than any
   window allows (at its hull's 32 units, inside the uppercut's 34), steps back (`Combatmove_backward_small`, which the
-  donor's orcs attacked out of) and fights on: 1.1 s from contact to its next attack (R10150-1). Every clip but the
+  donor's orcs attacked out of) and fights on: 3.1 s from contact to its next attack (R10150-1; its wait now runs from its last attack's end). Every clip but the
   walk moves it by its root motion, as the donor's entity moves.
 - **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
   grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
 - **Against the donor** (the smoke; ten minutes of a scripted fight, the player swinging when it is near and backing
   off 4 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
-  distance for it (10 of 10), the median time from one attack's start to the next is 2.21 s against the donor's
+  distance for it (10 of 10), the median time from one attack's start to the next is 2.10 s against the donor's
   2.88, it walks at the donor's 61 units a second, and its walks of half a second or more end a median 164 units off,
   within the donor's middle half (56–214; R10150-2). The mix differs: the lab's scripted player stands its ground
   between its backing-off steps, where the recorded ones pressed in, so the uppercut leads the lab's attacks.
@@ -522,22 +522,60 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
 
 ### The orc's defence
 
-The orc parries and dodges by its `.qct` (#10151; `Npc/OrcDefence.cs`, server.dll's AI around +0x2A8968 and its
-dodge test at +0x2ACB30), against every player swing a recorded orc saw start within 150 units (`DefenceCalibration`):
+The orc parries and dodges by its `.qct` (#10151; `Npc/OrcDefence.cs`, server.dll's defence around +0x2A8968 and its
+dodge test at +0x2ACB30), against every player swing a recorded orc saw start within 150 units (`DefenceCalibration`:
+what the orc began within 40 ticks or before the next swing, by the swing, the orc's situation and how many swings
+it had seen):
 
-| A swing it sees, standing ready | It | Recorded | Lab (20 minutes of a scripted player) |
-| --- | --- | --- | --- |
-| One it may parry (the fast attacks) | parries on a 0–100 roll over its `difficulty` (60): 40% | parried 45% of 336 | 41% |
-| One that breaks parries (the power attacks) | dodges (`Dodge_left`/`_right`) on the same roll and then `base_dodge_chance` (0.5), at most once every `DodgeDelay` (15 s) | dodged 13%, parried 2% of 199 | 7% |
-| A kick | dodges on `dodge_on_kick_init_chance` (0.2), no delay | dodged 16% of 56 | 22% |
+| A swing it sees | It | When |
+| --- | --- | --- |
+| One it may parry (the fast attacks) | parries on a 0–100 roll over its `difficulty` (60): 40% | standing or walking (the gate, +0x2A897C, skips an NPC flagged attacking, not one moving); a swing that began while it attacked or recovered it answers once free, while the blade is still live (until the swing's hit window closes) |
+| One that breaks parries (the power attacks) | dodges (`Dodge_left`/`_right`) on the same roll and then `base_dodge_chance` (0.5), at most once every `DodgeDelay` (15 s) | standing, walking or attacking: the dodge test doesn't ask whether it attacks, so it dodges out of its own attack |
+| A kick | dodges on `dodge_on_kick_init_chance` (0.2), no delay | the same |
 
+- **Wounded** (hurt or exhausted, below) it doesn't dodge: the recorded wounded orcs dodged 1 of 57 power attacks
+  and kicks, against 13–20% otherwise. The gate in server.dll isn't pinned down.
 - **Its parry** is one of `layer_parry_A`–`E` at random, never the same twice running (server.dll's SetParryLayer).
-- **A dodge** moves it 75 units to the side by its root motion and can't be touched in its window (#10198).
-- **Not modelled:** `dodge_on_kick_add_chance` (0.4 "added after every kick"): one recorded orc took 7 kicks ready
-  and dodged none, so the chance doesn't grow in the lab; the preventive dodge (`PreventiveDodgeChance` 0.2 every
-  15 s against one attack class, not identified); the 6% of fast attacks parried while attacking (in its recovery);
-  `Stamina_Parry`/`_Block`/`_Dodge` (the AI's stamina, which isn't on the Wire). The lab's orc carries a shield but
-  never blocks: no recorded orc carried one.
+- **A dodge** moves it 75 units to the side by its root motion and can't be touched in its window, by a swing or a
+  kick (#10198, R10151-3).
+- **Its stamina** (R10151-2; `OrcStamina`): it starts at its `.qct`'s `stamina` (30; the `level_1` block's 50 is for
+  an orc placed at that level) and nothing restores it. A parry spends `Stamina_Parry` (1), a block `Stamina_Block`
+  (3), a dodge `Stamina_Dodge` (4) and a stun `Stamina_Stun` (10), while it fights and isn't exhausted
+  (server.dll+0x2BF250, from the defence at +0x2E01C4, the dodge at +0x2DFF89 and the stun at +0x2C5C45). Down to
+  `Stamina_Exhausted` (0) it is exhausted (+0x2BF210): the flag server.dll's stun and knockdown tests read as wounded
+  (+0.3 each), its preventive dodge skips, and its waits between attacks are the cool ones. Stamina gates no parry
+  or dodge. The recorded orcs the staff stunned again and again turned to their wounded sequences at full health once
+  they had spent 38 and 44; three stuns exhaust the lab's.
+- **Its rhythm** shapes its chances to parry: its wait runs from its attack's end (server.dll stamps NPC +0x2980
+  with the time while the NPC is flagged attacking, +0x2DFD59; the donor's orcs idled a median 1.2 s between attacks,
+  only 16 of 693 idles under half a second), and its dice go on from one life to the next.
+
+Against the donor (the smoke; a 40-minute fight through the lab's combat, the scripted player swinging in the orc's
+idle moments or every 1.8 s, the orc holding its attacks in the second half):
+
+| Situation | Recorded | Lab |
+| --- | --- | --- |
+| Fast attacks, ready (standing or walking) | parried 40% of 336 | 39% of 282 |
+| Fast attacks, attacking | parried 10% of 238 | 2% of 225 |
+| Power attacks, ready | dodged 12%, parried 2% of 185 | dodged 21% of 47 |
+| Power attacks, attacking | dodged 13% of 134 | 19% of 53 |
+| Kicks, ready | dodged 20%, parried 9% of 46 | dodged 20% of 119 |
+| Kicks, attacking | dodged 14%, parried 7% of 29 | 19% of 94 |
+| Fast attacks on a ready orc, its 4th–10th swing / 11th on | parried 50% of 56 / 42% of 239 | compared in the smoke |
+| Recovering (hit, pushed, stunned, down, dodging) | parried 9% of 175 fast attacks | too few (the lab's orc rarely recovers with a swing coming) |
+| Wounded | parried 10% of 21 fast attacks, dodged 3% of 36 power attacks, 0 of 21 kicks | parried 29% of 108, dodged none: too few recorded to compare |
+
+Situations with fewer than 25 recorded or 30 lab swings are reported, not compared; a compared one agrees within two
+standard deviations of the donor's rate plus 5 points.
+
+- **Repeated swings:** the donor's orcs parried a ready orc's fast attacks 12% of 41 over their first three swings,
+  50% of 56 over the next seven and 42% of 239 after: no growth, and the first few lower, likely the defence's
+  combat-state gate (+0x2A8856, the NPC's state +0x1A5C at 3), which an orc reaches as it becomes aware (#10154; the
+  lab's orc is always in combat). Kicks dodged by the orc's kick count: 1 of 14 first, 1 of 10 second, 7 of 22 after
+  (`dodge_on_kick_add_chance`, 0.4 "added after every kick", isn't modelled: too few to tell from the same gate).
+- **Not modelled:** the preventive dodge (`PreventiveDodgeChance` 0.2 every 15 s against one attack class, not
+  identified); parries while recovering (9% recorded; the lab's orc rarely recovers with a swing still coming). The
+  lab's orc carries a shield but never blocks: no recorded orc carried one.
 - `Orc.Defending.Forced` makes it answer every swing one way: the smoke's checks.
 
 ### Stuns and knockdowns
@@ -547,18 +585,24 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
 
 | What | Rule | Source |
 | --- | --- | --- |
-| Knocked down | a roll under the blow's `.qct` event's `chancetofall`, plus `WoundedFallChance` (0.3) on a wounded orc (below `life_tohurt`, 0.2 of its health); a jump attack (`AttackMove` 12) only after the player dropped `PlayerVerticalAttackHeightToMakeNPCFall` (50 units), which the lab doesn't track | the melee routine, server.dll+0x407FE0–0x4080AB: the weapon's factor (+0x11BC, 1 unless `second_chance_perc` is 0, which no weapon sets) × the event's chance, sets the damage's fall flag |
+| Knocked down | a roll under the blow's `.qct` event's `chancetofall`, plus `WoundedFallChance` (0.3) on a wounded orc (below `life_tohurt`, 0.2 of its health); a jump attack (the player's attack type +0x27A8 at 12, set in code for the falling attack: its `.qct` event has no `AttackMove`) only when the player is `PlayerVerticalAttackHeightToMakeNPCFall` (50 units) or more below where they left the ground (R10152-1; `LabCombat.Drop`) | the melee routine, server.dll+0x407FE0–0x4080AB: the weapon's factor (+0x11BC, 1 unless `second_chance_perc` is 0, which no weapon sets) × the event's chance, sets the damage's fall flag; for a jump attack, +0x40801D compares the player's last height on the ground (+0x1950, saved as its ground trace first finds nothing below, +0x2243C63B) with its height now |
 | Stunned, by a staff | every blow | the staff classes' virtual +0x704 returns true (the swords' and daggers' false), which sets the damage's stun flag |
 | Stunned, otherwise | once it has taken `nbhittostun` (6) × the weapon's `NpcNbhittostunMultiplicator` (1; none sets it) hits within `delaytostun` (10 s), a roll under the event's `chancetostun` × the weapon's `stunmultiplicator` (1, the axes 2), plus `WoundedStunChance` (0.3) wounded | the NPC's stun test, server.dll+0x2AB04F–0x2AB15D |
-| Lying | `StandUp_<side>_firstframe` for `KnockedDownTime` (2 s) plus 1.3 s for the donor's ragdoll to fall and rest, then `StandUp_back` (3.25 s) or `_front` (2.25 s) | the orc's sequences: the donor's NPC holds the first frame while a separate `prop_ragdoll` falls |
+| Falling | 0.6 s: the pose it was struck in blends into `StandUp_<side>_firstframe` (`Orc.FallSeconds`, authored; R10152-2) | the orc's model has no fall clip (its death clips fall forward, and 31 of 35 recorded falls lay on their backs); the donor's ragdoll falls instead (#10216) |
+| Lying | `StandUp_<side>_firstframe` until `KnockedDownTime` (2 s) plus 1.3 s from the blow for the donor's ragdoll to fall and rest, then `StandUp_back` (3.25 s) or `_front` (2.25 s) | the orc's sequences: the donor's NPC holds the first frame while a separate `prop_ragdoll` falls |
+| Its body to the player | from halfway through its fall until it gets up, a box 0.6 m high around its lying body (2.1 m along its facing, 0.9 across; world-aligned, as the Engine's character obstacles are), else 1.8 m standing (`Orc.Hull`) | `StandUp_*_firstframe`'s bones span −0.9 to 1.2 m along its facing and rise 0.6 m |
 | Stunned for | `hit_stunned_<side>` (the side the blow came from), then `Stunned` for `stunned_duration` (4 s), then `Stunned_out`; a hit ends it | the `.qct`; every recorded stun was ended early by a hit |
 | Damage while down | ×2 getting up (`StandUp_*`), ×1.5 stunned (`CombatModel.DownMultiplier`) | measured (#10145, #10148) |
 
-- **Against the recordings:** 12 falls in 501 blows on a standing orc where the rule expects 17.6 (±6.5); a staff's
+- **Jump attacks** (R10152-1): through the lab's combat, ten from 30 units up felled none and ten from 60 felled 5
+  (`chancetofall` 0.6). The recordings hold one jump attack on a standing orc, after a 5-unit drop, which didn't fell
+  it (`KnockdownCalibration` measures the drop from the player's take-off height).
+- **Against the recordings:** 12 falls in 501 blows on a standing orc where the rule expects 17.0 (±6.4); a staff's
   blow stunned or felled 21 of 22 alert orcs that were up (idle, unaware ones 5 of 12, another path); every other
   weapon's blows stunned 2 of 436, as the six-hit rule allows (the power attack's `chancetostun` 0.8 needs the six
   hits first). Kicks felled 1 orc of 48: a kick's fall is the hazards' (#10157).
-- **The lab's orc** lies 6.57 s from the blow to standing, inside the donor's 5.6–10.2 s (35 knockdowns, median 6.3).
+- **The lab's orc** falls in 0.6 s, its head from standing height to the ground, and is up again 6.57 s from the
+  blow, inside the donor's 5.6–10.2 s (35 knockdowns, median 6.3).
   It lies on its back to a blow from in front (the donor's fell on their backs 31 of 35 times), and doesn't roll: 12
   of the donor's got up from the other side. A stand-in: the donor drops a ragdoll, which the Engine can do
   (`IDynamicsService.CreateRagdoll`); #10216 builds it.

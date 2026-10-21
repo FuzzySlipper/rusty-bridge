@@ -51,17 +51,20 @@ internal sealed class OrcDefence(OrcDefenceData data, int seed = OrcDefence.Seed
     /// <summary>When set, the orc answers every swing so (a parry, a dodge, or nothing), whatever the rules say.</summary>
     internal Defence? Forced { get; set; }
 
-    internal void Reset()
+    internal void Reset(bool reseed = false)
     {
-        random = new Random(Seed);
+        if (reseed) random = new Random(Seed);
         lastDodge = double.NegativeInfinity;
     }
 
     /// <param name="now">The fight's time, seconds.</param>
-    internal Defence Decide(IncomingSwing swing, double now)
+    /// <param name="wounded">The orc is wounded (hurt or exhausted): it doesn't dodge. The recorded wounded orcs dodged 1
+    /// of 57 power attacks and kicks, against 13–20% ready; the gate in server.dll isn't pinned down.</param>
+    internal Defence Decide(IncomingSwing swing, double now, bool wounded = false)
     {
         if (swing == IncomingSwing.None) return Defence.None;
         if (Forced is { } forced) return forced;
+        if (wounded && swing != IncomingSwing.Parryable) return Defence.None;
         if (swing == IncomingSwing.Kick)
         {
             bool dodges = random.NextSingle() < data.KickDodgeChance;
@@ -74,5 +77,53 @@ internal sealed class OrcDefence(OrcDefenceData data, int seed = OrcDefence.Seed
         if (now - lastDodge < data.DodgeDelay || random.NextSingle() >= data.DodgeChance) return Defence.None;
         lastDodge = now;
         return Defence.Dodge;
+    }
+}
+
+/// <summary>
+/// The NPC stamina numbers (R10151-2; docs/lab.md, "The orc's defence"): its <c>.qct</c>'s <c>stamina</c> (30; its
+/// <c>level_1</c> block's 50 applies only to an orc placed at that level), and the settings' <c>Stamina_Parry</c> (1),
+/// <c>Stamina_Block</c> (3), <c>Stamina_Dodge</c> (4), <c>Stamina_Stun</c> (10) and <c>Stamina_Exhausted</c> (0).
+/// </summary>
+internal sealed record OrcStaminaData(float Stamina, float Parry, float Block, float Dodge, float Stun, float Exhausted)
+{
+    internal static OrcStaminaData Read(DonorContent donor, string model)
+    {
+        var settings = donor.Read("scripts/mm_game_settings.txt") is byte[] bytes ? KeyValues.ParseAll(bytes).FirstOrDefault()?.Block("ai") : null;
+        float S(string key, float shipped) => settings?.Number(key) ?? shipped;
+        return new OrcStaminaData(donor.Number(model, "entity_data", "stamina") ?? 30, S("Stamina_Parry", 1), S("Stamina_Block", 3),
+            S("Stamina_Dodge", 4), S("Stamina_Stun", 10), S("Stamina_Exhausted", 0));
+    }
+}
+
+/// <summary>
+/// An NPC's stamina as server.dll keeps it (R10151-2). It starts at the <c>.qct</c>'s <c>stamina</c> (NPC +0x2970,
+/// read at +0x2BEB6E) and nothing restores it. A parry, block, dodge or stun spends its settings cost (+0x2BF250, from
+/// the defence at +0x2E01C4, the dodge at +0x2DFF89 and the stun at +0x2C5C45), only while the NPC fights (its virtual
+/// +0x704) and isn't yet exhausted (+0x8A8, the flag at +0x2978). Falling to <c>Stamina_Exhausted</c> exhausts it
+/// (+0x2BF210): the flag server.dll's stun and knockdown tests read as wounded (<c>WoundedStunChance</c>,
+/// <c>WoundedFallChance</c>) and its preventive dodge test skips. It goes on parrying and dodging: stamina gates no
+/// defence choice. The recorded orcs the staff stunned again and again (each stun 10) turned to their wounded sequences
+/// at full health once they had spent 38 and 44.
+/// </summary>
+internal sealed class OrcStamina(OrcStaminaData data)
+{
+    internal OrcStaminaData Data => data;
+    internal float Left { get; private set; } = data.Stamina;
+    internal bool Exhausted { get; private set; }
+
+    internal void Reset()
+    {
+        Left = data.Stamina;
+        Exhausted = false;
+    }
+
+    internal void Spend(float cost)
+    {
+        if (Exhausted) return;
+        Left -= cost;
+        if (Left > data.Exhausted) return;
+        Exhausted = true;
+        Left = data.Exhausted;
     }
 }

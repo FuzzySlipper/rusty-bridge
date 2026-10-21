@@ -344,12 +344,10 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private void ClearPending() => jumpPending = usePending = throwPending = kickPending = attackPending = blockPending = false;
 
-    /// <summary>The orc as the player's body meets it: a standing box around its feet, so the body can't walk through it.</summary>
+    /// <summary>The orc as the player's body meets it: its box, standing or lying (R10152-2), so the body can't walk through it.</summary>
     private CharacterObstacle OrcObstacle()
     {
-        const float HalfWidth = .4f, HalfHeight = .9f;
-        var at = new Transform(combat.Orc.Feet + Vector3.UnitY * HalfHeight, Quaternion.Identity, Vector3.One);
-        return new CharacterObstacle(Npc.Orc.BodyId, at, new Vector3(-HalfWidth, -HalfHeight, -HalfWidth), new Vector3(HalfWidth, HalfHeight, HalfWidth),
-            combat.Orc.Alive, Vector3.Zero, Vector3.Zero);
+        var (center, half) = combat.Orc.Hull;
+        return new CharacterObstacle(Npc.Orc.BodyId, new Transform(center, Quaternion.Identity, Vector3.One), -half, half, combat.Orc.Alive, Vector3.Zero, Vector3.Zero);
     }
 }

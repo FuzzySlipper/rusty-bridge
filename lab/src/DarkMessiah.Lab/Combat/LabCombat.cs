@@ -235,6 +235,14 @@ internal sealed class LabCombat : IDisposable
     internal Orc Orc { get; }
     internal float PlayerHealth { get; private set; }
     internal bool God { get; set; }
+
+    /// <summary>
+    /// How far the player is below where they last left the ground, Source units (0 on it): a jump attack knocks an
+    /// orc down only after 50 (<c>PlayerVerticalAttackHeightToMakeNPCFall</c>, R10152-1).
+    /// </summary>
+    internal float Drop { get; private set; }
+
+    float groundHeight = float.NaN;
     internal string Message { get; private set; } = "";
     internal SwingTrace? LastBlow { get; private set; }
     /// <summary>The reach test of the orc's last blow: where its sweep entered the player's box, and its range (Source units).</summary>
@@ -265,6 +273,9 @@ internal sealed class LabCombat : IDisposable
     {
         fightSeconds += seconds;
         AdrenalineGained = 0;
+        // Where the player left the ground, for a jump attack's knockdown (R10152-1).
+        if (grounded) groundHeight = feet.Y;
+        Drop = grounded || float.IsNaN(groundHeight) ? 0 : MathF.Max(0, (groundHeight - feet.Y) / SourceSpace.MetresPerUnit);
         FatalityLanded = false;
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
@@ -279,7 +290,7 @@ internal sealed class LabCombat : IDisposable
         }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
-        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming()) : Orc.Follow(orcPose, seconds);
+        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing) : Orc.Follow(orcPose, seconds);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
@@ -504,11 +515,12 @@ internal sealed class LabCombat : IDisposable
     }
 
     /// <summary>
-    /// The swing starting this step as the orc sees it (#10151): a kick, one that breaks parries (its first event's
-    /// <c>breakparade</c>: the power attacks), or one it may parry.
+    /// The swing coming as the orc sees it (#10151): a kick, one that breaks parries (its first event's
+    /// <c>breakparade</c>: the power attacks), or one it may parry, from its start until its hit window closes
+    /// (R10151-1: the donor's orcs parried swings that began while they attacked, once their attack was over).
     /// </summary>
     IncomingSwing Incoming() =>
-        !Sword.SwingStarted ? IncomingSwing.None
+        !(Sword.Move is SwordMove.Fast or SwordMove.Power or SwordMove.Kick) || !(Sword.SwingStarted || Sword.Cycle < Sword.Clip.Close) ? IncomingSwing.None
         : Sword.Move == SwordMove.Kick ? IncomingSwing.Kick
         : model.EventOf(new Party("player", "", [Sword.Clip.Clip], 0, "#1", PlayerModel))?.BreaksParry == true ? IncomingSwing.BreaksParry
         : IncomingSwing.Parryable;
@@ -517,7 +529,8 @@ internal sealed class LabCombat : IDisposable
     void Stagger(AttackEvent? blow, Vector3 from, bool shield = false)
     {
         var weapon = Weapon;
-        var outcome = Orc.Struck(blow, fightSeconds, from, !shield && weapon.Class == WeaponClass.Staff, shield ? 1 : weapon.StunMultiplier);
+        var outcome = Orc.Struck(blow, fightSeconds, from, !shield && weapon.Class == WeaponClass.Staff, shield ? 1 : weapon.StunMultiplier,
+            Sword.Move == SwordMove.LeapOut ? Drop : null);
         if (outcome == Npc.Stagger.KnockedDown) Message = "Knocked down";
         else if (outcome == Npc.Stagger.Stunned) Message = "Stunned";
     }
@@ -543,7 +556,17 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
-        float asked = PlayerAsks(player, Orc.Party(), null, kick: true, Orc.Health, alert: AlertAt(tick));
+        // An orc in its dodge's window can't be touched, by a kick as by a swing (R10151-3): the donor's no-effect.
+        var orc = Orc.Party();
+        if (model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle))
+        {
+            Player = Player with { Missed = Player.Missed + 1 };
+            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, "NoEffect (kick)"), blow: true);
+            Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.NoEffect, 0, null));
+            Message = "The orc dodges";
+            return;
+        }
+        float asked = PlayerAsks(player, orc, null, kick: true, Orc.Health, alert: AlertAt(tick));
         Orc.Damage(asked);
         Orc.Push(flat, Tuning.KickPush);
         // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
@@ -728,6 +751,7 @@ internal sealed class LabCombat : IDisposable
         fightSeconds = 0;
         slowStart = slowEnd = double.NaN;
         SlowTimeRequests.Clear();
+        Orc.Reseed();
         Orc.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();

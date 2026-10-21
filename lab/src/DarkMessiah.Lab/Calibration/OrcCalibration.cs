@@ -143,13 +143,15 @@ internal static class OrcCalibration
         double lastAttack = double.NaN;
         string lastClip = "";
         float lastCycle = 0;
+        int swings = 0;
         for (float t = 0; t < seconds; t += step)
         {
             float distance = Vector3.Distance(orc.Feet with { Y = 0 }, player with { Y = 0 });
             bool swing = distance < 2.5f && t % swingEvery < step;
             // Backing off: 4 m away from the orc over 1.5 s.
             if (t % retreatEvery < 1.5f && distance > 1e-3f) player += Vector3.Normalize((player - orc.Feet) with { Y = 0 }) * (4 / 1.5f) * step;
-            orc.Step(step, player, swing ? IncomingSwing.Parryable : IncomingSwing.None);
+            if (swing) swings++;
+            orc.Step(step, player, swing ? IncomingSwing.Parryable : IncomingSwing.None, swings);
             if (!orc.Alive) { orc.Spawn(); lastAttack = double.NaN; }
             if (orc.State == OrcState.Attack && orc.Clip != lastClip)
             {

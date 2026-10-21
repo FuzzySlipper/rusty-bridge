@@ -604,39 +604,87 @@ host.Call(engine =>
     Check(MathF.Abs(real.Fast.Open - .333f) < .01f && MathF.Abs(real.Fast.Close - .778f) < .01f && MathF.Abs(real.Power.Open - .125f) < .01f,
         FormattableString.Invariant($"hit windows come from Arkane's events: fast {real.Fast.Open:0.00}–{real.Fast.Close:0.00}, power {real.Power.Open:0.00}–{real.Power.Close:0.00}"));
 
-    // The orc's defence (#10151): how often it parries and dodges the swings it sees, ready, against the donor's.
+    // The orc's defence (#10151, R10151-1): how often it parries and dodges the swings it sees, by the swing, the orc's
+    // situation and how many it has seen, against the donor's; the lab's through its combat, a scripted player fighting it.
     {
         var donorDefence = DefenceCalibration.Donor(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
-        orc.Hold = true;
-        var labDefence = DefenceCalibration.Lab(orc, 1200);
-        orc.Hold = false;
+        bool wasGod = combat.God;
+        combat.God = true;
+        combat.Reset();
+        var labDefence = DefenceCalibration.Lab(combat, product.Player.Eye.Y - product.Player.Feet.Y, 2400);
+        combat.God = wasGod;
         static double Rate(int part, int whole) => whole == 0 ? double.NaN : (double)part / whole;
+        static string Show((int Swings, int Parries, int Dodges) c) => c.Swings == 0 ? "no swings"
+            : FormattableString.Invariant($"{c.Swings} swings, parried {Rate(c.Parries, c.Swings):P0}, dodged {Rate(c.Dodges, c.Swings):P0}");
+        // A situation is compared where both have its samples (the donor 25, the lab 30): within two standard
+        // deviations of the donor's rate over its swings, plus 5 points. Thinner ones are reported, not checked.
+        var compared = new List<string>();
+        var failed = new List<string>();
+        void Compare(string name, Func<DefenceCase, bool> where, string? notModelled = null)
+        {
+            var d = donorDefence.Count(where);
+            var l = labDefence.Count(where);
+            bool enough = d.Swings >= 25 && l.Swings >= 30;
+            Console.WriteLine($"  orc defence, {name}: donor {Show(d)}; lab {Show(l)}{(notModelled is not null ? $" (not modelled: {notModelled})" : enough ? "" : " (too few to compare)")}");
+            if (!enough || notModelled is not null) return;
+            compared.Add(name);
+            foreach (var part in new Func<(int Swings, int Parries, int Dodges), int>[] { c => c.Parries, c => c.Dodges })
+            {
+                double p = Rate(part(d), d.Swings), q = Rate(part(l), l.Swings);
+                if (Math.Abs(p - q) > 2 * Math.Sqrt(p * (1 - p) / d.Swings) + .05) { failed.Add(name); break; }
+            }
+        }
         foreach (var kind in Enum.GetValues<SwingKind>())
-        {
-            var d = donorDefence[kind, true];
-            var l = labDefence[kind, true];
-            Console.WriteLine(FormattableString.Invariant($"  orc defence, {kind} on a ready orc: donor {d.Swings} swings, parried {Rate(d.Parries, d.Swings):P0}, dodged {Rate(d.Dodges, d.Swings):P0}; lab {l.Swings}, parried {Rate(l.Parries, l.Swings):P0}, dodged {Rate(l.Dodges, l.Swings):P0}"));
-        }
-        // Within two standard deviations of the donor's rate over its swings (and 5 points), per situation.
-        bool Near(SwingKind kind, Func<(int Swings, int Parries, int Dodges), int> part)
-        {
-            var d = donorDefence[kind, true];
-            var l = labDefence[kind, true];
-            double p = Rate(part(d), d.Swings), q = Rate(part(l), l.Swings);
-            return d.Swings >= 15 && l.Swings >= 50 && Math.Abs(p - q) <= 2 * Math.Sqrt(p * (1 - p) / d.Swings) + .05;
-        }
-        Check(Near(SwingKind.Fast, c => c.Parries) && Near(SwingKind.Fast, c => c.Dodges),
-            "a ready orc parries the fast attacks it sees at the donor's rate (a roll over its difficulty, 0.6), and doesn't dodge them");
-        Check(Near(SwingKind.Power, c => c.Dodges) && Near(SwingKind.Power, c => c.Parries),
-            "it dodges the power attacks, which break parries, at the donor's rate (the same roll, then base_dodge_chance 0.5, once in 15 s)");
-        Check(Near(SwingKind.Kick, c => c.Dodges), "and dodges kicks at the donor's rate (dodge_on_kick_init_chance 0.2)");
+            foreach (var situation in Enum.GetValues<OrcSituation>())
+                Compare($"{kind} on a {situation.ToString().ToLowerInvariant()} orc", c => c.Kind == kind && c.Situation == situation);
+        foreach (var direction in new[] { "N", "T", "B", "L", "R" })
+            Compare($"power {direction} on a ready orc", c => c.Kind == SwingKind.Power && c.Direction == direction && c.Situation == OrcSituation.Ready);
+        // Repeated swings: the first few an orc sees against later ones, and its first kick against its later ones.
+        foreach (var (name, from, to) in new[] { ("swings 1–3", 0, 2), ("swings 4–10", 3, 9), ("swings 11 on", 10, int.MaxValue) })
+            Compare($"fast on a ready orc, its {name}", c => c.Kind == SwingKind.Fast && c.Situation == OrcSituation.Ready && c.Nth >= from && c.Nth <= to,
+                // The donor's orcs parried their first few swings less: likely its defence's combat-state gate
+                // (+0x2A8856, the NPC's state +0x1A5C at 3), which an orc reaches as it becomes aware (#10154).
+                from == 0 ? "an orc not yet in its combat state, #10154" : null);
+        foreach (var (name, from, to) in new[] { ("first kick", 0, 0), ("second kick", 1, 1), ("third kick on", 2, int.MaxValue) })
+            Compare($"its {name}, ready", c => c.Kind == SwingKind.Kick && c.Situation == OrcSituation.Ready && c.NthKick >= from && c.NthKick <= to);
+        Check(compared.Count >= 8 && failed.Count == 0,
+            $"the orc's defence matches the donor's in every situation both have samples of ({compared.Count} compared{(failed.Count > 0 ? "; off: " + string.Join(", ", failed) : "")})");
+        Check(compared.Contains("Fast on a ready orc") && compared.Contains("Power on a ready orc") && compared.Contains("Kick on a ready orc"),
+            "among them, the fast attacks, power attacks and kicks on a ready orc (a roll over its difficulty 0.6; base_dodge_chance 0.5 once in 15 s; dodge_on_kick_init_chance 0.2)");
+        var kicks = Enumerable.Range(0, 3).Select(n => donorDefence.Count(c => c.Kind == SwingKind.Kick && c.Situation == OrcSituation.Ready && (n < 2 ? c.NthKick == n : c.NthKick >= n))).ToList();
+        Console.WriteLine($"  donor kicks dodged, ready, by the orc's kick count: {string.Join("; ", kicks.Select((k, n) => $"{(n < 2 ? (n + 1).ToString() : "3+")}: {Show(k)}"))}");
+    }
+
+    // An orc's stamina (R10151-2): its .qct's 30, spent by parries (1), dodges (4) and stuns (10); spent out it is wounded.
+    {
+        orc.Spawn();
+        var st = orc.Stamina;
+        float full = st.Left;
+        int stuns = 0;
+        while (!st.Exhausted && stuns < 10) { st.Spend(st.Data.Stun); stuns++; }
+        bool wounded = orc.Wounded;
+        float left = st.Left;
+        st.Spend(st.Data.Parry);
+        Check(full == 30 && stuns == 3 && wounded && left == st.Data.Exhausted && st.Left == left,
+            FormattableString.Invariant($"an orc starts with its .qct's {full} stamina; three stuns spend it, and it is wounded at full health ({orc.Health:0}), spending no more"));
+        orc.Spawn();
+        Check(!orc.Wounded && orc.Stamina.Left == full, "a new orc has its stamina back");
     }
 
     // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.
     {
         var (knockBlows, knockSpans) = KnockdownCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories), combat.Model);
         var stagger = orc.StaggerData;
-        var falls = KnockdownCalibration.Falls(knockBlows, stagger.WoundedFallChance);
+        var falls = KnockdownCalibration.Falls(knockBlows, stagger);
+        // A jump attack fells only after the player's drop (R10152-1): the recorded ones by how far the player had dropped.
+        var jumps = knockBlows.Where(b => OrcStagger.IsJumpAttack(b.Move) && KnockdownCalibration.Kind(b.VictimBefore) == BlowOutcome.None).ToList();
+        foreach (var (name, past) in new[] { ("under 50 units", false), ("50 or more", true) })
+        {
+            var group = jumps.Where(b => b.Drop >= stagger.JumpDropToFall == past).ToList();
+            Console.WriteLine(FormattableString.Invariant($"  recorded jump attacks on a standing orc, the player dropped {name}: {group.Count}, felled {group.Count(b => b.Outcome == BlowOutcome.Fall)} (drops {string.Join(", ", group.Select(b => b.Drop.ToString("0")).Take(12))})"));
+        }
+        Check(jumps.Count >= 1 && jumps.Where(b => b.Drop < stagger.JumpDropToFall).All(b => b.Outcome != BlowOutcome.Fall),
+            FormattableString.Invariant($"no recorded jump attack felled an orc after a drop under 50 units ({jumps.Count(b => b.Drop < stagger.JumpDropToFall)} of {jumps.Count}); {jumps.Count(b => b.Drop >= stagger.JumpDropToFall && b.Outcome == BlowOutcome.Fall)} of {jumps.Count(b => b.Drop >= stagger.JumpDropToFall)} after more did, at chancetofall 0.6"));
         Check(falls.Blows >= 300 && Math.Abs(falls.Observed - falls.Expected) <= falls.Spread + 1,
             FormattableString.Invariant($"knockdowns come at the donor's rate: {falls.Observed} recorded falls in {falls.Blows} blows on a standing orc, the rule expects {falls.Expected:0.0} (±{falls.Spread:0.0})"));
         // The staff's blows on an alert orc that is up (the recorded idle, unaware ones stunned 5 of 12: another path).
@@ -659,12 +707,37 @@ host.Call(engine =>
         string lying = orc.Clip;
         float downFor = 0;
         string? gotUp = null;
+        // Its fall (R10152-2): the head comes down from standing height to the ground over FallSeconds, and the body
+        // the player meets lies down with it, its head and toes inside the lying box.
+        Vector3 Joint(string name) { var t = orc.Targets()[0]; return t.Pose[t.Joints[name]].World.Translation; }
+        static bool Inside(Vector3 p, (Vector3 Center, Vector3 HalfExtents) box)
+        {
+            var local = p - box.Center;
+            return MathF.Abs(local.X) <= box.HalfExtents.X + .1f && MathF.Abs(local.Y) <= box.HalfExtents.Y + .1f && MathF.Abs(local.Z) <= box.HalfExtents.Z + .1f;
+        }
+        float Top() => orc.Hull.Center.Y + orc.Hull.HalfExtents.Y - orc.Feet.Y;
+        float headStart = Joint("SK_Head").Y - orc.Feet.Y, headMid = float.NaN, headDown = float.NaN, fellFor = float.NaN, lyingTop = float.NaN, standingTop = float.NaN;
+        bool bodyInside = false, fellFirst = orc.Falling;
         while (orc.State == OrcState.KnockedDown && downFor < 20)
         {
             orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
             downFor += Tick;
+            if (float.IsNaN(headMid) && downFor >= Orc.FallSeconds / 2) headMid = Joint("SK_Head").Y - orc.Feet.Y;
+            if (float.IsNaN(fellFor) && orc.Lying && !orc.Falling)
+            {
+                fellFor = downFor;
+                headDown = Joint("SK_Head").Y - orc.Feet.Y;
+                var hull = orc.Hull;
+                lyingTop = Top();
+                bodyInside = Inside(Joint("SK_Head"), hull) && Inside(Joint("SK_L_Toe"), hull) && Inside(Joint("SK_R_Toe"), hull) && Inside(Joint("SK_Root"), hull);
+            }
             if (orc.Clip.StartsWith("StandUp_", StringComparison.Ordinal) && !orc.Clip.EndsWith("_firstframe", StringComparison.Ordinal)) gotUp ??= orc.Clip;
         }
+        standingTop = Top();
+        Check(fellFirst && headStart > 1.5f && headMid < headStart - .2f && headDown < .5f && MathF.Abs(fellFor - Orc.FallSeconds) <= 2 * Tick,
+            FormattableString.Invariant($"a felled orc falls first: its head from {headStart:0.00} m through {headMid:0.00} to {headDown:0.00} over {fellFor:0.00} s"));
+        Check(bodyInside && lyingTop <= .65f && standingTop >= 1.75f,
+            FormattableString.Invariant($"lying, the body the player meets lies with it ({lyingTop:0.00} m high, its head, root and toes inside), {standingTop:0.00} m again once up"));
         Check(felled == Stagger.KnockedDown && lying == "StandUp_back_firstframe" && gotUp == "StandUp_back" && downFor >= downP10 && downFor <= downP90,
             FormattableString.Invariant($"a felled orc lies on its back ({lying}), gets up with {gotUp} and is up again after {downFor:0.00} s (the donor's {downP10:0.00}–{downP90:0.00}, {downs.Count} knockdowns)"));
         var stunned = orc.Struck(new AttackEvent(1, false), 200, product.Player.Feet, staff: true, 1);
@@ -791,6 +864,58 @@ host.Call(engine =>
     for (int i = 0; i < 60; i++) combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
     Check(MathF.Abs(before - orc.Health - data.Settings.KickDamage) < 1e-3f && orc.State == OrcState.Pushed,
         FormattableString.Invariant($"a kick asks the settings' kick_damage and pushes the orc: {before:0.##} → {orc.Health:0.##}, {orc.State}"));
+    // A kick the orc dodges finds it in its dodge's untouchable window: no damage, the dodge plays on (R10151-3).
+    combat.Orc.Defending.Forced = Defence.Dodge;
+    Face();
+    before = orc.Health;
+    int missedBefore = combat.Player.Missed;
+    combat.Step(Tick, step++, false, false, true, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+    bool dodgedKick = false;
+    string dodgeClip = "";
+    for (int i = 0; i < 60 && !dodgedKick; i++)
+    {
+        combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet);
+        dodgedKick = combat.Player.Missed > missedBefore;
+        dodgeClip = orc.Clip;
+    }
+    Check(dodgedKick && orc.Health == before && orc.State == OrcState.Dodging,
+        FormattableString.Invariant($"a kick reaching an orc inside its dodge's window ({dodgeClip}) does nothing: health {before:0.##} → {orc.Health:0.##}, {orc.State}"));
+    combat.Orc.Defending.Forced = Defence.None;
+
+    // A jump attack fells only after the player has dropped 50 units below where they left the ground (R10152-1),
+    // through the combat: ten from 30 units up, ten from 60, each a press in the air held through the wind-up.
+    {
+        var ownBuild = combat.Build!;
+        combat.Rebuild(ownBuild with { Modules = new HashSet<string>(ownBuild.Modules) { "combat_vertical_attack" } });
+        (int Blows, int Falls, float Drop) Leaps(float units, int tries)
+        {
+            int blows = 0, falls = 0;
+            float drop = 0;
+            for (int n = 0; n < tries; n++)
+            {
+                Face();
+                var up = Vector3.UnitY * units * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+                combat.Step(Tick, step++, false, false, false, product.Player.Eye + up, product.Player.Forward, product.Player.Feet + up, grounded: true);
+                int hits = combat.Player.Hits;
+                bool fell = false;
+                for (int i = 0; i < 40; i++) combat.Step(Tick, step++, true, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, grounded: false);
+                for (int i = 0; i < 40; i++)
+                {
+                    combat.Step(Tick, step++, false, false, false, product.Player.Eye, product.Player.Forward, product.Player.Feet, grounded: false);
+                    fell |= orc.State == OrcState.KnockedDown;
+                }
+                drop = combat.Drop;
+                blows += combat.Player.Hits - hits;
+                falls += fell ? 1 : 0;
+            }
+            return (blows, falls, drop);
+        }
+        var low = Leaps(30, 10);
+        var dropped = Leaps(60, 10);
+        combat.Rebuild(ownBuild);
+        Check(low.Blows >= 8 && low.Falls == 0 && dropped.Blows >= 8 && dropped.Falls >= 3,
+            FormattableString.Invariant($"jump attacks after a {low.Drop:0}-unit drop fell no orc ({low.Falls} of {low.Blows} blows); after {dropped.Drop:0} units, chancetofall 0.6 fells {dropped.Falls} of {dropped.Blows}"));
+    }
 
     // The followed orc takes the recorded body model (R10177-2). Every recorded npc_orc_sword is npc_orc.mdl, so
     // another model with an idle stands in (the goblin's), whose hit boxes the sweep then uses; a one-clip ragdoll

@@ -190,6 +190,18 @@ internal static class CombatReplay
         combat.Log = log;
         bool grounded = true;
         int switched = 0, rebuilt = 0;
+        // The donor's hands taken (its view model empty) and given back with the quick draw (R10148-1).
+        var quickDraws = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == "quick draw").Select(s => s.Tick).ToHashSet();
+        // The hands are taken where the empty stretch that ends in a quick draw begins (an empty view model with no
+        // quick draw after it is something else, and the lab's sword stays).
+        var takes = new HashSet<int>();
+        for (int i = 0; i < timeline.Ticks.Count; i++)
+            if (quickDraws.Contains(timeline.Ticks[i].Tick))
+            {
+                int j = i - 1;
+                while (j > 0 && !timeline.Ticks[j - 1].Armed) j--;
+                if (j >= 0 && !timeline.Ticks[j].Armed) takes.Add(timeline.Ticks[j].Tick);
+            }
         var donorHeights = new Queue<float>();
         // Each recorded build change as the lab applied it: its tick, the modules and the stamina maximum it gave.
         var applied = new List<(int, int, float)>();
@@ -217,6 +229,10 @@ internal static class CombatReplay
                     combat.Rebuild(timeline.Builds[rebuilt].Build, draw: false, arm: false);
                     applied.Add((t.Tick, timeline.Builds[rebuilt].Build.Modules.Count, combat.Stamina.Rules.Max));
                 }
+                // The donor's hands taken (an orc's grab empties its view model), then given back: the lab's sword follows,
+                // its quick draw beginning as the donor's does.
+                if (takes.Contains(t.Tick)) combat.Sword.TakeHands();
+                if (quickDraws.Contains(t.Tick)) combat.Sword.QuickDraw();
                 // The donor took another weapon: the lab's sword puts its own away and draws that one (#10148).
                 for (; switched < timeline.WeaponChanges.Count && timeline.WeaponChanges[switched].Tick <= t.Tick; switched++)
                     if (LabWeapon.ClassOf(timeline.WeaponChanges[switched].Model) is not null) combat.Arm(timeline.WeaponChanges[switched].Model);
@@ -300,7 +316,8 @@ internal static class CombatReplay
             return (donor.Count, lab.Count, together);
         }
         // With switches, the put-aways and draws too (#10148).
-        var moveCounts = moves.Select(InputTimeline.Family).Concat(timeline.WeaponChanges.Count > 0 ? ["put away", "draw"] : []).OfType<string>().Distinct()
+        var moveCounts = moves.Select(InputTimeline.Family).Concat(timeline.WeaponChanges.Count > 0 ? ["put away", "draw"] : [])
+            .Concat(quickDraws.Count > 0 ? ["quick draw"] : []).OfType<string>().Distinct()
             .ToDictionary(f => f, f => Pair(c => InputTimeline.Family(c) == f, lag: true));
         var byClip = timeline.Swings.Select(s => s.Clip).Concat(labSwings.Select(s => s.Clip)).Distinct()
             .ToDictionary(c => c, c => Pair(x => x == c, lag: false));

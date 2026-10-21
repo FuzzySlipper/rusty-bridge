@@ -558,7 +558,8 @@ internal sealed class LabCombat : IDisposable
     }
 
     /// <summary>What to draw: the arms, the sword and the orc.</summary>
-    internal IEnumerable<AppearanceFact> Facts() => FirstPerson.Facts().Concat(Orc.Facts());
+    /// <summary>What to draw: the arms and weapon (none while the hands are taken), and the orc.</summary>
+    internal IEnumerable<AppearanceFact> Facts() => Sword.Move == SwordMove.Away ? Orc.Facts() : FirstPerson.Facts().Concat(Orc.Facts());
 
     /// <summary>The overlay set <c>lab.combat</c>: each traced step of the recent swings (green struck, blue parried or blocked, grey nothing) and the orc's reach.</summary>
     internal void Present(double hostSeconds)

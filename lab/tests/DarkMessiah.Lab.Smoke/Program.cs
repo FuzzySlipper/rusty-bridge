@@ -1026,6 +1026,10 @@ host.Call(engine =>
         var report = CombatReplay.Run(combat, path, product);
         foreach (var line in (Environment.GetEnvironmentVariable("RB_ALL") is null ? report.Lines().Take(8) : report.Lines())) Console.WriteLine($"  {line}");
         Check(report.Build?.Contains(model, StringComparison.Ordinal) == true, $"{report.Name}: the replay holds the recording's weapon ({model})");
+        // The donor's hands taken by an orc's grab and given back (R10148-1): the lab's quick draws begin with its.
+        if (report.Moves.TryGetValue("quick draw", out var quick))
+            Check(quick.Donor > 0 && quick.Together == quick.Donor && quick.Lab == quick.Donor,
+                $"{report.Name}: the lab's hands are taken and its quick draw begins with the donor's ({quick.Together} of {quick.Donor}, lab {quick.Lab})");
         // The power attacks where the run held them (staff-1's 1.2 s holds were shorter than the staff's wind-up: its one
         // power attack is a jump's, pressed 0.31 s after a hop the approach made, which the replayed body doesn't make).
         foreach (var family in new[] { "fast attack", "power attack" })

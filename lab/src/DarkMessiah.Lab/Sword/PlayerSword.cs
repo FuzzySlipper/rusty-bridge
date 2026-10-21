@@ -5,7 +5,7 @@ namespace DarkMessiah.Lab.Sword;
 
 /// <summary>What the player's sword arm is doing.</summary>
 internal enum SwordMove { Ready, Charge, Fast, FastEnd, Power, Parry, ParryOut, Kick, Broken, Leap, LeapOut, LeapCancel, Rush, Fatality, Whirlwind, Undraw, Draw,
-    BackstabIn, BackstabIdle, Backstab, BackstabCancel, Transition }
+    BackstabIn, BackstabIdle, Backstab, BackstabCancel, Transition, Away }
 
 /// <summary>
 /// One first-person clip as a move plays it: how long it runs, whether it holds its last frame or loops, and the
@@ -426,6 +426,16 @@ internal sealed class PlayerSword(SwordClips clips)
         else Drawn();
     }
 
+    /// <summary>
+    /// The hands are taken (an orc's grab: the donor's view model shows nothing for 6.6 s): no move plays and no input
+    /// counts until <see cref="QuickDraw"/> gives them back.
+    /// </summary>
+    internal void TakeHands()
+    {
+        under = fastIn = airSince = float.NaN;
+        Play(SwordMove.Away, clips.Idle);
+    }
+
     /// <summary>The weapon comes back after the hands were taken (an orc's grab, 6.6 s in the recordings): the quick draw.</summary>
     internal void QuickDraw()
     {
@@ -467,6 +477,7 @@ internal sealed class PlayerSword(SwordClips clips)
         kickWas = kickHeld;
         if (!attackHeld) under = float.NaN;
         else if (!float.IsNaN(under)) under += seconds;
+        if (Move == SwordMove.Away) return;
         if (Drawing)
         {
             // Presses while the weapon is put away or drawn are dropped (taps during the recorded draws played nothing).

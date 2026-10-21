@@ -86,8 +86,8 @@ internal sealed class InputTimeline
     /// The move family a first-person clip plays: Dark Messiah's fast attacks (A to E), its power attacks' releases (the
     /// neutral one and the directional T, B, L and R ones), its kicks, the jump attack's strike (<c>combo_*_fall_*_out</c>)
     /// the rush attack (<c>combo_*_rush_*</c>) and the Fatality (<c>combo_*_huge_*</c>, <c>behead_*_out</c>) and the Whirlwind (<c>combo_*_trample_*</c>),
-    /// the daggers' backstab (<c>backstab_out</c>), and a weapon put away (<c>*_undraw</c>) or drawn (<c>*_draw</c>; not the
-    /// quick draw). Null for anything else (charges,
+    /// the daggers' backstab (<c>backstab_out</c>), the quick draw (<c>*_quickdraw</c>), and a weapon put away
+    /// (<c>*_undraw</c>) or drawn (<c>*_draw</c>). Null for anything else (charges,
     /// idles, parries, movement).
     /// </summary>
     internal static string? Family(string clip) =>
@@ -99,6 +99,7 @@ internal sealed class InputTimeline
         : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_huge", StringComparison.Ordinal) || clip.Contains("behead", StringComparison.Ordinal) && clip.EndsWith("_out", StringComparison.Ordinal) ? "fatality"
         : clip.Contains("combo_", StringComparison.Ordinal) && clip.Contains("_trample", StringComparison.Ordinal) ? "whirlwind"
         : clip.Contains("backstab_out", StringComparison.Ordinal) ? "backstab"
+        : clip.EndsWith("_quickdraw", StringComparison.Ordinal) ? "quick draw"
         : clip.EndsWith("_undraw", StringComparison.Ordinal) ? "put away"
         : clip.EndsWith("_draw", StringComparison.Ordinal) ? "draw"
         : null;

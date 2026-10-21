@@ -202,8 +202,10 @@ The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.
   Taps during either are dropped; attack held through the draw winds up the power attack as it ends.
   `PlayerSword.Equip` plays this, and the weapon's model changes as its draw begins.
 - **The quick draw** (`*_quickdraw`) isn't a switch: it plays when the weapon comes back after the hands were empty,
-  6.6 s after each of the orc's `attack_grab`s in the long-sword run (4 of 4). The lab's orc doesn't grab yet, so
-  nothing calls `PlayerSword.QuickDraw`.
+  6.6 s after each of the orc's `attack_grab`s in the long-sword run (4 of 4). Replays follow it (R10148-1): where
+  the donor's view model empties in a stretch that ends in a quick draw, the lab's sword is away
+  (`PlayerSword.TakeHands`: no input counts, nothing is drawn), and its quick draw begins as the donor's does, 4 of 4.
+  The lab's own orc doesn't grab yet (#10185), so in a live fight nothing takes the hands.
 - **Held to the end of a fast attack, the daggers go to the power attack's hold** through their transition
   (`layer_transition_daggers_A`, 0.33 s at the clip's rate), not their recovery: in the goblin fight (`daggers-goblin`) an A
   started from its recovery and held, 6 of 6. The lab does this for every letter of the daggers' chain; only A's is

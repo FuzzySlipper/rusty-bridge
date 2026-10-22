@@ -93,8 +93,6 @@ internal sealed class Orc : IDisposable
         this.tuning = tuning;
         body = ownBody = new Puppet(engine, donor.Model(Model), BodyId);
         bodies[Model] = ownBody;
-        // Its drawn joints are reported, so a knockdown's ragdoll can spawn from the pose it was drawn in (#10216).
-        engine.Animation.SetPose(AnimationPoseRequest.ReportOnly(ownBody.Instance));
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;

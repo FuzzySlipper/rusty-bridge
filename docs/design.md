@@ -338,8 +338,9 @@ and the engine docs (`skeleton-poses.md`, `ragdolls.md`,
 - **Absolute pose correction.** `JointOverride` in `Local`, `Model` or
   `World` space with its own weight places joints wherever the donor says,
   over or instead of clips.
-- **Reading back the drawn pose.** `ReportJoints` with `ReadJointPose` gives
-  Rusty's actual pose, for comparing against the donor.
+- **Reading back the drawn pose.** `ReadJointPose` gives Rusty's actual
+  pose from the call after an instance is published, for comparing against
+  the donor.
 - **Held items.** Joint attachments and `HandRig` can hang weapons and
   shields from the hands.
 - **A ragdoll authority dial.** The ragdoll layer's blend mixes the

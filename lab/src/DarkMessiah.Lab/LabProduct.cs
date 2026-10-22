@@ -57,6 +57,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
+        // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
+        combat.Orc.RagdollWorld = scene.World;
         combat.Rebuild(BuildFile.Load(engine), draw: false);
         time = new WorldTime(engine);
         developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);

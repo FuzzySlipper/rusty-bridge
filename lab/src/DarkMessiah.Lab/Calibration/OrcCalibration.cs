@@ -138,6 +138,8 @@ internal static class OrcCalibration
         var ends = new List<float>();
         double walkBegan = 0;
         Vector3 before = orc.Feet;
+        // Its dice from their seeds, so the fight repeats whatever the orc did before.
+        orc.Reseed();
         orc.Spawn();
         var player = Vector3.Zero;
         double lastAttack = double.NaN;

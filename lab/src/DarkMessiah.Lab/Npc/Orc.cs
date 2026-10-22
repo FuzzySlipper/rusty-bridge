@@ -11,6 +11,9 @@ namespace DarkMessiah.Lab.Npc;
 /// <summary>What the lab's orc is doing.</summary>
 internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed }
 
+/// <summary>A ragdolled knockdown (#10216): the side its first frame took by the blow, the side it lay on at rest, and the seconds from the blow to getting up.</summary>
+internal readonly record struct RagdollKnockdown(string FellAs, string LayOn, float Seconds);
+
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
 /// <param name="Window">For a strike window's sweep, the cycle its window opens (the key it lands under); null for a part's blow.</param>
 internal readonly record struct OrcBlow(int Part, string Attack, float Cycle, float? Window = null);
@@ -72,6 +75,12 @@ internal sealed class Orc : IDisposable
     // A stun's and a knockdown's time left, and the side a knockdown lies on (back or front).
     float stunLeft, groundLeft;
     string groundSide = "back";
+    // The knockdown as an Engine ragdoll (#10216): waiting for its spawn, falling and resting, lying, blending back.
+    OrcRagdoll? ragdoll;
+    bool ragdollPending, ragdollSettled;
+    Vector3 ragdollPush;
+    float ragdollSeconds, lieLeft, knockedFor;
+    string fallSide = "back";
     // The fall into a knockdown: the pose it was struck in, blended into the lying one (R10152-2).
     string fallFrom = "combatidle";
     float fallFromCycle, fallElapsed = float.PositiveInfinity;
@@ -84,6 +93,8 @@ internal sealed class Orc : IDisposable
         this.tuning = tuning;
         body = ownBody = new Puppet(engine, donor.Model(Model), BodyId);
         bodies[Model] = ownBody;
+        // Its drawn joints are reported, so a knockdown's ragdoll can spawn from the pose it was drawn in (#10216).
+        engine.Animation.SetPose(AnimationPoseRequest.ReportOnly(ownBody.Instance));
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
@@ -383,6 +394,10 @@ internal sealed class Orc : IDisposable
                 else if (Clip == "Stunned" && stunLeft <= 0) Play(OrcState.Stunned, "Stunned_out");
                 else if (Clip == "Stunned_out" && done) Play(OrcState.Ready, "combatidle");
                 break;
+            case OrcState.KnockedDown when ragdollPending || ragdoll is not null:
+                knockedFor += seconds;
+                StepRagdoll(seconds);
+                break;
             case OrcState.KnockedDown:
                 // Falling, then lying (StandUp_<side>_firstframe) while the donor's ragdoll would fall and rest, then getting up.
                 groundLeft -= seconds;
@@ -425,7 +440,7 @@ internal sealed class Orc : IDisposable
         perception.Struck();
         if (State == OrcState.Quiet) Play(OrcState.Ready, "combatidle");
         Health -= amount;
-        if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
+        if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; ReleaseRagdoll(); Play(OrcState.Down, "combatidle"); }
     }
 
     /// <summary>
@@ -521,12 +536,30 @@ internal sealed class Orc : IDisposable
         Layer = null;
         if (outcome == Stagger.KnockedDown)
         {
+            // With the scene's dynamics world it falls as a ragdoll from the pose it was drawn in (#10216).
+            knockedFor = 0;
+            if (RagdollWorld is not null)
+            {
+                ReleaseRagdoll();
+                ragdollPending = true;
+                ragdollSeconds = 0;
+                // Pushed as the move's impact goes (#10153's impactdir: X ahead of the attacker, Y to its left), so a
+                // power attack's sideways swipe rolls it.
+                var away = (Feet - from) with { Y = 0 };
+                away = away.LengthSquared() > 1e-6f ? Vector3.Normalize(away) : -Facing;
+                var attackerLeft = new Vector3(away.Z, 0, -away.X);
+                var impact = away * (blow?.ImpactX ?? 1) + attackerLeft * (blow?.ImpactY ?? 0);
+                ragdollPush = impact.LengthSquared() > 1e-6f ? impact : away;
+            }
             groundSide = ahead >= 0 ? "back" : "front";
             groundLeft = stagger.Data.KnockedDownSeconds + RagdollFallSeconds;
             fallFrom = Clip;
             fallFromCycle = Cycle;
             fallElapsed = 0;
-            Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+            // A ragdoll spawns from the pose last drawn: it holds the pose it was struck in until then, and takes the
+            // get-up's first frame (under the ragdoll) once it has.
+            if (ragdollPending) State = OrcState.KnockedDown;
+            else Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
         }
         else
         {
@@ -557,13 +590,15 @@ internal sealed class Orc : IDisposable
     internal const float FallSeconds = .6f;
 
     /// <summary>Knocked down and still falling (<see cref="FallSeconds"/>).</summary>
-    internal bool Falling => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal) && fallElapsed < FallSeconds;
+    internal bool Falling => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal)
+        && (ragdoll is not null || ragdollPending ? !ragdollSettled : fallElapsed < FallSeconds);
 
     /// <summary>How far into its fall the orc is, 0 to 1, eased in and out.</summary>
     float FallWeight => Falling ? MathF.Min(1, fallElapsed / FallSeconds) is var t ? t * t * (3 - 2 * t) : 1 : 1;
 
     /// <summary>Lying on the ground: past halfway through its fall, until it begins to get up.</summary>
-    internal bool Lying => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal) && FallWeight >= .5f;
+    internal bool Lying => Alive && !Following && State == OrcState.KnockedDown && Clip.EndsWith("_firstframe", StringComparison.Ordinal)
+        && (ragdoll is not null ? ragdollSeconds >= RagdollLyingAfter : !ragdollPending && FallWeight >= .5f);
 
     /// <summary>
     /// The orc's body as the player's meets it (R10152-2), a world-aligned box (the Engine's character obstacles are):
@@ -590,6 +625,100 @@ internal sealed class Orc : IDisposable
         if (direction.LengthSquared() > 1e-6f) Facing = Vector3.Normalize(direction);
     }
 
+    /// <summary>
+    /// The scene's dynamics world, where a knocked-down orc falls as a ragdoll (#10216); null for the stand-in fall
+    /// (<see cref="FallSeconds"/>), as in a lab without a scene.
+    /// </summary>
+    internal DynamicsWorld? RagdollWorld { get; set; }
+
+    /// <summary>
+    /// The longest a ragdoll falls before its lie is counted, seconds, if its bodies haven't all slept: the donor's
+    /// lay a median 3.3 s before getting up (2.9 to 4.2), of which <c>KnockedDownTime</c> is 2, the rest its
+    /// <c>prop_ragdoll</c> falling and coming to rest (<see cref="RagdollFallSeconds"/>).
+    /// </summary>
+    internal const float RagdollFallLimit = RagdollFallSeconds;
+
+    /// <summary>The ragdoll's blend back into the get-up's first frame, seconds.</summary>
+    internal const float RagdollBlendBack = .4f;
+
+    /// <summary>How long a knockdown waits for the orc's pose to be drawn before it falls as the stand-in, seconds.</summary>
+    const float RagdollDrawWait = .1f;
+
+    /// <summary>From the blow until the ragdolled body counts as lying for the player's, seconds.</summary>
+    const float RagdollLyingAfter = .3f;
+
+    /// <summary>Every ragdolled knockdown since the lab started: the side its first frame took, the side it got up from, and the seconds from the blow to getting up.</summary>
+    internal List<RagdollKnockdown> Knockdowns { get; } = [];
+
+    /// <summary>Its ragdoll's state: falling, lying, or blending back; and the side it fell to.</summary>
+    internal (bool Ragdolled, bool Settled, float Blend, string FellAs, string LiesOn) RagdollState =>
+        (ragdoll is not null, ragdollSettled, ragdoll?.Blend ?? 0, fallSide, groundSide);
+
+    /// <summary>Its ragdoll's bodies now, a developer readout.</summary>
+    internal string RagdollBodies => ragdoll?.Describe() ?? "no ragdoll";
+
+    /// <summary>
+    /// A ragdolled knockdown's step: it spawns once the orc's pose has been drawn, falls and rests (until its bodies
+    /// sleep, or <see cref="RagdollFallLimit"/>), lies for <c>KnockedDownTime</c>, then takes the get-up's first frame
+    /// where and as it lies (on its back when its chest faces up), blends back into it and gets up on that side.
+    /// </summary>
+    void StepRagdoll(float seconds)
+    {
+        if (ragdollPending)
+        {
+            // Undrawn (stepped without the scene's draw, as the calibrations and checks do), it falls as the stand-in.
+            if (RagdollWorld is null || OrcRagdoll.Spawn(engine, RagdollWorld, body, Facing, ragdollPush) is not { } spawned)
+            {
+                if ((ragdollSeconds += seconds) <= RagdollDrawWait) return;
+                ragdollPending = false;
+                fallElapsed = 0;
+                Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+                return;
+            }
+            Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+            ragdoll = spawned;
+            ragdollPending = false;
+            ragdollSettled = false;
+            ragdollSeconds = 0;
+            fallSide = groundSide;
+        }
+        if (ragdoll is null) return;
+        ragdollSeconds += seconds;
+        var (side, pelvis, facing) = ragdoll.Lie();
+        if (ragdoll.Blend >= 1)
+        {
+            // Its feet follow its pelvis, on the ground it fell from.
+            Feet = pelvis with { Y = Feet.Y };
+            if (!ragdollSettled && (ragdoll.Read().Resting || ragdollSeconds >= RagdollFallLimit))
+            {
+                ragdollSettled = true;
+                lieLeft = stagger.Data.KnockedDownSeconds;
+            }
+            if (ragdollSettled && (lieLeft -= seconds) <= 0)
+            {
+                groundSide = side;
+                Facing = facing;
+                Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+                ragdoll.SetBlend(1 - seconds / RagdollBlendBack);
+            }
+            return;
+        }
+        ragdoll.SetBlend(ragdoll.Blend - seconds / RagdollBlendBack);
+        if (ragdoll.Blend > 0) return;
+        // Blended back into the first frame: it gets up next step (the stand-in's lie is spent).
+        ReleaseRagdoll();
+        groundLeft = 0;
+        Knockdowns.Add(new RagdollKnockdown(fallSide, groundSide, knockedFor));
+    }
+
+
+    void ReleaseRagdoll()
+    {
+        ragdoll?.Dispose();
+        ragdoll = null;
+        ragdollPending = false;
+    }
+
     /// <summary>Moves the orc's feet (a developer placement).</summary>
     internal void PlaceAt(Vector3 feet) => Feet = feet;
 
@@ -599,6 +728,7 @@ internal sealed class Orc : IDisposable
     /// </summary>
     internal void Spawn()
     {
+        ReleaseRagdoll();
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
         Layer = null;
@@ -623,7 +753,9 @@ internal sealed class Orc : IDisposable
     {
         if (!Alive) return [];
         Present();
-        var pose = Rig.Pose(engine, body, Placement);
+        // Ragdolled, its hit boxes are where its bodies drew it.
+        var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
+        var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
         var targets = new List<PosedTarget> { new(body.Model.Info, body.Model.Joints, pose) };
         foreach (var (item, attachment, held) in new[] { (cleaver, "RightHand", holdsCleaver), (shield, "LeftShield", holdsShield) })
             if (held && Rig.Attached(body.Model, pose, attachment) is Transform at)
@@ -636,7 +768,9 @@ internal sealed class Orc : IDisposable
     {
         Present();
         if (!Alive && downSeconds > .5f) return [];
-        var pose = Rig.Pose(engine, body, Placement);
+        // Ragdolled, its items hang where its bodies drew it (#10216).
+        var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
+        var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
         var facts = new List<AppearanceFact> { body.Fact(Placement) };
         if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
         if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
@@ -647,6 +781,8 @@ internal sealed class Orc : IDisposable
     {
         // Followed, it is posed as the recording streamed it: every overlay at its weight.
         if (Following && overlays.Length > 0) body.Play(Clip, Cycle, overlays);
+        // Waiting for its ragdoll: the pose it was struck in, held.
+        else if (ragdollPending) body.Play(fallFrom, fallFromCycle);
         // Falling: the pose it was struck in gives way to the lying one.
         else if (Falling) body.Play(fallFrom, fallFromCycle, (Clip, 0, FallWeight));
         else
@@ -759,6 +895,7 @@ internal sealed class Orc : IDisposable
 
     public void Dispose()
     {
+        ReleaseRagdoll();
         foreach (var b in bodies.Values) b?.Dispose();
         cleaver.Dispose();
         shield.Dispose();

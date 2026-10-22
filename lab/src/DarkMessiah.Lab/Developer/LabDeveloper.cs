@@ -70,6 +70,41 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         return observe();
     }
 
+    [DebugCommand("lab.orc.hold", Description = "Hold the orc's attacks (on), or let it fight (off).")]
+    public DebugCommandResult HoldOrc(string state)
+    {
+        if (state is not ("on" or "off")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "on or off.");
+        combat.Orc.Hold = state == "on";
+        changed();
+        return DebugCommandResult.Success(combat.Orc.Hold ? "orc holds" : "orc fights");
+    }
+
+    [DebugCommand("lab.orc.knockdown", Description = "Knock the orc down with a felling blow from the player's side, turned DEGREES about it (0 from the player, 180 from behind it), its impact SIDEWAYS (the move's impactdirY: 1 to the attacker's left as the power attack's, 0 straight on): it falls as a ragdoll (#10216).")]
+    public DebugCommandResult Knockdown(float degrees, float sideways)
+    {
+        if (!float.IsFinite(degrees) || !float.IsFinite(sideways)) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "DEGREES and SIDEWAYS must be finite numbers.");
+        var orc = combat.Orc;
+        var toPlayer = (player.Feet - orc.Feet) with { Y = 0 };
+        if (toPlayer.LengthSquared() < 1e-6f) toPlayer = -orc.Facing;
+        var from = orc.Feet + Vector3.Transform(Vector3.Normalize(toPlayer) * 1.5f, Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180));
+        var outcome = orc.Struck(new DarkMessiah.Combat.AttackEvent(1, false, ChanceToFall: 1, ImpactX: sideways == 0 ? 1 : 0, ImpactY: sideways), 0, from, false, 1);
+        changed();
+        return DebugCommandResult.Success($"{outcome}; {RagdollText()}");
+    }
+
+    [DebugCommand("lab.orc.ragdoll", Description = "Read the orc's ragdoll: falling, lying or blending back, the side it fell to and lies on, and every knockdown so far (fell as, lay on, seconds to getting up).")]
+    public DebugCommandResult Ragdoll() => DebugCommandResult.Success(RagdollText());
+
+    private string RagdollText()
+    {
+        var orc = combat.Orc;
+        var r = orc.RagdollState;
+        var all = orc.Knockdowns;
+        int other = all.Count(k => k.FellAs != k.LayOn);
+        return FormattableString.Invariant(
+            $"state {orc.State} {orc.Clip}; {orc.RagdollBodies}; facing {orc.Facing.X:0.00} {orc.Facing.Z:0.00}; ragdolled {r.Ragdolled} settled {r.Settled} blend {r.Blend:0.00} fell as {r.FellAs} lies on {r.LiesOn}; feet {orc.Feet.X:0.00} {orc.Feet.Y:0.00} {orc.Feet.Z:0.00}; knockdowns {all.Count}, the other side {other}, seconds {string.Join(" ", all.Select(k => $"{k.FellAs[0]}{k.LayOn[0]}:{k.Seconds:0.00}"))}");
+    }
+
     [DebugCommand("lab.god", Description = "Toggle whether the orc's blows take the player's health (they are still counted).")]
     public DebugCommandResult God() { combat.God = !combat.God; changed(); return DebugCommandResult.Success(combat.God ? "god on" : "god off"); }
 

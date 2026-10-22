@@ -512,7 +512,7 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   walk moves it by its root motion, as the donor's entity moves.
 - **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
   grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
-- **Against the donor** (the smoke; ten minutes of a scripted fight, the player swinging when it is near and backing
+- **Against the donor** (the smoke; fifteen minutes of a scripted fight, the player swinging when it is near and backing
   off 4 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
   distance for it (10 of 10), the median time from one attack's start to the next is 2.10 s against the donor's
   2.88, it walks at the donor's 61 units a second, and its walks of half a second or more end a median 164 units off,
@@ -588,9 +588,9 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
 | Knocked down | a roll under the blow's `.qct` event's `chancetofall`, plus `WoundedFallChance` (0.3) on a wounded orc (below `life_tohurt`, 0.2 of its health); a jump attack (the player's attack type +0x27A8 at 12, set in code for the falling attack: its `.qct` event has no `AttackMove`) only when the player is `PlayerVerticalAttackHeightToMakeNPCFall` (50 units) or more below where they left the ground (R10152-1; `LabCombat.Drop`) | the melee routine, server.dll+0x407FE0–0x4080AB: the weapon's factor (+0x11BC, 1 unless `second_chance_perc` is 0, which no weapon sets) × the event's chance, sets the damage's fall flag; for a jump attack, +0x40801D compares the player's last height on the ground (+0x1950, saved as its ground trace first finds nothing below, +0x2243C63B) with its height now |
 | Stunned, by a staff | every blow | the staff classes' virtual +0x704 returns true (the swords' and daggers' false), which sets the damage's stun flag |
 | Stunned, otherwise | once it has taken `nbhittostun` (6) × the weapon's `NpcNbhittostunMultiplicator` (1; none sets it) hits within `delaytostun` (10 s), a roll under the event's `chancetostun` × the weapon's `stunmultiplicator` (1, the axes 2), plus `WoundedStunChance` (0.3) wounded | the NPC's stun test, server.dll+0x2AB04F–0x2AB15D |
-| Falling | 0.6 s: the pose it was struck in blends into `StandUp_<side>_firstframe` (`Orc.FallSeconds`, authored; R10152-2) | the orc's model has no fall clip (its death clips fall forward, and 31 of 35 recorded falls lay on their backs); the donor's ragdoll falls instead (#10216) |
-| Lying | `StandUp_<side>_firstframe` until `KnockedDownTime` (2 s) plus 1.3 s from the blow for the donor's ragdoll to fall and rest, then `StandUp_back` (3.25 s) or `_front` (2.25 s) | the orc's sequences: the donor's NPC holds the first frame while a separate `prop_ragdoll` falls |
-| Its body to the player | from halfway through its fall until it gets up, a box 0.6 m high around its lying body (2.1 m along its facing, 0.9 across; world-aligned, as the Engine's character obstacles are), else 1.8 m standing (`Orc.Hull`) | `StandUp_*_firstframe`'s bones span −0.9 to 1.2 m along its facing and rise 0.6 m |
+| Falling | an Engine ragdoll (#10216, `OrcRagdoll`): eleven bodies from the pose it was last drawn in, pushed 120 N·s along the blow's `impactdir` (sideways for the power attacks) 0.3 m above the chest joint, until it rests or 1.3 s have passed; undrawn (the headless smoke), after 0.1 s the stand-in: the pose it was struck in blends into `StandUp_<side>_firstframe` in 0.6 s (`Orc.FallSeconds`, R10152-2) | the donor's NPC drops a `prop_ragdoll`; the orc's model has no fall clip (its death clips fall forward) |
+| Lying | the ragdoll at rest for `KnockedDownTime` (2 s), then it blends back in 0.4 s into the first frame of the side it lies on (its chest's front up: `back`) and plays `StandUp_back` (3.25 s) or `_front` (2.25 s); the stand-in lies in the blow's first frame 2 s plus 1.3 s | the orc's sequences: the donor's NPC holds the first frame while its ragdoll falls, and gets up on the side the ragdoll came to rest on (12 of 35 the other side from the first frame) |
+| Its body to the player | from 0.3 s into the ragdoll's fall (halfway through the stand-in's) until it gets up, around where its pelvis lies, a box 0.6 m high around its lying body (2.1 m along its facing, 0.9 across; world-aligned, as the Engine's character obstacles are), else 1.8 m standing (`Orc.Hull`) | `StandUp_*_firstframe`'s bones span −0.9 to 1.2 m along its facing and rise 0.6 m |
 | Stunned for | `hit_stunned_<side>` (the side the blow came from), then `Stunned` for `stunned_duration` (4 s), then `Stunned_out`; a hit ends it | the `.qct`; every recorded stun was ended early by a hit |
 | Damage while down | ×2 getting up (`StandUp_*`), ×1.5 stunned (`CombatModel.DownMultiplier`) | measured (#10145, #10148) |
 
@@ -601,11 +601,13 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
   blow stunned or felled 21 of 22 alert orcs that were up (idle, unaware ones 5 of 12, another path); every other
   weapon's blows stunned 2 of 436, as the six-hit rule allows (the power attack's `chancetostun` 0.8 needs the six
   hits first). Kicks felled 1 orc of 48: a kick's fall is the hazards' (#10157).
-- **The lab's orc** falls in 0.6 s, its head from standing height to the ground, and is up again 6.57 s from the
-  blow, inside the donor's 5.6–10.2 s (35 knockdowns, median 6.3).
-  It lies on its back to a blow from in front (the donor's fell on their backs 31 of 35 times), and doesn't roll: 12
-  of the donor's got up from the other side. A stand-in: the donor drops a ragdoll, which the Engine can do
-  (`IDynamicsService.CreateRagdoll`); #10216 builds it.
+- **The lab's orc** (`lab/tests/ragdoll-live.mjs`, 20 felling blows from in front, the sides and behind, in a live
+  `rusty dev --headless` session): every blow dropped a ragdoll, which lay on its back to a blow from in front, its
+  head and pelvis 0.27 and 0.22 m up (the donor's fell on their backs 31 of 35 times); it began to get up 3.7 s after
+  the blow, inside the donor's 2.9–4.2 s (median 3.3), and got up on the other side from the blow's first frame 9 of
+  20 times, the donor 12 of 35. The ragdoll needs a drawn pose, which the smoke's headless test host never has
+  (rusty-engine #10223), so the smoke checks the stand-in: it falls in 0.6 s and is up 6.68 s from the blow, inside the
+  donor's 5.6–10.2 s (35 knockdowns, median 6.3). Its hit boxes and items follow the drawn bodies while it is down.
 - **Not modelled:** `GlobalStunChanceMultiplier` (1.5) multiplies the stun chance when an NPC flag (+0x2270) is set,
   which isn't identified; the idle, unaware orcs' staff stuns.
 
@@ -920,13 +922,14 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 
 **The Engine pin** is the repository's, in the root `Directory.Build.props`. The mirror, the lab, `shared/` and `dm-combat` all build on it.
 
-**Drawing:** the lab publishes its whole scene each update, and the orc's and the arms' items aren't joint-attached children. They are placed at the holder's sampled joint pose times the attachment, the same pose the hit tests use.
+**Drawing:** the lab publishes its whole scene each update, and the orc's and the arms' items aren't joint-attached children. They are placed at the holder's sampled joint pose times the attachment, the same pose the hit tests use; while the orc is a ragdoll, its drawn pose.
 
 ## Developer tooling
 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;
   - `lab.dev.view x y z yaw pitch` stands at a viewpoint;
@@ -968,7 +971,6 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
   orc's defence"); its reactions are one hit and one push clip (#10153), and it doesn't grab (#10185).
 - **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
-  - knockdowns into ragdolls (the orc lies at once in its get-up frame: #10216);
   - a kick that throws the orc into walls;
   - body pushes. fptester notes the Engine has no bump-to-push yet.
 - **First person:**

@@ -378,6 +378,7 @@ if (repo is null || !Directory.Exists(Path.Combine(repo, "local", "import")))
 string labContent = Path.Combine(repo, "lab", "content");
 var content = Directory.GetFiles(labContent).ToDictionary(f => Path.GetFileName(f), f => (ReadOnlyMemory<byte>)File.ReadAllBytes(f));
 using EngineTestHost host = EngineTestHost.Create(new EngineTestHostOptions { Content = content });
+
 host.Call(engine =>
 {
     var files = content.Select(kv => new ProductContentFile(Encoding.UTF8.GetBytes(kv.Key), kv.Value)).ToArray();
@@ -756,6 +757,9 @@ host.Call(engine =>
         orc.Spawn();
         orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 1.5f);
         for (int i = 0; i < 10; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+        // The stand-in fall first (a lab without a scene's world); the ragdoll's below (#10216).
+        var ragdollWorld = orc.RagdollWorld;
+        orc.RagdollWorld = null;
         var felled = orc.Struck(new AttackEvent(1, false, ChanceToFall: 1), 100, product.Player.Feet, false, 1);
         string lying = orc.Clip;
         float downFor = 0;
@@ -793,6 +797,25 @@ host.Call(engine =>
             FormattableString.Invariant($"lying, the body the player meets lies with it ({lyingTop:0.00} m high, its head, root and toes inside), {standingTop:0.00} m again once up"));
         Check(felled == Stagger.KnockedDown && lying == "StandUp_back_firstframe" && gotUp == "StandUp_back" && downFor >= downP10 && downFor <= downP90,
             FormattableString.Invariant($"a felled orc lies on its back ({lying}), gets up with {gotUp} and is up again after {downFor:0.00} s (the donor's {downP10:0.00}–{downP90:0.00}, {downs.Count} knockdowns)"));
+        orc.RagdollWorld = ragdollWorld;
+        // With the scene's world the orc falls as an Engine ragdoll (#10216), which spawns from the pose last drawn: the
+        // test host draws nothing, so here it falls as the stand-in a tenth of a second later (the live check,
+        // lab/tests/ragdoll-live.mjs, runs the ragdoll itself).
+        {
+            orc.Spawn();
+            orc.PlaceAt(product.Player.Feet + Vector3.Normalize(product.Player.Forward with { Y = 0 }) * 1.5f);
+            for (int i = 0; i < 10; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+            orc.Struck(new AttackEvent(1, false, ChanceToFall: 1), 300, product.Player.Feet, false, 1);
+            string struckIn = orc.Clip;
+            float waited = 0, down = 0;
+            for (; orc.State == OrcState.KnockedDown && down < 20; down += Tick)
+            {
+                orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+                if (waited == 0 && orc.Clip.EndsWith("_firstframe", StringComparison.Ordinal)) waited = down + Tick;
+            }
+            Check(orc.RagdollWorld is not null && !orc.RagdollState.Ragdolled && struckIn == "combatidle" && waited <= .12f && Math.Abs(down - downFor - waited) <= 2 * Tick,
+                FormattableString.Invariant($"undrawn, a knockdown waits {waited:0.00} s in the pose it was struck in for its ragdoll, then falls as the stand-in: up after {down:0.00} s"));
+        }
         var stunned = orc.Struck(new AttackEvent(1, false), 200, product.Player.Feet, staff: true, 1);
         string stunClip = orc.Clip;
         for (int i = 0; i < 120; i++) orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
@@ -819,7 +842,7 @@ host.Call(engine =>
             Console.WriteLine(FormattableString.Invariant($"  orc landing {name}: fitted [{w.Low:0}, {w.High:0}], authored {(combat.Tuning.Orc.AttackLandings.TryGetValue(name, out var a) ? $"[{a[0]:0}, {a[1]:0}]" : "none")}"));
         Check(fitted.Count >= 8 && fitted.All(f => combat.Tuning.Orc.AttackLandings.TryGetValue(f.Key, out var a) && MathF.Abs(a[0] - f.Value.Low) <= 10 && MathF.Abs(a[1] - f.Value.High) <= 10),
             $"combat.json's attack landing windows are the recordings' ({fitted.Count} attacks, each within 10 units of the refit)");
-        var labOrc = OrcCalibration.Lab(orc, 600);
+        var labOrc = OrcCalibration.Lab(orc, 900);
         static string Spread(IReadOnlyList<float> d) => d.Count == 0 ? "none" : FormattableString.Invariant(
             $"{d.Count}, p10 {OrcBehaviour.Quantile(d, .1f):0} median {OrcBehaviour.Quantile(d, .5f):0} p90 {OrcBehaviour.Quantile(d, .9f):0}");
         foreach (var name in labOrc.AttackDistances.Keys.Union(donorOrc.AttackDistances.Keys).OrderByDescending(n => donorOrc.AttackDistances.GetValueOrDefault(n)?.Count ?? 0))

@@ -718,9 +718,12 @@ internal sealed class Orc : IDisposable
         }
         ragdoll.SetBlend(ragdoll.Blend - seconds / RagdollBlendBack);
         if (ragdoll.Blend > 0) return;
-        // Blended back into the first frame: it gets up next step (the stand-in's lie is spent).
+        // Blended back into the first frame: it gets up in the same step, so no pose between shows it standing as it was
+        // struck (R10216-1: the stand-in's fall and lie are spent).
         ReleaseRagdoll();
         groundLeft = 0;
+        fallElapsed = FallSeconds;
+        Play(OrcState.KnockedDown, $"StandUp_{groundSide}");
         Knockdowns.Add(new RagdollKnockdown(fallSide, groundSide, knockedFor));
     }
 

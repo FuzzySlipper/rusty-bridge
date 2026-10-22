@@ -600,8 +600,8 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
 | Knocked down | a roll under the blow's `.qct` event's `chancetofall`, plus `WoundedFallChance` (0.3) on a wounded orc (below `life_tohurt`, 0.2 of its health); a jump attack (the player's attack type +0x27A8 at 12, set in code for the falling attack: its `.qct` event has no `AttackMove`) only when the player is `PlayerVerticalAttackHeightToMakeNPCFall` (50 units) or more below where they left the ground (R10152-1; `LabCombat.Drop`) | the melee routine, server.dll+0x407FE0–0x4080AB: the weapon's factor (+0x11BC, 1 unless `second_chance_perc` is 0, which no weapon sets) × the event's chance, sets the damage's fall flag; for a jump attack, +0x40801D compares the player's last height on the ground (+0x1950, saved as its ground trace first finds nothing below, +0x2243C63B) with its height now |
 | Stunned, by a staff | every blow | the staff classes' virtual +0x704 returns true (the swords' and daggers' false), which sets the damage's stun flag |
 | Stunned, otherwise | once it has taken `nbhittostun` (6) × the weapon's `NpcNbhittostunMultiplicator` (1; none sets it) hits within `delaytostun` (10 s), a roll under the event's `chancetostun` × the weapon's `stunmultiplicator` (1, the axes 2), plus `WoundedStunChance` (0.3) wounded | the NPC's stun test, server.dll+0x2AB04F–0x2AB15D |
-| Falling | an Engine ragdoll (#10216, `OrcRagdoll`): eleven bodies from the pose it was last drawn in, pushed 120 N·s along the blow's `impactdir` (sideways for the power attacks) 0.3 m above the chest joint, until it rests or 1.3 s have passed; undrawn (the headless smoke), after 0.1 s the stand-in: the pose it was struck in blends into `StandUp_<side>_firstframe` in 0.6 s (`Orc.FallSeconds`, R10152-2) | the donor's NPC drops a `prop_ragdoll`; the orc's model has no fall clip (its death clips fall forward) |
-| Lying | the ragdoll at rest for `KnockedDownTime` (2 s), then it blends back in 0.4 s into the first frame of the side it lies on (its chest's front up: `back`) and plays `StandUp_back` (3.25 s) or `_front` (2.25 s); the stand-in lies in the blow's first frame 2 s plus 1.3 s | the orc's sequences: the donor's NPC holds the first frame while its ragdoll falls, and gets up on the side the ragdoll came to rest on (12 of 35 the other side from the first frame) |
+| Falling | an Engine ragdoll (#10216, `OrcRagdoll`): eleven bodies from its pose as the last Engine call settled (rusty-engine #10222 evaluates it without a renderer), pushed 120 N·s along the blow's `impactdir` (sideways for the power attacks) 0.3 m above the chest joint, until it rests or 1.3 s have passed; with no pose yet (stepped within one call, as the calibrations do), after 0.1 s the stand-in: the pose it was struck in blends into `StandUp_<side>_firstframe` in 0.6 s (`Orc.FallSeconds`, R10152-2) | the donor's NPC drops a `prop_ragdoll`; the orc's model has no fall clip (its death clips fall forward) |
+| Lying | the ragdoll at rest for `KnockedDownTime` (2 s), then it blends back in 0.4 s into the first frame of the side it lies on (its chest's front up: `back`) and, in the step the blend ends, plays `StandUp_back` (3.25 s) or `_front` (2.25 s); the stand-in lies in the blow's first frame 2 s plus 1.3 s | the orc's sequences: the donor's NPC holds the first frame while its ragdoll falls, and gets up on the side the ragdoll came to rest on (12 of 35 the other side from the first frame) |
 | Its body to the player | from 0.3 s into the ragdoll's fall (halfway through the stand-in's) until it gets up, around where its pelvis lies, a box 0.6 m high around its lying body (2.1 m along its facing, 0.9 across; world-aligned, as the Engine's character obstacles are), else 1.8 m standing (`Orc.Hull`) | `StandUp_*_firstframe`'s bones span −0.9 to 1.2 m along its facing and rise 0.6 m |
 | Stunned for | `hit_stunned_<side>` (the side the blow came from), then `Stunned` for `stunned_duration` (4 s), then `Stunned_out`; a hit ends it | the `.qct`; every recorded stun was ended early by a hit |
 | Damage while down | ×2 getting up (`StandUp_*`), ×1.5 stunned (`CombatModel.DownMultiplier`) | measured (#10145, #10148) |
@@ -613,13 +613,15 @@ the data, against every recorded player blow on an orc (`KnockdownCalibration`, 
   blow stunned or felled 21 of 22 alert orcs that were up (idle, unaware ones 5 of 12, another path); every other
   weapon's blows stunned 2 of 436, as the six-hit rule allows (the power attack's `chancetostun` 0.8 needs the six
   hits first). Kicks felled 1 orc of 48: a kick's fall is the hazards' (#10157).
-- **The lab's orc** (`lab/tests/ragdoll-live.mjs`, 20 felling blows from in front, the sides and behind, in a live
-  `rusty dev --headless` session): every blow dropped a ragdoll, which lay on its back to a blow from in front, its
-  head and pelvis 0.27 and 0.22 m up (the donor's fell on their backs 31 of 35 times); it began to get up 3.7 s after
-  the blow, inside the donor's 2.9–4.2 s (median 3.3), and got up on the other side from the blow's first frame 9 of
-  20 times, the donor 12 of 35. The ragdoll needs a drawn pose, which the smoke's headless test host never has
-  (rusty-engine #10223), so the smoke checks the stand-in: it falls in 0.6 s and is up 6.68 s from the blow, inside the
-  donor's 5.6–10.2 s (35 knockdowns, median 6.3). Its hit boxes and items follow the drawn bodies while it is down.
+- **The lab's orc:** the smoke fells it headless, each update its own Engine call, until it has got up from both
+  sides (3 blows): each lay with its head 0.06–0.11 m up, got up 3.70 s after the blow, inside the donor's 2.9–4.2 s
+  (median 3.3), and no pose from its fall through the blend back into its get-up stood as it was struck (its head at
+  most 0.49 m; 1.82 m before R10216-1's fix). `lab/tests/ragdoll-live.mjs` fells it 20 times in a live
+  `rusty dev --headless` session: every blow dropped a ragdoll, which lay on its back to a blow from in front, its
+  head and pelvis 0.27 and 0.22 m up (the donor's fell on their backs 31 of 35 times), and got up on the other side
+  from the blow's first frame 9 of 20 times, the donor 12 of 35. Stepped within one call, the smoke's stand-in falls
+  in 0.6 s and is up 6.68 s from the blow, inside the donor's 5.6–10.2 s (35 knockdowns, median 6.3). Its hit boxes
+  and items follow the drawn bodies while it is down.
 - **Not modelled:** `GlobalStunChanceMultiplier` (1.5) multiplies the stun chance when an NPC flag (+0x2270) is set,
   which isn't identified; the idle, unaware orcs' staff stuns.
 

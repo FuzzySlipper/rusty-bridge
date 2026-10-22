@@ -1,6 +1,6 @@
-// The knocked-down orc as an Engine ragdoll (#10216), checked live: the ragdoll spawns from the pose the orc was last
-// drawn in, which the smoke's headless test host never draws, so this runs the lab under `rusty dev --headless` (a
-// headless Chromium keeps the world drawing) and knocks the orc down through its live-debug commands.
+// The knocked-down orc as an Engine ragdoll (#10216), checked live over 20 blows: the lab under `rusty dev --headless`
+// (a headless Chromium keeps the world drawing), the orc knocked down through its live-debug commands. The smoke fells
+// it headless too (three blows, both sides); this one measures how often it rolls to the other side against the donor.
 //
 //   node lab/tests/ragdoll-live.mjs            starts its own session in lab/, and stops it after
 //   LAB_URL=http://127.0.0.1:PORT node ...     uses a running `rusty dev --live-debug` session instead

@@ -1769,6 +1769,62 @@ host.Call(engine =>
     }
 });
 
+// The knocked-down orc as an Engine ragdoll (#10216). The test host evaluates a published instance's pose as each call
+// settles (rusty-engine #10222), and the ragdoll spawns from it, so here every update is its own call, as a running
+// product's are. Felling blows from around the orc until it has got up from both sides, each update's pose checked:
+// down until its get-up plays, never back in the pose it was struck in (R10216-1).
+{
+    LabProduct? lab = null;
+    ulong labStep = 0;
+    void Update() => host.Call(_ => lab!.Update(new ProductUpdate(new ProductUpdateFacts(ProductLifecycleState.Running, 1, 1, 0, labStep++, 60, 1, 0, Tick), default)));
+    host.Call(engine =>
+    {
+        var files = content.Select(kv => new ProductContentFile(Encoding.UTF8.GetBytes(kv.Key), kv.Value)).ToArray();
+        lab = new LabProduct(new ProductCreateContext(engine, new ProductContent(files, engine.Content),
+            new ProductInputConfiguration(default, default, default, default, InputCursorMode.PointerLock), default!));
+        lab.Start();
+    });
+    var ragdollOrc = lab!.Combat.Orc;
+    ragdollOrc.Hold = true;
+    ragdollOrc.Defending.Forced = Defence.None;
+    float HeadUp() => host.Call(_ => { var t = ragdollOrc.Targets()[0]; return t.Pose[t.Joints["SK_Head"]].World.Translation.Y - ragdollOrc.Feet.Y; });
+    var sides = new List<(string Side, float Seconds, float Lowest, float HighestDown, bool Ragdolled)>();
+    int[] around = [0, 180, 90, -90, 150, -150, 30, -30];
+    for (int b = 0; b < around.Length && sides.Select(s => s.Side).Distinct().Count() < 2; b++)
+    {
+        host.Call(_ => { ragdollOrc.Spawn(); ragdollOrc.PlaceAt(lab.Player.Feet + Vector3.Normalize(lab.Player.Forward with { Y = 0 }) * 1.5f); });
+        for (int i = 0; i < 30; i++) Update();
+        host.Call(_ =>
+        {
+            var toPlayer = (lab.Player.Feet - ragdollOrc.Feet) with { Y = 0 };
+            var from = ragdollOrc.Feet + Vector3.Transform(Vector3.Normalize(toPlayer) * 1.5f, Quaternion.CreateFromAxisAngle(Vector3.UnitY, around[b] * MathF.PI / 180));
+            ragdollOrc.Struck(new AttackEvent(1, false, ChanceToFall: 1, ImpactY: b % 2), 0, from, false, 1);
+        });
+        bool ragdolled = false;
+        float down = 0, lowest = float.MaxValue, highestDown = 0;
+        for (; ragdollOrc.State == OrcState.KnockedDown && !(ragdollOrc.Clip.StartsWith("StandUp_") && !ragdollOrc.Clip.EndsWith("_firstframe")) && down < 15; down += Tick)
+        {
+            Update();
+            ragdolled |= ragdollOrc.RagdollState.Ragdolled;
+            float head = HeadUp();
+            lowest = MathF.Min(lowest, head);
+            // From the moment its head has come down until its get-up plays, every pose lies down.
+            if (lowest < .5f && !(ragdollOrc.Clip.StartsWith("StandUp_") && !ragdollOrc.Clip.EndsWith("_firstframe"))) highestDown = MathF.Max(highestDown, head);
+        }
+        string side = ragdollOrc.Clip.StartsWith("StandUp_front") ? "front" : "back";
+        // Its get-up's first frames too, which begin lying.
+        for (int i = 0; i < 3; i++) { highestDown = MathF.Max(highestDown, HeadUp()); Update(); }
+        sides.Add((side, down, lowest, highestDown, ragdolled));
+    }
+    foreach (var s in sides) Console.WriteLine(FormattableString.Invariant($"  ragdoll knockdown: lay on its {s.Side}, head down to {s.Lowest:0.00} m, highest once down {s.HighestDown:0.00} m, get-up after {s.Seconds:0.00} s"));
+    Check(sides.Count > 0 && sides.All(s => s.Ragdolled && s.Lowest < .5f),
+        $"headless, every felling blow drops an Engine ragdoll and its head reaches the ground: {sides.Count(s => s.Ragdolled && s.Lowest < .5f)} of {sides.Count}");
+    Check(sides.Select(s => s.Side).Distinct().Count() == 2 && sides.All(s => s.HighestDown < 1.2f),
+        FormattableString.Invariant($"it gets up from both sides, and from its fall through the blend back into its get-up it never stands as it was struck (head at most {sides.Select(s => s.HighestDown).DefaultIfEmpty(0).Max():0.00} m, standing {1.7:0.0})"));
+    Check(sides.All(s => s.Seconds is >= 2.9f and <= 4.2f),
+        $"each get-up starts inside the donor's 2.9–4.2 s after the blow: {string.Join(", ", sides.Select(s => s.Seconds.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s");
+    host.Call(_ => lab.Dispose());
+}
 return failures == 0 ? 0 : 1;
 
 // A recording's format version, from its first frame.

@@ -113,6 +113,10 @@ internal sealed class Orc : IDisposable
 
     /// <summary>Its wait since its last attack began is over: in a stance it may attack.</summary>
     internal bool MayAttack => mind.Ready;
+    /// <summary>Seconds left in its clip at the rate it plays.</summary>
+    internal float ClipLeft => (1 - Cycle) * body.Model.Clip(Clip).Seconds / (State == OrcState.Attack ? AttackSpeed : 1);
+    /// <summary>A fixed wait between attacks, seconds, in place of the mode's random one: for the smoke.</summary>
+    internal float? FixedAttackWait { get => mind.FixedWait; set => mind.FixedWait = value; }
 
     internal float AttackSpeed { get; }
     internal Vector3 Feet { get; private set; }
@@ -286,7 +290,9 @@ internal sealed class Orc : IDisposable
         var blows = new List<OrcBlow>();
         // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
         // while the NPC is flagged attacking, +0x2DFD59, and when its attack task completes, +0x2B06D2).
-        if (wasAttacking && State != OrcState.Attack) mind.Attacked(Wounded);
+        // An attack cut short between steps (a blow, a stun, a fall) starts it here; one that ends inside a step, done
+        // or dodged out of, as the step ends (R10151-4).
+        AttackEnded();
         // Wounded mid-walk or mid-strafe, it goes on in its wounded clip.
         if (Wounded && Hurt(Clip) is var hurt && hurt != Clip) Clip = hurt;
         Vector3 toPlayer = playerFeet - Feet;
@@ -404,8 +410,17 @@ internal sealed class Orc : IDisposable
                 else if (!Clip.EndsWith("_firstframe", StringComparison.Ordinal) && done) Play(OrcState.Ready, "combatidle");
                 break;
         }
+        AttackEnded();
         wasAttacking = State == OrcState.Attack;
         return blows;
+    }
+
+    /// <summary>Its wait until the next attack starts once for each attack that has ended, however it ended.</summary>
+    void AttackEnded()
+    {
+        if (!wasAttacking || State == OrcState.Attack) return;
+        mind.Attacked(Wounded);
+        wasAttacking = false;
     }
 
     /// <summary>

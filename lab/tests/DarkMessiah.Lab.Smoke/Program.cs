@@ -620,22 +620,25 @@ host.Call(engine =>
         bool wasGod = combat.God;
         combat.God = true;
         combat.Reset();
-        var labDefence = DefenceCalibration.Lab(combat, product.Player.Eye.Y - product.Player.Feet.Y, 2400);
+        var labDefence = DefenceCalibration.Lab(combat, product.Player.Eye.Y - product.Player.Feet.Y, 3600);
         combat.God = wasGod;
         static double Rate(int part, int whole) => whole == 0 ? double.NaN : (double)part / whole;
         static string Show((int Swings, int Parries, int Dodges) c) => c.Swings == 0 ? "no swings"
             : FormattableString.Invariant($"{c.Swings} swings, parried {Rate(c.Parries, c.Swings):P0}, dodged {Rate(c.Dodges, c.Swings):P0}");
-        // A situation is compared where both have its samples (the donor 25, the lab 30): within two standard
-        // deviations of the difference between the two rates, plus 5 points. Thinner ones are reported, not checked.
+        // Every situation the donor has 25 swings of is compared (R10151-5), and the lab's fight must give it 30: within
+        // two standard deviations of the difference between the two rates, plus 5 points. Thinner donor ones are
+        // reported as uncertain; one the lab's script leaves short fails.
         var compared = new List<string>();
         var failed = new List<string>();
+        var undersampled = new List<string>();
         void Compare(string name, Func<DefenceCase, bool> where, string? notModelled = null)
         {
             var d = donorDefence.Count(where);
             var l = labDefence.Count(where);
-            bool enough = d.Swings >= 25 && l.Swings >= 30;
-            Console.WriteLine($"  orc defence, {name}: donor {Show(d)}; lab {Show(l)}{(notModelled is not null ? $" (not modelled: {notModelled})" : enough ? "" : " (too few to compare)")}");
-            if (!enough || notModelled is not null) return;
+            bool supported = d.Swings >= 25;
+            Console.WriteLine($"  orc defence, {name}: donor {Show(d)}; lab {Show(l)}{(notModelled is not null ? $" (not modelled: {notModelled})" : !supported ? " (too few in the donor: uncertain)" : l.Swings < 30 ? " (TOO FEW IN THE LAB)" : "")}");
+            if (!supported || notModelled is not null) return;
+            if (l.Swings < 30) { undersampled.Add(name); return; }
             compared.Add(name);
             foreach (var part in new Func<(int Swings, int Parries, int Dodges), int>[] { c => c.Parries, c => c.Dodges })
             {
@@ -646,7 +649,15 @@ host.Call(engine =>
         }
         foreach (var kind in Enum.GetValues<SwingKind>())
             foreach (var situation in Enum.GetValues<OrcSituation>())
-                Compare($"{kind} on a {situation.ToString().ToLowerInvariant()} orc", c => c.Kind == kind && c.Situation == situation);
+                Compare($"{kind} on a {situation.ToString().ToLowerInvariant()} orc", c => c.Kind == kind && c.Situation == situation,
+                    // How often an attacking orc parries is how often the player swung just as its attack ended: by that,
+                    // below (R10151-5).
+                    kind == SwingKind.Fast && situation == OrcSituation.Attacking ? "the mix of the player's timing; compared by how soon the orc came free" : null);
+        // An attacking orc answers a swing once free, while the swing comes (the donor's parried 12 of 28 fast attacks
+        // within 0.2 s of their attack's end, none of 194 later). Attacks only: the lab's orc doesn't turn-strike or grab.
+        static bool Attack(DefenceCase c) => c.Kind == SwingKind.Fast && c.Situation == OrcSituation.Attacking && c.Sequence.StartsWith("attack_", StringComparison.Ordinal) && c.Sequence != "attack_grab";
+        Compare("fast on an attacking orc, free within 0.2 s", c => Attack(c) && c.FreeIn < .2f);
+        Compare("fast on an attacking orc, free later", c => Attack(c) && !(c.FreeIn < .2f));
         foreach (var direction in new[] { "N", "T", "B", "L", "R" })
             Compare($"power {direction} on a ready orc", c => c.Kind == SwingKind.Power && c.Direction == direction && c.Situation == OrcSituation.Ready);
         // Repeated swings: the first few an orc sees against later ones, and its first kick against its later ones.
@@ -657,8 +668,8 @@ host.Call(engine =>
                 from == 0 ? "an orc not yet in its combat state, #10154" : null);
         foreach (var (name, from, to) in new[] { ("first kick", 0, 0), ("second kick", 1, 1), ("third kick on", 2, int.MaxValue) })
             Compare($"its {name}, ready", c => c.Kind == SwingKind.Kick && c.Situation == OrcSituation.Ready && c.NthKick >= from && c.NthKick <= to);
-        Check(compared.Count >= 8 && failed.Count == 0,
-            $"the orc's defence matches the donor's in every situation both have samples of ({compared.Count} compared{(failed.Count > 0 ? "; off: " + string.Join(", ", failed) : "")})");
+        Check(undersampled.Count == 0 && failed.Count == 0,
+            $"the orc's defence matches the donor's in every situation the donor has 25 swings of ({compared.Count} compared{(failed.Count > 0 ? "; off: " + string.Join(", ", failed) : "")}{(undersampled.Count > 0 ? "; too few in the lab: " + string.Join(", ", undersampled) : "")})");
         Check(compared.Contains("Fast on a ready orc") && compared.Contains("Power on a ready orc") && compared.Contains("Kick on a ready orc"),
             "among them, the fast attacks, power attacks and kicks on a ready orc (a roll over its difficulty 0.6; base_dodge_chance 0.5 once in 15 s; dodge_on_kick_init_chance 0.2)");
         var kicks = Enumerable.Range(0, 3).Select(n => donorDefence.Count(c => c.Kind == SwingKind.Kick && c.Situation == OrcSituation.Ready && (n < 2 ? c.NthKick == n : c.NthKick >= n))).ToList();
@@ -842,7 +853,12 @@ host.Call(engine =>
             Console.WriteLine(FormattableString.Invariant($"  orc landing {name}: fitted [{w.Low:0}, {w.High:0}], authored {(combat.Tuning.Orc.AttackLandings.TryGetValue(name, out var a) ? $"[{a[0]:0}, {a[1]:0}]" : "none")}"));
         Check(fitted.Count >= 8 && fitted.All(f => combat.Tuning.Orc.AttackLandings.TryGetValue(f.Key, out var a) && MathF.Abs(a[0] - f.Value.Low) <= 10 && MathF.Abs(a[1] - f.Value.High) <= 10),
             $"combat.json's attack landing windows are the recordings' ({fitted.Count} attacks, each within 10 units of the refit)");
-        var labOrc = OrcCalibration.Lab(orc, 900);
+        // The scripted player swings as the recorded players did with an orc near (R10151-5).
+        var swingClips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
+        var swingGaps = OrcCalibration.PlayerSwingGaps(Directory.EnumerateFiles(orcRecordings, "*.rbrec", SearchOption.AllDirectories),
+            swingClips.Moves.Select(m => m.Clip).ToArray(), swingClips.Kick.Clip);
+        Console.WriteLine(FormattableString.Invariant($"  the recorded players' swings with an orc near: {swingGaps.Count} gaps, p25 {OrcBehaviour.Quantile(swingGaps, .25f):0.00} median {OrcBehaviour.Quantile(swingGaps, .5f):0.00} p75 {OrcBehaviour.Quantile(swingGaps, .75f):0.00} s"));
+        var labOrc = OrcCalibration.Lab(orc, 900, swingGaps);
         static string Spread(IReadOnlyList<float> d) => d.Count == 0 ? "none" : FormattableString.Invariant(
             $"{d.Count}, p10 {OrcBehaviour.Quantile(d, .1f):0} median {OrcBehaviour.Quantile(d, .5f):0} p90 {OrcBehaviour.Quantile(d, .9f):0}");
         foreach (var name in labOrc.AttackDistances.Keys.Union(donorOrc.AttackDistances.Keys).OrderByDescending(n => donorOrc.AttackDistances.GetValueOrDefault(n)?.Count ?? 0))
@@ -872,6 +888,28 @@ host.Call(engine =>
         for (; pressed < 15 && orc.AttacksMade == attacksBefore; pressed += Tick) orc.Step(Tick, Vector3.Zero, IncomingSwing.None);
         Check(orc.AttacksMade > attacksBefore,
             FormattableString.Invariant($"an orc pressed against a standing player at 32 units attacks again, after {pressed:0.0} s (stepping back to its uppercut's 34)"));
+        // Its wait runs from each attack's end (R10151-4, R10152-3): one that plays out, and one a stun cuts short.
+        orc.FixedAttackWait = 2;
+        float WaitAfter(bool interrupt)
+        {
+            orc.Spawn();
+            orc.PlaceAt(Vector3.UnitZ * Orc.BodyGap * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+            for (float t = 0; t < 20 && orc.State != OrcState.Attack; t += Tick) orc.Step(Tick, Vector3.Zero, IncomingSwing.None);
+            if (orc.State != OrcState.Attack) return -1;
+            int made = orc.AttacksMade;
+            float waited = 0;
+            // A stun between steps starts the wait in the next step; an attack played out, in the step it ends.
+            if (interrupt) orc.Struck(new AttackEvent(1, false), 500, Vector3.Zero, staff: true, 1);
+            else while (orc.State == OrcState.Attack) orc.Step(Tick, Vector3.Zero, IncomingSwing.None);
+            if (interrupt) { orc.Step(Tick, Vector3.Zero, IncomingSwing.None); waited = Tick; }
+            // Until it may attack, or attacks (the step its wait runs out in).
+            for (; waited < 5 && !orc.MayAttack && orc.AttacksMade == made; waited += Tick) orc.Step(Tick, Vector3.Zero, IncomingSwing.None);
+            return waited;
+        }
+        float played = WaitAfter(false), cut = WaitAfter(true);
+        Check(MathF.Abs(played - 2) <= 2 * Tick && MathF.Abs(cut - 2) <= 2 * Tick,
+            FormattableString.Invariant($"with a 2 s wait, an attack that plays out and one a stun cuts short each keep it from attacking for 2 s after: {played:0.00} s, {cut:0.00} s"));
+        orc.FixedAttackWait = null;
         orc.Spawn();
         if (Environment.GetEnvironmentVariable("RB_ORC") == "1") return;
     }
@@ -1730,6 +1768,7 @@ host.Call(engine =>
             $"a kick request in a stretch with unplayable gear isn't compared, one outside it is: {report.Kicks}");
     }
 });
+
 return failures == 0 ? 0 : 1;
 
 // A recording's format version, from its first frame.

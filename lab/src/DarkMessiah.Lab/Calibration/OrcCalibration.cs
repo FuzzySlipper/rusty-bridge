@@ -1,5 +1,6 @@
 using System.Numerics;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Replay;
 using RustyBridge.Wire;
 using RustyBridge.Wire.Donor;
 
@@ -124,13 +125,45 @@ internal static class OrcCalibration
     const string InputTimelineOrc = Replay.InputTimeline.OrcClass;
 
     /// <summary>
-    /// The lab's orc over <paramref name="seconds"/> of a scripted fight: the player stands, swings every
-    /// <paramref name="swingEvery"/> seconds while the orc is within 2.5 m, and every <paramref name="retreatEvery"/>
+    /// How often the recorded players swung with an orc near (within 2.5 m, at both swings): the seconds from one move
+    /// that strikes (fast, power, jump, rush attack, Fatality, Whirlwind, kick) to the next, under 30 s. Wire v12 and
+    /// later (the player's input); recordings cut short are left out. The scripted fight's player swings at these gaps,
+    /// so its orc goes berserk when the player holds off as the donor's did (R10151-5).
+    /// </summary>
+    internal static List<float> PlayerSwingGaps(IEnumerable<string> recordings, IReadOnlyCollection<string> moves, string kick)
+    {
+        var gaps = new List<float>();
+        foreach (var path in recordings.Order(StringComparer.Ordinal))
+        {
+            using (var stream = File.OpenRead(path))
+                if ((RecordingReader.Frames(stream).FirstOrDefault()?.Version ?? 0) < 12) continue;
+            InputTimeline timeline;
+            try { timeline = InputTimeline.Read(path, moves, kick); }
+            catch (Exception e) when (e is ArgumentOutOfRangeException or EndOfStreamException) { continue; }
+            var byTick = timeline.Ticks.ToDictionary(t => t.Tick);
+            double last = double.NaN;
+            foreach (var swing in timeline.Swings.Where(s => InputTimeline.Family(s.Clip) is "fast attack" or "power attack" or "kick" or "jump attack" or "rush attack" or "fatality" or "whirlwind"))
+            {
+                bool near = byTick.TryGetValue(swing.Tick, out var t) && t.Orc is { } o && Vector3.Distance(o.Feet with { Y = 0 }, t.Feet with { Y = 0 }) < 2.5f;
+                if (near && !double.IsNaN(last) && swing.Time - last < LongestGap) gaps.Add((float)(swing.Time - last));
+                last = near ? swing.Time : double.NaN;
+            }
+        }
+        return gaps;
+    }
+
+    /// <summary>
+    /// The lab's orc over <paramref name="seconds"/> of a scripted fight: the player stands, swings while the orc is
+    /// within 2.5 m, each swing a gap after the last drawn (seeded) from <paramref name="swingGaps"/> (the recorded
+    /// players', <see cref="PlayerSwingGaps"/>; every 1.5 s without them), and every <paramref name="retreatEvery"/>
     /// seconds backs off 4 m over 1.5 s, so the orc has distances to close and walks to make as the recorded players
     /// gave it.
     /// </summary>
-    internal static OrcBehaviour Lab(Orc orc, float seconds, float step = 1 / 66f, float swingEvery = 1.5f, float retreatEvery = 8)
+    internal static OrcBehaviour Lab(Orc orc, float seconds, IReadOnlyList<float>? swingGaps = null, float step = 1 / 66f, float retreatEvery = 8)
     {
+        var dice = new Random(OrcMind.Seed);
+        float NextGap() => swingGaps is { Count: > 0 } ? swingGaps[dice.Next(swingGaps.Count)] : 1.5f;
+        float nextSwing = 0;
         var distances = new Dictionary<string, List<float>>(StringComparer.Ordinal);
         var gaps = new List<float>();
         var walks = new List<float>();
@@ -149,7 +182,8 @@ internal static class OrcCalibration
         for (float t = 0; t < seconds; t += step)
         {
             float distance = Vector3.Distance(orc.Feet with { Y = 0 }, player with { Y = 0 });
-            bool swing = distance < 2.5f && t % swingEvery < step;
+            bool swing = distance < 2.5f && t >= nextSwing;
+            if (swing) nextSwing = t + NextGap();
             // Backing off: 4 m away from the orc over 1.5 s.
             if (t % retreatEvery < 1.5f && distance > 1e-3f) player += Vector3.Normalize((player - orc.Feet) with { Y = 0 }) * (4 / 1.5f) * step;
             if (swing) swings++;

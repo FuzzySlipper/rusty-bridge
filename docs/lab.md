@@ -508,15 +508,18 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   recorded orcs strafing about four times as often as they idled. Once its wait is over it picks, at random, an attack
   whose strike lands inside that attack's window from here; nothing landing, it walks in, or, pressed nearer than any
   window allows (at its hull's 32 units, inside the uppercut's 34), steps back (`Combatmove_backward_small`, which the
-  donor's orcs attacked out of) and fights on: 3.1 s from contact to its next attack (R10150-1; its wait now runs from its last attack's end). Every clip but the
+  donor's orcs attacked out of) and fights on: 1.4 s from contact to its next attack (R10150-1; its wait runs from its last attack's end). Every clip but the
   walk moves it by its root motion, as the donor's entity moves.
 - **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
   grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
-- **Against the donor** (the smoke; fifteen minutes of a scripted fight, the player swinging when it is near and backing
-  off 4 m every 8 s): every attack the lab made at least 5 times began within the donor's 10th–90th percentile of
-  distance for it (10 of 10), the median time from one attack's start to the next is 2.10 s against the donor's
-  2.88, it walks at the donor's 61 units a second, and its walks of half a second or more end a median 164 units off,
-  within the donor's middle half (56–214; R10150-2). The mix differs: the lab's scripted player stands its ground
+- **Against the donor** (the smoke; fifteen minutes of a scripted fight, the player swinging when it is near at the
+  recorded players' gaps between swings with an orc near, drawn at random from 794 of them, median 1.5 s, 46% over
+  2 s, and backing off 4 m every 8 s; `OrcCalibration.PlayerSwingGaps`, R10151-5): every attack the lab made at
+  least 5 times began within the donor's 10th–90th percentile of distance for it (11 of 11), the median time from one
+  attack's start to the next is 3.45 s against the donor's 2.88 (within the smoke's 30%), it walks at the donor's 61
+  units a second, and its walks of half a second or more end a median 114 units off, within the donor's middle half
+  (56–214; R10150-2). Its wait starts once for every attack that ends, played out, dodged out of or cut short
+  (R10151-4, R10152-3; the smoke checks a fixed 2 s wait both ways). The mix differs: the lab's scripted player stands its ground
   between its backing-off steps, where the recorded ones pressed in, so the uppercut leads the lab's attacks.
 - **`Hold`** (`Orc.Hold`) keeps it from attacking: the smoke's still orc.
 
@@ -529,7 +532,7 @@ it had seen):
 
 | A swing it sees | It | When |
 | --- | --- | --- |
-| One it may parry (the fast attacks) | parries on a 0–100 roll over its `difficulty` (60): 40% | standing or walking (the gate, +0x2A897C, skips an NPC flagged attacking, not one moving); a swing that began while it attacked or recovered it answers once free, while the blade is still live (until the swing's hit window closes) |
+| One it may parry (the fast attacks) | parries on a 0–100 roll over its `difficulty` (60): 40% | standing or walking (the gate, +0x2A897C, skips an NPC flagged attacking, not one moving); a swing that began while it attacked or recovered it answers once free, while the blade is still live (until the swing's hit window closes): the donor's orcs parried 12 of 28 fast attacks whose start their attack ended within 0.2 s of, none of 194 later (R10151-5) |
 | One that breaks parries (the power attacks) | dodges (`Dodge_left`/`_right`) on the same roll and then `base_dodge_chance` (0.5), at most once every `DodgeDelay` (15 s) | standing, walking or attacking: the dodge test doesn't ask whether it attacks, so it dodges out of its own attack |
 | A kick | dodges on `dodge_on_kick_init_chance` (0.2), no delay | the same |
 
@@ -550,23 +553,31 @@ it had seen):
   with the time while the NPC is flagged attacking, +0x2DFD59; the donor's orcs idled a median 1.2 s between attacks,
   only 16 of 693 idles under half a second), and its dice go on from one life to the next.
 
-Against the donor (the smoke; a 40-minute fight through the lab's combat, the scripted player swinging in the orc's
-idle moments or every 1.8 s, the orc holding its attacks in the second half):
+Against the donor (the smoke; an hour's fight through the lab's combat, the orc attacking throughout, the scripted
+player swinging in the orc's idle moments or every 1.8 s: two fast attacks, a neutral power attack (the recorded
+players' were, 186 of 188), a kick; on an orc reeling from a blow, two fast attacks and a power attack 0.3 s apart;
+and at every other attack's end, a fast attack as it comes free):
 
 | Situation | Recorded | Lab |
 | --- | --- | --- |
-| Fast attacks, ready (standing or walking) | parried 40% of 336 | 39% of 282 |
-| Fast attacks, attacking | parried 10% of 238 | 2% of 225 |
-| Power attacks, ready | dodged 12%, parried 2% of 185 | dodged 21% of 47 |
-| Power attacks, attacking | dodged 13% of 134 | 19% of 53 |
-| Kicks, ready | dodged 20%, parried 9% of 46 | dodged 20% of 119 |
-| Kicks, attacking | dodged 14%, parried 7% of 29 | 19% of 94 |
-| Fast attacks on a ready orc, its 4th–10th swing / 11th on | parried 50% of 56 / 42% of 239 | compared in the smoke |
-| Recovering (hit, pushed, stunned, down, dodging) | parried 9% of 175 fast attacks | too few (the lab's orc rarely recovers with a swing coming) |
-| Wounded | parried 10% of 21 fast attacks, dodged 3% of 36 power attacks, 0 of 21 kicks | parried 29% of 108, dodged none: too few recorded to compare |
+| Fast attacks, ready (standing or walking) | parried 40% of 336 | 40% of 288 |
+| Fast attacks, attacking, its attack over within 0.2 s | parried 43% of 28 | 30% of 57 |
+| Fast attacks, attacking, its attack over later | parried 0 of 194 | 0 of 328 |
+| Fast attacks, recovering (hit, pushed, stunned, down, dodging) | parried 9% of 175 | 0 of 98 (within the tolerance) |
+| Power attacks, ready (all neutral) | dodged 12%, parried 2% of 188 | dodged 15% of 132 |
+| Power attacks, attacking | dodged 13% of 135 | 15% of 129 |
+| Power attacks, recovering | none of 27 | none of 42 |
+| Power attacks, wounded | dodged 3% of 36 | none of 84 |
+| Kicks, ready | dodged 20%, parried 9% of 46 | dodged 24% of 126 |
+| Kicks, attacking | dodged 14%, parried 7% of 29 | 16% of 180 |
+| Fast attacks on a ready orc, its 4th–10th swing / 11th on | parried 50% of 56 / 42% of 239 | 38% of 169 / 47% of 43 |
 
-Situations with fewer than 25 recorded or 30 lab swings are reported, not compared; a compared one agrees within two
-standard deviations of the difference between the two rates (both are samples) plus 5 points.
+Every situation with 25 recorded swings is compared (R10151-5), and the smoke fails if its fight gives one fewer than
+30; a compared one agrees within two standard deviations of the difference between the two rates (both are samples)
+plus 5 points. Thinner recorded ones are reported as uncertain: wounded fast attacks (21) and kicks (21), kicks on a
+recovering orc (13), each kick count (14, 10, 22), and the directional power attacks (2 recorded). Fast attacks on an
+attacking orc are compared by how soon its attack ended, since the mix is the player's timing (the recorded 10% of
+239 includes turn strikes and grabs, which the lab's orc doesn't make).
 
 - **Repeated swings:** the donor's orcs parried a ready orc's fast attacks 12% of 41 over their first three swings,
   50% of 56 over the next seven and 42% of 239 after: no growth, and the first few lower, likely the defence's
@@ -574,7 +585,8 @@ standard deviations of the difference between the two rates (both are samples) p
   lab's orc is always in combat). Kicks dodged by the orc's kick count: 1 of 14 first, 1 of 10 second, 7 of 22 after
   (`dodge_on_kick_add_chance`, 0.4 "added after every kick", isn't modelled: too few to tell from the same gate).
 - **Not modelled:** the preventive dodge (`PreventiveDodgeChance` 0.2 every 15 s against one attack class, not
-  identified); parries while recovering (9% recorded; the lab's orc rarely recovers with a swing still coming). The
+  identified); parries while recovering (9% of 175 recorded, none in the lab: not yet looked into, likely the same
+  freed-while-the-swing-comes timing as an attack's end). The
   lab's orc carries a shield but never blocks: no recorded orc carried one.
 - `Orc.Defending.Forced` makes it answer every swing one way: the smoke's checks.
 

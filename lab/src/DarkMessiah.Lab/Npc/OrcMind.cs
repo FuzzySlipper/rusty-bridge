@@ -110,7 +110,10 @@ internal sealed class OrcMind(OrcMindData data, int seed = OrcMind.Seed)
 
     /// <summary>An attack ended: the wait until the next may begin, by the mode (counted from this one's end, R10151-1).</summary>
     /// <param name="wounded">A wounded (or exhausted) orc waits the cool times, berserk or not (server.dll+0x2BBB72).</param>
-    internal void Attacked(bool wounded = false) => wait = Berserk && !wounded ? Between(data.BerserkMin, data.BerserkMax) : Between(data.CoolMin, data.CoolMax);
+    internal void Attacked(bool wounded = false) => wait = FixedWait ?? (Berserk && !wounded ? Between(data.BerserkMin, data.BerserkMax) : Between(data.CoolMin, data.CoolMax));
+
+    /// <summary>A fixed wait after each attack, in place of the mode's random one (the smoke's check of when it starts).</summary>
+    internal float? FixedWait { get; set; }
 
     /// <summary>
     /// One of the attacks whose strike lands from <paramref name="distance"/> (Source units) inside its window, at

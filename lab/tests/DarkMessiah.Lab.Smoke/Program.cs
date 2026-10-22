@@ -695,14 +695,22 @@ host.Call(engine =>
     // Perception (#10154): the lab's hearing against every recorded approach on an unaware orc (Wire v18), and the
     // donor's sneak attacks: an unaware orc's alert level is 0 and a blow asks ×3.
     {
-        var approaches = PerceptionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories),
-            orc.Perception.Data);
+        // The arena's recordings and local/perception's (#10154: l05_a's sight and calls, kept apart from the fights the
+        // other calibrations read; docs/recording.md).
+        var perceptionRecordings = Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories)
+            .Concat(Directory.Exists(Path.Combine(repo!, "local", "perception")) ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "perception"), "*.rbrec") : []).ToList();
+        var approaches = PerceptionCalibration.Measure(perceptionRecordings, orc.Perception.Data);
         foreach (var a in approaches)
-            Console.WriteLine(FormattableString.Invariant($"  approach {a.Recording} {a.Orc} {a.Gaits}, closest {a.Closest:0}: donor {(a.Donor is double d ? $"noticed at {d:0.00} s" : "never")}, lab {(a.Lab is double l ? $"at {l:0.00} s" : "never")}"));
+            Console.WriteLine(FormattableString.Invariant($"  approach {a.Recording} {a.Orc} {a.Gaits}{(a.InSight ? ", in sight" : "")}{(a.Hidden ? ", hidden" : "")}, closest {a.Closest:0}: donor {(a.Donor is double d ? $"noticed at {d:0.00} s" : "never")}{(a.Rise is { } rise ? $" ({rise.Distance:0} units, {rise.Angle:0}°)" : "")}{(float.IsNaN(a.Unseen) ? "" : $", unseen still {a.Unseen:0} units {a.UnseenAngle:0}°")}, lab {(a.Lab is double l ? $"at {l:0.00} s" : "never")}"));
         var noticed = approaches.Where(a => a.Donor is not null).ToList();
-        bool agree(ApproachCase a) => a.Donor is null ? a.Lab is null : a.Lab is double l && Math.Abs(l - a.Donor.Value) <= .6;
+        // Within 0.6 s. The l05_a runs that hid the player (notarget) after placing it, out of the Wire's view, say only
+        // whether the orc noticed: the lab's no later than the donor's.
+        bool agree(ApproachCase a) => a.Donor is null ? a.Lab is null : a.Lab is double l && (a.Hidden ? l <= a.Donor.Value + .1 : Math.Abs(l - a.Donor.Value) <= .6);
+        var bySight = approaches.Where(a => a.Recording.StartsWith("l05_a", StringComparison.Ordinal)).ToList();
         Check(approaches.Count >= 8 && noticed.Count >= 2 && approaches.Count(a => a.Donor is null) >= 4 && approaches.All(agree),
-            FormattableString.Invariant($"an unaware orc notices the player when the donor's did, within 0.6 s, and not otherwise: {approaches.Count(agree)} of {approaches.Count} recorded approaches ({noticed.Count} noticed, by a run or sprint within 500 units; none still or crouched, behind or in front)"));
+            FormattableString.Invariant($"an unaware orc notices the player when the donor's did, and not otherwise: {approaches.Count(agree)} of {approaches.Count} recorded approaches ({noticed.Count} noticed; in l01_a by a run or sprint within 500 units, none still or crouched, behind or in front){(approaches.Any(a => !agree(a)) ? "; off: " + string.Join(", ", approaches.Where(a => !agree(a)).Select(a => $"{a.Recording} {a.Orc}")) : "")}"));
+        Check(bySight.Count(a => a.Donor is not null) >= 8 && bySight.Count(a => a.Donor is null) >= 8 && bySight.All(agree),
+            FormattableString.Invariant($"in l05_a (stealth on) it sees a still player as the donor's did (R10154-2): {bySight.Count(agree)} of {bySight.Count}, seen {bySight.Count(a => a.Donor is not null)}, unseen {bySight.Count(a => a.Donor is null)} (its sight {orc.Perception.Data.SightRange:0} units, {orc.Perception.Data.SightHalfAngle:0}° either side)"));
         var sneak = new List<(DamageCase Case, string Recording)>();
         foreach (var path in Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*sneak-attack*.rbrec", SearchOption.AllDirectories))
         {
@@ -721,6 +729,63 @@ host.Call(engine =>
         foreach (var u in unaware) Console.WriteLine(FormattableString.Invariant($"  sneak {u.Case}: recorded {u.Case.Requested:0.##}, model {u.Unaware:0.##}, aware {u.Aware:0.##}"));
         Check(unaware.Count >= 3 && unaware.All(u => MathF.Abs(u.Unaware - u.Case.Requested) < 1e-3f && MathF.Abs(u.Unaware - 3 * u.Aware) < 1e-3f),
             FormattableString.Invariant($"the donor's blows on an unaware orc (alert 0) asked ×3, as the model asks them: {string.Join(", ", unaware.Select(u => $"{u.Case.Requested:0.#} = 3 × {u.Aware:0.#}"))}"));
+
+        // Calls for help (R10154-1): every recorded orc that became aware with another unaware within 1100 units. The
+        // lab's rule: one that saw the player calls its squad-mates within SquadAwarnessDist, who come 2.4 s later; a blow
+        // calls no one. The Wire doesn't carry squads: the recorded pairs within 500 were in one squad but for one.
+        var calls = PerceptionCalibration.Calls(perceptionRecordings, orc.Perception.Data);
+        foreach (var c in calls)
+            Console.WriteLine(FormattableString.Invariant($"  call {c.Recording} {c.Caller} -> {c.Mate}, {c.Apart:0} apart, caller {(c.CallerStruck ? "struck" : "sensed the player")}: mate {(c.Delay is double d ? $"came {d:0.00} s later" : "never came")}{(c.OwnSense is double o ? $" (would have sensed it itself at {o:0.00} s)" : "")}"));
+        var pd = orc.Perception.Data;
+        // The mates that came might have sensed the player as the fight moved (the lab's rule says when): the squad's
+        // came 2.4 s after, the one with no squad 5.9 s.
+        var reached = calls.Where(c => !c.CallerStruck && c.Apart <= pd.SquadDistance).ToList();
+        var notReached = calls.Where(c => c.CallerStruck || c.Apart > pd.SquadDistance).ToList();
+        Check(reached.Count >= 1 && reached.All(c => c.Delay is double d && d >= pd.CallDelay - .3) && reached.Any(c => c.Delay is double d && Math.Abs(d - pd.CallDelay) <= .3)
+            && notReached.Count >= 3 && notReached.All(c => c.Delay is null),
+            FormattableString.Invariant($"recorded calls: an orc that sensed the player brought the unaware orc within {pd.SquadDistance:0} units ({string.Join(", ", reached.Select(c => c.Delay is double d ? $"{d:0.0} s" : "never"))} later; the lab's {pd.CallDelay:0.0} s for a squad-mate); one struck from behind, or farther off, brought none ({notReached.Count(c => c.Delay is null)} of {notReached.Count} never came)"));
+
+        // The lab's two orcs through its combat (R10154-1, R10154-2): in l05_a (stealth on), unaware, both facing one way,
+        // the second (its squad-mate) to the side. The player stands still ahead of the first, or strikes it from behind.
+        var saved = combat.Tuning;
+        float mpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var face = -Vector3.UnitX;
+        var side = Vector3.UnitZ;
+        (AwareBy By, double? Noticed, double? Mate) Squad(string map, float ahead, float degrees, float apart, bool strike)
+        {
+            var spawnAt = new Vector3(saved.Orc.Spawn[0], saved.Orc.Spawn[1], saved.Orc.Spawn[2]);
+            var mateAt = spawnAt + side * apart * mpu;
+            combat.Retune(saved with { Orc = saved.Orc with { Map = map, SpawnUnaware = true, SquadMate = [mateAt.X, mateAt.Y, mateAt.Z] } });
+            combat.Reset();
+            combat.Orc.Face(face);
+            combat.Mate!.Face(face);
+            float a = degrees * MathF.PI / 180;
+            var feet = strike ? spawnAt - face * 55 * mpu : spawnAt + (face * MathF.Cos(a) + side * MathF.Sin(a)) * ahead * mpu;
+            var look = Vector3.Normalize((spawnAt - feet) with { Y = 0 });
+            if (strike) combat.Orc.Struck(new AttackEvent(1, false), 0, feet, false, 1);
+            double? noticed = combat.Orc.Perception.Aware ? 0 : null, mate = null;
+            ulong t = 0;
+            for (float time = Tick; time < 8; time += Tick)
+            {
+                combat.Step(Tick, t++, false, false, false, feet + Vector3.UnitY * 1.6f, look, feet);
+                if (noticed is null && combat.Orc.Perception.Aware) noticed = time;
+                if (mate is null && combat.Mate!.Perception.Aware) mate = time;
+            }
+            return (combat.Orc.Perception.By, noticed, mate);
+        }
+        var seen = Squad("l05_a", 400, 0, 300, false);
+        var far = Squad("l05_a", 600, 0, 300, false);
+        var wide = Squad("l05_a", 300, 35, 300, false);
+        var noStealth = Squad("l01_a", 300, 0, 300, false);
+        var mateFar = Squad("l05_a", 400, 0, 600, false);
+        var behind = Squad("l05_a", 0, 0, 300, true);
+        combat.Retune(saved);
+        combat.Reset();
+        static string When(double? t) => t is double v ? FormattableString.Invariant($"{v:0.00} s") : "never";
+        Check(seen.By == AwareBy.Seen && Math.Abs(seen.Noticed!.Value - pd.SeeDelay) <= 2 * Tick && far.Noticed is null && wide.Noticed is null && noStealth.Noticed is null,
+            $"the lab's orc in l05_a sees a still player 400 units ahead after its think ({When(seen.Noticed)}), not 600 ahead ({When(far.Noticed)}) or 35° off at 300 ({When(wide.Noticed)}), and in l01_a not at 300 ({When(noStealth.Noticed)})");
+        Check(seen.Mate is double m && Math.Abs(m - seen.Noticed!.Value - pd.CallDelay) <= 2 * Tick && mateFar.Mate is null && behind.Mate is null,
+            $"its squad-mate 300 units off answers its call {When(seen.Mate is double sm ? sm - seen.Noticed!.Value : null)} after it saw the player (the donor's 2.4), one 600 off doesn't ({When(mateFar.Mate)}), and a blow from behind calls no one ({When(behind.Mate)})");
     }
 
     // Hit reactions (#10153): the lab's rule against every recorded player blow on an orc.

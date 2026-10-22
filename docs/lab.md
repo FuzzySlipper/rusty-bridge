@@ -657,31 +657,47 @@ small ones up by index in each NPC class's sequence cache (+0x2C0F40, read throu
 
 An orc can be unaware of the player (#10154; `Npc/OrcPerception.cs`; `combat.json` `orc.spawnUnaware`, off by
 default, so the arena's orc walks in to fight). Its alert level is server.dll's (NPC +0x36EC, which Wire v18 streams
-every tick; docs/wire.md, "Alertness"): 0 unaware, 4 fighting. Measured in four scenarios on l01_a with the level's
-other NPCs removed (docs/recording.md; `PerceptionCalibration`):
+every tick; docs/wire.md, "Alertness"): 0 unaware, 4 fighting. Measured in scenarios on l01_a and l05_a with the
+level's other NPCs removed (docs/recording.md; `PerceptionCalibration`; the l05_a recordings and `squad-probe` in
+`local/perception`, apart from the fights the other calibrations read):
 
 | The player | The recorded orcs | The lab |
 | --- | --- | --- |
-| Standing still in plain view 300, 600, 1000 units in front, or 150 behind, for 8 s | never noticed | never notices: it doesn't see (l01_a is in the settings' `nostealth` list) |
+| In l01_a, standing still in plain view 300, 600, 1000 units in front, or 150 behind, for 8 s | never noticed | never notices: l01_a is in the settings' `nostealth` list, where it doesn't see (`combat.json` `orc.map`, l01_a by default, the recordings' arena) |
+| In l05_a, standing still in front of an idle orc (R10154-2) | seen at 289 to 499 units within 16° of its facing; not at 546 to 1698 straight ahead, nor 297 to 598 units 30° to 61° off, for 1.5 s or more | sees within 540 units and 27° either side, after 0.4 s |
 | Crouched, walking up from 1000 in front to 558, or from 800 behind to 458 | never noticed | hears a crouched step (`SoundPresenceDist_Inaudible`) at 100 units |
 | Running (180 units a second) or sprinting up from behind | alert 1, 3, then 4: heard 1.4 s after the player came within 500 units (at 260 and 119 units, both times) | hears a run within `SoundPresenceDist_Big` (500) after `delayhear` (1 s) and 0.4 s of thinking; a walk within `_Average` (300) |
 | Striking it | 0 to 4 on the blow's tick (3 of 3) | a blow makes it fight at once |
 
+- **Sight** (R10154-2): the `.qct`'s `maxsightdistancequiet` (1500) and `fieldofviewquiet` (90) times the settings'
+  `NPCRangeOfViewRatioWhenStealth` (0.6) fit the measured edges: 1500 × 0.6 × 0.6 = 540 units, 90 × 0.6 = 54°. How
+  server.dll combines them isn't read, nor the player's light (`stealth_multiplier_hdr`, shadows), which the lab
+  doesn't have. The delay is `delaysee` (0) and the AI's think (0.4 s): the one l05_a run that didn't hide the player
+  saw an orc notice it 0.57 s after it appeared. The other runs hid the player (`notarget`) while placing it, out of
+  the Wire's view, so they say whether an orc noticed, not when.
 - **Unaware**, it idles where it stands (`idle_0`–`idle_3`), facing as it was, and doesn't defend (the defence's gate,
-  +0x2A8856, needs the NPC's combat state); hearing the player it plays `surprised`, then fights.
+  +0x2A8856, needs the NPC's combat state); noticing the player it plays `surprised`, then fights.
 - **Its damage:** a blow on an unaware orc (alert 0, state 1) asks the settings' `mul_damages_Npc_Not_alerted` ×3
   (`CombatModel`, now from the lab's own orc): the recorded sneak attacks asked 36 = 3 × 12 (power) and 16.8 = 3 ×
   5.6 (fast), as the model asks them.
 - **The backstab** readies on an unaware orc's turned back (it idles, never on guard) and kills it, as the daggers'
   does (#10148).
-- **Against the recordings** (the smoke): the lab's rule, run on each recorded approach's path and gaits, notices
-  when the donor's orc did, within 0.1 s, and not otherwise: 10 of 10.
-- **Calls for help:** none recorded. A second orc 400 and 1000 units from one the player struck stayed idle for 8 s
-  (`call4helpdist` is 700): orcs spawned by `mm_npc_create` belong to no squad (`SquadAwarnessDist`), and the arena's
-  NPCs that do were removed. The lab has one orc; a second answering a call waits on #10155's NPCs and a recording
-  with squads.
+- **Against the recordings** (the smoke): the lab's rule, run on each recorded approach's path, gaits and the orc's
+  facing, notices when the donor's orc did (within 0.6 s where the Wire shows when it could), and not otherwise: 47
+  of 47, 34 of them in l05_a (17 seen, 17 not).
+- **Calls for help** (R10154-1, `call-l05`): two spawned orcs facing the same way, the second beside or beyond the
+  first, put in one squad (Source's `SetSquad` input, which Dark Messiah handles). An orc that saw the player brought its
+  squad-mate 300 units off 2.4 s later (searching from 1.6 s), and one 600 off never; one struck from behind brought
+  no one, squad or not (five pairs, 300 to 1000 apart, in l01_a and l05_a). A mate with no squad 300 off came 5.9 s
+  later, likely by its own senses as the fight moved. The lab: an orc that sees the player calls its squad-mates within
+  `SquadAwarnessDist` (500), who fight 2.4 s later (`OrcPerceptionData.CallDelay`), skipping `surprised`.
+  `call4helpdist` (700) and `ouchcall4helpdist` didn't show: no blow called, and 600 off didn't come.
+- **The second orc** (`combat.json` `orc.squadMate`, a place, or null): the first orc's squad-mate. It fights on its
+  own and its blows land on the player, but the player's swings reach only the first orc (the combat's sweep,
+  defence and reactions have one target). The smoke checks it through the lab's combat in l05_a: it answers its mate's
+  sighting 2.42 s after, not 600 units off, and not a blow from behind.
 - **Factions** (`mm_relationship.txt`): orcs like orcs and hate the rest, the player, guards, goblins and ghouls
-  included. The lab's one orc has only the player to hate.
+  included.
 
 ## Calibration
 

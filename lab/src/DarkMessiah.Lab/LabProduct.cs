@@ -59,6 +59,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
+        if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
         combat.Rebuild(BuildFile.Load(engine), draw: false);
         time = new WorldTime(engine);
         developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);
@@ -127,7 +128,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             // The body sprints only as stamina admits it, as the sword does: not from below 3, and not once it's spent.
             bool sprintAsked = frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero;
             var body = frame with { SprintHeld = combat.Stamina.Admits(sprintAsked) };
-            player.Step(body, jumpPending, delta, scene.Obstacles(held).Append(OrcObstacle()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale);
+            player.Step(body, jumpPending, delta, scene.Obstacles(held).Concat(OrcObstacles()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale);
             jumpPending = false;
             cubes.Interaction.Update();
             if (usePending) cubes.Use();
@@ -346,10 +347,13 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private void ClearPending() => jumpPending = usePending = throwPending = kickPending = attackPending = blockPending = false;
 
-    /// <summary>The orc as the player's body meets it: its box, standing or lying (R10152-2), so the body can't walk through it.</summary>
-    private CharacterObstacle OrcObstacle()
+    /// <summary>The orcs as the player's body meets them: each one's box, standing or lying (R10152-2), so the body can't walk through it.</summary>
+    private IEnumerable<CharacterObstacle> OrcObstacles()
     {
-        var (center, half) = combat.Orc.Hull;
-        return new CharacterObstacle(Npc.Orc.BodyId, new Transform(center, Quaternion.Identity, Vector3.One), -half, half, combat.Orc.Alive, Vector3.Zero, Vector3.Zero);
+        foreach (var orc in combat.Mate is { } mate ? [combat.Orc, mate] : new[] { combat.Orc })
+        {
+            var (center, half) = orc.Hull;
+            yield return new CharacterObstacle(orc.Id, new Transform(center, Quaternion.Identity, Vector3.One), -half, half, orc.Alive, Vector3.Zero, Vector3.Zero);
+        }
     }
 }

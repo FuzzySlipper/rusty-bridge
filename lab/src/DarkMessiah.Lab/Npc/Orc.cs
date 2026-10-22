@@ -55,6 +55,9 @@ internal sealed class Orc : IDisposable
     Puppet body;
     readonly Dictionary<string, Puppet?> bodies = new(StringComparer.OrdinalIgnoreCase);
     const ulong OtherBodyIds = 0x4C41_0200;
+    /// <summary>How far apart two orcs' Engine ids are.</summary>
+    internal const ulong SlotIds = 0x1000;
+    readonly ulong ids;
     readonly Random random = new(1);
     OrcTuning tuning;
     float downSeconds, pushLeft;
@@ -86,21 +89,24 @@ internal sealed class Orc : IDisposable
     float fallFromCycle, fallElapsed = float.PositiveInfinity;
     Vector3 pushDirection;
 
-    internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning)
+    /// <param name="slot">Which of the lab's orcs it is: 0 the one the player fights, 1 its squad-mate (R10154-1); each
+    /// slot's Engine ids are <see cref="SlotIds"/> apart.</param>
+    internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning, int slot = 0)
     {
         this.engine = engine;
         this.donor = donor;
         this.tuning = tuning;
-        body = ownBody = new Puppet(engine, donor.Model(Model), BodyId);
+        ids = (ulong)slot * SlotIds;
+        body = ownBody = new Puppet(engine, donor.Model(Model), BodyId + ids);
         bodies[Model] = ownBody;
-        cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId);
-        shield = new Puppet(engine, donor.Model(Shield), ShieldId);
+        cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId + ids);
+        shield = new Puppet(engine, donor.Model(Shield), ShieldId + ids);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
         mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
         stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
         defence = new OrcDefence(OrcDefenceData.Read(donor, Model));
         stamina = new OrcStamina(OrcStaminaData.Read(donor, Model));
-        perception = new OrcPerception(OrcPerceptionData.Read(donor));
+        perception = new OrcPerception(OrcPerceptionData.Read(donor, Model));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
@@ -113,6 +119,12 @@ internal sealed class Orc : IDisposable
 
     /// <summary>Its wait since its last attack began is over: in a stance it may attack.</summary>
     internal bool MayAttack => mind.Ready;
+    /// <summary>Its body's Engine id (its character obstacle's too).</summary>
+    internal ulong Id => BodyId + ids;
+    /// <summary>It saw the player this step, unaware before (R10154-1): its squad-mates within reach are called.</summary>
+    internal bool Spotted { get; private set; }
+    /// <summary>Whether it sees at all: not in a map the settings' <c>nostealth</c> block lists (<c>combat.json</c> <c>orc.map</c>).</summary>
+    internal bool Sees => perception.Data.Sees(tuning.Map);
     /// <summary>Seconds left in its clip at the rate it plays.</summary>
     internal float ClipLeft => (1 - Cycle) * body.Model.Clip(Clip).Seconds / (State == OrcState.Attack ? AttackSpeed : 1);
     /// <summary>A fixed wait between attacks, seconds, in place of the mode's random one: for the smoke.</summary>
@@ -258,7 +270,7 @@ internal sealed class Orc : IDisposable
     {
         model = VpkIndex.Normalize(model);
         if (bodies.TryGetValue(model, out var puppet)) return puppet;
-        puppet = donor.Read(Path.ChangeExtension(model, ".glb")) is null ? null : new Puppet(engine, donor.Model(model), OtherBodyIds + (ulong)bodies.Count);
+        puppet = donor.Read(Path.ChangeExtension(model, ".glb")) is null ? null : new Puppet(engine, donor.Model(model), OtherBodyIds + ids + (ulong)bodies.Count);
         bodies[model] = puppet;
         return puppet;
     }
@@ -287,6 +299,7 @@ internal sealed class Orc : IDisposable
     internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0, PlayerGait gait = PlayerGait.Running)
     {
         clock += seconds;
+        Spotted = false;
         var blows = new List<OrcBlow>();
         // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
         // while the NPC is flagged attacking, +0x2DFD59, and when its attack task completes, +0x2B06D2).
@@ -322,7 +335,12 @@ internal sealed class Orc : IDisposable
         {
             case OrcState.Quiet:
                 // Unaware (#10154): it idles where it stands, facing as it was, until it hears the player.
-                if (perception.Step(seconds, units, gait)) Play(OrcState.Alarmed, ClipNamed("surprised") ?? "combatidle");
+                // It sees in a map with stealth (R10154-2), it hears, or a squad-mate's call reaches it (R10154-1).
+                var noticed = perception.Step(seconds, units, gait, Sees && perception.Data.InSight(Facing, toPlayer, units));
+                Spotted = noticed == AwareBy.Seen;
+                // Called, the donor's squad-mate ran in without the surprised clip (l05_a-v18-call-l05).
+                if (noticed == AwareBy.Called) Play(OrcState.Ready, "combatidle");
+                else if (noticed != AwareBy.None) Play(OrcState.Alarmed, ClipNamed("surprised") ?? "combatidle");
                 else if (done) Play(OrcState.Quiet, IdleClips[random.Next(IdleClips.Length)]);
                 break;
             case OrcState.Alarmed:
@@ -734,6 +752,16 @@ internal sealed class Orc : IDisposable
         ragdoll = null;
         ragdollPending = false;
     }
+
+    /// <summary>Turns it to face <paramref name="direction"/> (flat): a developer placement.</summary>
+    internal void Face(Vector3 direction)
+    {
+        var flat = direction with { Y = 0 };
+        if (flat.LengthSquared() > 1e-8f) Facing = Vector3.Normalize(flat);
+    }
+
+    /// <summary>A squad-mate saw the player (R10154-1): unaware, it comes to fight <see cref="OrcPerceptionData.CallDelay"/> later.</summary>
+    internal void Call() => perception.Call();
 
     /// <summary>Moves the orc's feet (a developer placement).</summary>
     internal void PlaceAt(Vector3 feet) => Feet = feet;

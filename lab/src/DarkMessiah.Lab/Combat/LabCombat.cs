@@ -85,6 +85,7 @@ internal sealed class LabCombat : IDisposable
         Sword = new PlayerSword(FirstPerson.Clips(FirstPerson.Weapon, tuning));
         Orc = new Orc(engine, donor, tuning.Orc);
         this.donor = donor;
+        Mates(tuning.Orc);
         staminaRules = StaminaRules.From(donor);
         Stamina = new PlayerStamina(staminaRules);
         PlayerHealth = tuning.PlayerHealth;
@@ -254,11 +255,36 @@ internal sealed class LabCombat : IDisposable
     /// <summary>How much of the movement input moves the body now.</summary>
     internal float MovementScale => Sword.Busy ? Tuning.AttackMovementScale : 1;
 
+    /// <summary>
+    /// The first orc's squad-mate (R10154-1; <c>combat.json</c> <c>orc.squadMate</c>), or none: an orc that sees the
+    /// player calls the other if it stands within <c>SquadAwarnessDist</c> (500 units), which comes to fight 2.4 s later.
+    /// </summary>
+    internal Orc? Mate { get; private set; }
+
+    /// <summary>The squad's calls: whichever orc saw the player this step calls the other, within reach.</summary>
+    void Squad()
+    {
+        if (Mate is null) return;
+        float apart = Vector3.Distance(Orc.Feet with { Y = 0 }, Mate.Feet with { Y = 0 }) / SourceSpace.MetresPerUnit;
+        if (apart > Orc.Perception.Data.SquadDistance) return;
+        if (Orc.Spotted && Mate.Alive) Mate.Call();
+        if (Mate.Spotted && Orc.Alive) Orc.Call();
+    }
+
     internal void Retune(CombatTuning next)
     {
         Tuning = next;
         Sword.Retune(FirstPerson.Clips(Weapon, next));
         Orc.Retune(next.Orc);
+        Mates(next.Orc);
+    }
+
+    /// <summary>The squad-mate as the tuning asks: made, retuned to stand at its place (from its next spawn), or gone.</summary>
+    void Mates(OrcTuning orc)
+    {
+        if (orc.SquadMate is not { } at) { Mate?.Dispose(); Mate = null; return; }
+        if (Mate is null) { Mate = new Orc(engine, donor, orc with { Spawn = at }, slot: 1); return; }
+        Mate.Retune(orc with { Spawn = at });
     }
 
     /// <summary>One admitted step of the fight.</summary>
@@ -290,7 +316,11 @@ internal sealed class LabCombat : IDisposable
         }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
-        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, Gait(seconds, feet, sprinting, crouched)) : Orc.Follow(orcPose, seconds);
+        var gait = Gait(seconds, feet, sprinting, crouched);
+        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
+        // Its squad-mate fights on its own and doesn't see the player's swings: the player's blows land only on the first orc.
+        var mateBlows = Mate is { } mate && orcPose is null ? mate.Step(seconds, feet, IncomingSwing.None, 0, gait) : [];
+        Squad();
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
@@ -303,7 +333,8 @@ internal sealed class LabCombat : IDisposable
             decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
         }
-        foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward);
+        foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward, Orc);
+        foreach (var blow in mateBlows) OrcStrikes(tick, blow, feet, forward, Mate!);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { PlayerHealth = Tuning.PlayerHealth; deadSeconds = 0; Message = "Back on your feet"; }
     }
 
@@ -675,26 +706,26 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The player's strength, from the build's <c>extra_damage</c> level (<see cref="CombatData.PlayerStrength"/>).</summary>
     internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
 
-    void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet, Vector3 forward)
+    void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet, Vector3 forward, Orc striker)
     {
         OrcStats = OrcStats with { Blows = OrcStats.Blows + 1 };
-        Vector3 toPlayer = (feet - Orc.Feet) with { Y = 0 };
+        Vector3 toPlayer = (feet - striker.Feet) with { Y = 0 };
         // The donor's reach test, in Source units on its axes (lab X is Source Y, lab Z Source X).
         static Vector2 Source(Vector3 v) => new Vector2(v.Z, v.X) / SourceSpace.MetresPerUnit;
         var reach = model.Reach(new ReachCase((int)tick, "npc_orc_sword", Npc.Orc.Model, blow.Attack, blow.Part, "player",
-            Source(toPlayer), Vector2.Normalize(Source(Orc.Facing)), Reaches.PlayerHalfWidth, false));
+            Source(toPlayer), Vector2.Normalize(Source(striker.Facing)), Reaches.PlayerHalfWidth, false));
         LastOrcReach = reach;
         if (!reach.Lands) return;
-        Orc.Landed(blow);
+        striker.Landed(blow);
         OrcStats = OrcStats with { Reached = OrcStats.Reached + 1 };
-        var orc = Orc.Party() with { Cycle = blow.Cycle };
+        var orc = striker.Party() with { Cycle = blow.Cycle };
         bool broken = false;
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
         float asked = model.Damage(new DamageCase((int)tick, player, orc, "weapon_arxorccleaver", null, 0x4, 0, 0, PlayerHealth, PlayerHealth, false,
             blow.Part, Npc.Orc.Cleaver)) ?? 0;
         if (Blocking)
         {
-            Vector3 look = forward with { Y = 0 }, toOrc = (Orc.Feet - feet) with { Y = 0 };
+            Vector3 look = forward with { Y = 0 }, toOrc = (striker.Feet - feet) with { Y = 0 };
             float front = look.LengthSquared() > 1e-6f && toOrc.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(look), Vector3.Normalize(toOrc)) : 1;
             var outcome = model.PlayerBlock(new ParryCase((int)tick, orc, DefenseResult.PlayerParried, blow.Part), front, Shield!.ParryCos);
             if (outcome == DefenseResult.PlayerParried)
@@ -744,7 +775,7 @@ internal sealed class LabCombat : IDisposable
 
     /// <summary>What to draw: the arms, the sword and the orc.</summary>
     /// <summary>What to draw: the arms and weapon (none while the hands are taken), and the orc.</summary>
-    internal IEnumerable<AppearanceFact> Facts() => Sword.Move == SwordMove.Away ? Orc.Facts() : FirstPerson.Facts().Concat(Orc.Facts());
+    internal IEnumerable<AppearanceFact> Facts() => (Sword.Move == SwordMove.Away ? Orc.Facts() : FirstPerson.Facts().Concat(Orc.Facts())).Concat(Mate?.Facts() ?? []);
 
     /// <summary>The overlay set <c>lab.combat</c>: each traced step of the recent swings (green struck, blue parried or blocked, grey nothing) and the orc's reach.</summary>
     internal void Present(double hostSeconds)
@@ -785,6 +816,8 @@ internal sealed class LabCombat : IDisposable
         SlowTimeRequests.Clear();
         Orc.Reseed();
         Orc.Spawn();
+        Mate?.Reseed();
+        Mate?.Spawn();
         PlayerHealth = Tuning.PlayerHealth;
         recent.Clear();
         Player = default;
@@ -798,6 +831,7 @@ internal sealed class LabCombat : IDisposable
     {
         FirstPerson.Dispose();
         Orc.Dispose();
+        Mate?.Dispose();
         session.Dispose();
     }
 }

@@ -1,0 +1,316 @@
+{
+  "description": "Sight (#10154, R10154-2) in l05_a, after its 40 s intro, the map's NPCs removed, the player hidden (notarget) while orcs are spawned and placed: one orc at (-7, 4978) facing -Y, the player standing still 300 units off 10, 15 and 20 degrees and 525 straight ahead, 8 s each. Its first four rounds, meant for calls, spawned the second orc from (566, 1100), where it died at once (call-l05 spawns both from (266, 1100)): only the first orc in each counts.",
+  "seconds": 216.0,
+  "launch": [
+    "-condebug",
+    "-console",
+    "-window",
+    "-w",
+    "1280",
+    "-h",
+    "720",
+    "-novid",
+    "+map",
+    "l05_a"
+  ],
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 40
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_seagull",
+    "ent_remove_all npc_facehugger",
+    "ent_remove_all npc_spider_mini",
+    "ent_remove_all npc_crow",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_wizard",
+    "ent_remove_all npc_paokai",
+    "ent_remove_all npc_Leanna",
+    "ent_remove_all npc_furniture",
+    "ent_remove_all npc_orc_chief",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orca\"",
+    {
+      "wait": 0.3
+    },
+    "setpos 566 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword setsquad rbsquad",
+    "ent_fire npc_orc_sword addoutput \"origin 293 4978 -905\"",
+    "ent_fire orca addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4578 -650",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 10
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orca\"",
+    {
+      "wait": 0.3
+    },
+    "setpos 566 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin 293 4978 -905\"",
+    "ent_fire orca addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4578 -650",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 10
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orca\"",
+    {
+      "wait": 0.3
+    },
+    "setpos 566 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword setsquad rbsquad",
+    "ent_fire npc_orc_sword addoutput \"origin 593 4978 -905\"",
+    "ent_fire orca addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4578 -650",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 10
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orca\"",
+    {
+      "wait": 0.3
+    },
+    "setpos 566 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword setsquad rbsquad",
+    "ent_fire npc_orc_sword addoutput \"origin 993 4978 -905\"",
+    "ent_fire orca addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4578 -650",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 10
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos 45 4683 -650",
+    "setang 0 100 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 8
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos 71 4688 -650",
+    "setang 0 105 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 8
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos 96 4696 -650",
+    "setang 0 110 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 8
+    },
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4453 -650",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "notarget",
+    {
+      "wait": 8
+    },
+    "notarget"
+  ]
+}

@@ -142,7 +142,9 @@ front, and input would land in them.
   the player died in one such run and the game stopped ticking. Run those on a fresh launch.
 
 To add one, copy a file, change its setup and play, publish, and run it. Recordings of skills or items other than
-the arena's go in `local/recordings/experiments/` (the lab's replays of `local/recordings` expect fights).
+the arena's go in `local/recordings/experiments/` (the lab's replays of `local/recordings` expect fights). Perception
+recordings whose orcs fight a god-mode player standing still (`squad-probe` and the l05_a ones) go in `local/perception/`, which only the
+perception checks read: their fights would skew the orc's behaviour and defence calibrations.
 
 | Scenario | Setup | Play |
 | --- | --- | --- |
@@ -167,6 +169,9 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `perception-front` | the same, the orc facing the player | standing 1400, 1000, 600 and 300 units in front for 8 s; a crouched walk from 1000 |
 | `sneak-attack` | the same, the orc facing away with 1000 health | 55 units behind it: a power attack, a fast attack, a power attack |
 | `call-for-help` | the same, two orcs facing away, the second 400 then 1000 units to the side (spawned from elsewhere, or it lands on the first) | 55 units behind the first, a power attack, then 8 s |
+| `squad-probe` | the same, both orcs put in one squad (`ent_fire npc_orc_sword setsquad rbsquad`; Dark Messiah handles `SetSquad`, which `developer 2` shows) | the second 400, 600 and 1000 units to the side; the first struck from behind: none came |
+| `sight-l05`, `sight-l05b`, `sight-l05c` | `+map l05_a` (`launch`; not in `nostealth`), a 40 s wait for its intro (setpos does nothing before), every skill, the short sword, the map's NPCs removed; `notarget` on while each orc is spawned and placed (b and c) | an orc spawned from (266, 1100) looking north, so it faces south, moved to (-7, 4978); the player standing still in front of it at 1700 down to 300 units, and 10° to 60° off, 8 s each |
+| `call-l05` | the same | two orcs both spawned from (266, 1100) (a second spawn from (566, 1100) dies at once), the second beside or beyond the first, in one squad or none; the player appearing 400 units ahead of the first, or striking it from behind, 10 s each |
 | `backstab` | every skill, the kryss daggers, an unaware orc (`ai_disable 1`) spawned for each try and turned away | approached from behind to 25-100 units, tapped 0.3-1.3 s after; landed at 40, 60 and 80 units (the first round, `backstab-1`, once at 35) |
 | `breakneck` | every skill, the combat staff, the same orcs | approached from behind and in front to 20-30 units, tapped or held: no breakneck in 17 tries over two rounds |
 | `sword-timing` | the short sword, a new game's skills | presses 0.15-0.6 s after a kick, holds through B with a strafe or back/forward from 0.15 or 0.35 s in, taps of 1-4 ticks (#10142) |

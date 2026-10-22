@@ -32,6 +32,7 @@
     ],
     "respawnSeconds": 3,
     "walkSpeed": 61,
+    "spawnUnaware": false,
     "attackLandings": {
       "attack_Bash": [41, 59],
       "attack_Fast": [37, 70],

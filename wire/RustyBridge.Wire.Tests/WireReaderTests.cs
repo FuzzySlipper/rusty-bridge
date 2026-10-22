@@ -28,6 +28,9 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(152, (int)Marshal.OffsetOf<WireDamage>(nameof(WireDamage.VictimSequence)));
         Assert.Equal(80, Marshal.SizeOf<WireEntity>());
         Assert.Equal(64, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Parent)));
+        // v18: an NPC's alert level and state in the entity's spare fields (wire.h alert, npc_state).
+        Assert.Equal(58, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Alert)));
+        Assert.Equal(67, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.NpcState)));
         Assert.Equal(232, Marshal.SizeOf<WireClientView>());
         Assert.Equal(12, Marshal.SizeOf<WireClientLayer>());
         Assert.Equal(80, (int)Marshal.OffsetOf<WireClientView>(nameof(WireClientView.CameraX)));

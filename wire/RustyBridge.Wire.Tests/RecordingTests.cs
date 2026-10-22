@@ -333,7 +333,7 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(17u, f.Version);
+        Assert.Equal(18u, f.Version);
         var sweep = Assert.Single(f.Sweeps);
         Assert.Equal((10, (ushort)1, (byte)0, WireSweep.HeadEntity, 100f, 73f, 1f, 120f, 90f, 0x411C55u),
             (sweep.Tick, sweep.Attacker, sweep.Type, sweep.Flags, sweep.StartX, sweep.StartZ, sweep.DirectionY, sweep.Range, sweep.ViewYaw, sweep.Caller));

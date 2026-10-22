@@ -9,7 +9,7 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging }
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed }
 
 /// <summary>One of the orc's attack parts landing this step: the part's index (Arkane's 2102 is 0, 2139 is 1).</summary>
 /// <param name="Window">For a strike window's sweep, the cycle its window opens (the key it lands under); null for a part's blow.</param>
@@ -59,6 +59,7 @@ internal sealed class Orc : IDisposable
     readonly OrcStagger stagger;
     readonly OrcDefence defence;
     readonly OrcStamina stamina;
+    readonly OrcPerception perception;
     int seenSwing = -1, answeredSwing = -1;
     // A small hit playing over whatever it does (#10153), and when the last began.
     string? hitLayer;
@@ -90,6 +91,7 @@ internal sealed class Orc : IDisposable
         stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
         defence = new OrcDefence(OrcDefenceData.Read(donor, Model));
         stamina = new OrcStamina(OrcStaminaData.Read(donor, Model));
+        perception = new OrcPerception(OrcPerceptionData.Read(donor));
         Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
@@ -268,7 +270,8 @@ internal sealed class Orc : IDisposable
     /// <param name="swing">A player's swing coming, as the orc sees it (#10151): from its start until its hit window
     /// closes. The orc answers it once, as soon as it stands ready (R10151-1).</param>
     /// <param name="swingId">Which swing it is (the sword's count), so each is answered once.</param>
-    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0)
+    /// <param name="gait">How the player moves, for an unaware orc's hearing (#10154).</param>
+    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0, PlayerGait gait = PlayerGait.Running)
     {
         clock += seconds;
         var blows = new List<OrcBlow>();
@@ -280,7 +283,8 @@ internal sealed class Orc : IDisposable
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
-        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown) && distance > 1e-3f)
+        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown or OrcState.Quiet)
+            && distance > 1e-3f)
             Facing = toPlayer / distance;
         bool fresh = swing != IncomingSwing.None && swingId != seenSwing;
         if (fresh) seenSwing = swingId;
@@ -301,6 +305,14 @@ internal sealed class Orc : IDisposable
         var data = mind.Data;
         switch (State)
         {
+            case OrcState.Quiet:
+                // Unaware (#10154): it idles where it stands, facing as it was, until it hears the player.
+                if (perception.Step(seconds, units, gait)) Play(OrcState.Alarmed, ClipNamed("surprised") ?? "combatidle");
+                else if (done) Play(OrcState.Quiet, IdleClips[random.Next(IdleClips.Length)]);
+                break;
+            case OrcState.Alarmed:
+                if (done) Play(OrcState.Ready, "combatidle");
+                break;
             case OrcState.Down:
                 downSeconds += seconds;
                 if (downSeconds >= tuning.RespawnSeconds) Spawn();
@@ -409,6 +421,9 @@ internal sealed class Orc : IDisposable
     internal void Damage(float amount)
     {
         if (!Alive || Following) return;
+        // A blow makes it fight at once (#10154), the reaction its blow plays aside.
+        perception.Struck();
+        if (State == OrcState.Quiet) Play(OrcState.Ready, "combatidle");
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; Play(OrcState.Down, "combatidle"); }
     }
@@ -466,6 +481,15 @@ internal sealed class Orc : IDisposable
     /// stamina (R10151-2: server.dll's one flag for both).
     /// </summary>
     internal bool Wounded => Alive && (Health <= stagger.Data.HurtFraction * mind.Data.Health || stamina.Exhausted);
+
+    /// <summary>Its awareness of the player (#10154).</summary>
+    internal OrcPerception Perception => perception;
+
+    /// <summary>Its alert level and NPC state as the damage record carries them: 0 and 1 unaware, 4 and 3 fighting.</summary>
+    internal (int Level, int NpcState) Alert => (perception.AlertLevel, perception.Aware ? 3 : 1);
+
+    /// <summary>The idles an unaware orc plays (<c>idle_0</c>–<c>idle_3</c>), as the recorded ones did before they heard the player.</summary>
+    static readonly string[] IdleClips = ["idle_0", "idle_1", "idle_2", "idle_3"];
 
     /// <summary>Its stamina (R10151-2): spent by its parries, dodges and stuns, never restored.</summary>
     internal OrcStamina Stamina => stamina;
@@ -559,6 +583,13 @@ internal sealed class Orc : IDisposable
         }
     }
 
+    /// <summary>Turns the orc to face <paramref name="direction"/> (a developer placement: an unaware orc keeps it).</summary>
+    internal void TurnTo(Vector3 direction)
+    {
+        direction.Y = 0;
+        if (direction.LengthSquared() > 1e-6f) Facing = Vector3.Normalize(direction);
+    }
+
     /// <summary>Moves the orc's feet (a developer placement).</summary>
     internal void PlaceAt(Vector3 feet) => Feet = feet;
 
@@ -575,11 +606,13 @@ internal sealed class Orc : IDisposable
         stagger.Reset();
         defence.Reset();
         stamina.Reset();
+        perception.Reset(!tuning.SpawnUnaware);
         seenSwing = answeredSwing = -1;
         hitLayer = null;
         lastSmallHit = double.NegativeInfinity;
         wasAttacking = false;
-        Play(OrcState.Approach, "CombatWalk");
+        if (perception.Aware) Play(OrcState.Approach, "CombatWalk");
+        else Play(OrcState.Quiet, "idle_0");
     }
 
     /// <summary>The orc as Dark Messiah's combat model sees it.</summary>

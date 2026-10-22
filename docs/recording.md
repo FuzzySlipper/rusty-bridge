@@ -163,6 +163,10 @@ the arena's go in `local/recordings/experiments/` (the lab's replays of `local/r
 | `weapons-probe` | every skill, the save's empty hands | `give` and `use` each of five weapons, then `use` again: all equip and put away |
 | `telekinesis` | every skill, telekinesis deployed (`Deploy_Spell_AIR_1`), standing 70 units from the start area's jug, looking 11° down at it | three 2.5 s holds: the first lifted it (mana 26.3 to 22.3) |
 | `spells-probe` | every skill | `Deploy_Spell_FIRE_1` and three casts (mana down 4 to 6.6 each), then telekinesis |
+| `perception-behind` | every skill, the short sword, the level's other NPCs removed; a new orc with its AI on for each try at (0, -1500), facing away (it keeps its spawn yaw) | from 800 units behind it: a run, a crouched walk, a sprint; then standing 150 behind it for 8 s |
+| `perception-front` | the same, the orc facing the player | standing 1400, 1000, 600 and 300 units in front for 8 s; a crouched walk from 1000 |
+| `sneak-attack` | the same, the orc facing away with 1000 health | 55 units behind it: a power attack, a fast attack, a power attack |
+| `call-for-help` | the same, two orcs facing away, the second 400 then 1000 units to the side (spawned from elsewhere, or it lands on the first) | 55 units behind the first, a power attack, then 8 s |
 | `backstab` | every skill, the kryss daggers, an unaware orc (`ai_disable 1`) spawned for each try and turned away | approached from behind to 25-100 units, tapped 0.3-1.3 s after; landed at 40, 60 and 80 units (the first round, `backstab-1`, once at 35) |
 | `breakneck` | every skill, the combat staff, the same orcs | approached from behind and in front to 20-30 units, tapped or held: no breakneck in 17 tries over two rounds |
 | `sword-timing` | the short sword, a new game's skills | presses 0.15-0.6 s after a kick, holds through B with a strafe or back/forward from 0.15 or 0.35 s in, taps of 1-4 ticks (#10142) |

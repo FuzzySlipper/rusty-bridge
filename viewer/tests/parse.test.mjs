@@ -43,9 +43,10 @@ function recording(frames, version = 6) {
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
       u16(e.index); u16(e.cls); u32(0);
       for (let k = 0; k < 6; k++) f32(0);
-      f32(30); f32(30); u16(0xffff); u8(1); u8(0); f32(0); f32(0); u32(e.serial);
-      if (version >= 7) { u16(e.link?.[0] ?? 0xffff); u16(0); u32(e.link?.[1] ?? 0); }
-      if (version >= 10) { u16(e.parent?.[0] ?? 0xffff); u8(e.parent?.[2] ?? 0); u8(0); u32(e.parent?.[1] ?? 0); u16(e.parent?.[0] ?? 0xffff); u16(0); u32(e.parent?.[1] ?? 0); }
+      const alerted = version >= 18 && e.alert !== undefined;          // v18: alert and npc_state, flag 4
+      f32(30); f32(30); u16(0xffff); u8(alerted ? 5 : 1); u8(0); f32(0); f32(0); u32(e.serial);
+      if (version >= 7) { u16(e.link?.[0] ?? 0xffff); u16(alerted ? e.alert : 0); u32(e.link?.[1] ?? 0); }
+      if (version >= 10) { u16(e.parent?.[0] ?? 0xffff); u8(e.parent?.[2] ?? 0); u8(alerted ? e.npcState ?? 0 : 0); u32(e.parent?.[1] ?? 0); u16(e.parent?.[0] ?? 0xffff); u16(0); u32(e.parent?.[1] ?? 0); }
     }
     u32(0);                                                          // removed
     u32(0); u32(damage.length);
@@ -232,6 +233,19 @@ test('v17: the melee sweeps after the stats', () => {
   assert.deepEqual([s.attacker, s.type, s.range, s.caller], [1, 0, 120, 0x411c55]);
   assert.equal(JSON.stringify([s.start, s.direction, s.viewAngles]), '[[1,2,64],[0,1,0],[0,90,0]]');
   assert.equal(rec.frames[1].sweeps.length, 0);
+});
+
+test('v18: an NPC\'s alert level and state every tick', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, { ...orc, alert: 0, npcState: 1 }], wall: 1.0, input: { buttons: 0, pressed: 0 } },
+    { tick: 11, entities: [player, { ...orc, alert: 2, npcState: 3 }], wall: 1.1, input: { buttons: 0, pressed: 0 } },
+  ], 18));
+  const t = rec.tracks.find((t) => t.cls === 'npc_orc_sword');
+  assert.deepEqual([...t.alert], [0, 2]);
+  assert.deepEqual([...t.npcState], [1, 3]);
+  assert.equal(rec.tracks.find((t) => t.cls === 'player').alert[0], null);
+  const old = context.parseRecording(recording([{ tick: 10, entities: [player, { ...orc, alert: 2 }], wall: 1.0, input: { buttons: 0, pressed: 0 } }], 17));
+  assert.equal(old.tracks.find((t) => t.cls === 'npc_orc_sword').alert[0], null);
 });
 
 test('v13: a blow carries the victim\'s animation as it arrived', () => {

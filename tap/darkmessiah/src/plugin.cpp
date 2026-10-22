@@ -731,10 +731,30 @@ static uint16_t LinkedEntity(const unsigned char* ent, int offset, const char* p
     return index;
 }
 
+// Read by the melee routine (server.dll+0x407D70) for the not-alerted multiplier:
+// abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level and [npc+0x1A5C] != 3.
+static const int kAlertLevelOffset = 0x36EC, kNpcStateOffset = 0x1A5C;
+
+// v18: an NPC's alert level (the magnitude of +0x36EC) and state (+0x1A5C), every tick: the damage record's
+// fields (v11), so the alert level is seen climbing as the player approaches (docs/wire.md, "Alertness").
+static void WriteAlert(const char* cls, const unsigned char* ent, wire::Entity& w) {
+    w.alert = 0;
+    w.npc_state = 0;
+    if (!cls || strncmp(cls, "npc_", 4) != 0) return;
+    __try {
+        int alert = *(const int*)(ent + kAlertLevelOffset);
+        w.alert = (uint16_t)(alert < 0 ? -alert : alert);
+        w.npc_state = *(ent + kNpcStateOffset);
+        w.flags |= wire::kHasAlert;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        w.alert = 0;
+        w.npc_state = 0;
+    }
+}
+
 static void WriteLink(const char* cls, const unsigned char* ent, wire::Entity& w) {
     w.link = wire::kNoEntity;
     w.link_serial = 0;
-    w.reserved = 0;
     if (!cls) return;
     __try {
         if (!strncmp(cls, "npc_", 4)) w.link = LinkedEntity(ent, kRagdollFallOffset, "prop_ragdoll", w.link_serial);
@@ -761,7 +781,6 @@ static void WriteParent(const char* cls, const unsigned char* ent, wire::Entity&
     w.parent = w.owner = wire::kNoEntity;
     w.parent_serial = w.owner_serial = 0;
     w.parent_attachment = 0;
-    w.reserved2 = 0;
     w.reserved3 = 0;
     __try {
         if (g_moveParentOff >= 0) {
@@ -1206,6 +1225,7 @@ static void WireWrite() {
             }
             WriteLink(cls.ptr, ent, w);
             WriteParent(cls.ptr, ent, w);
+            WriteAlert(cls.ptr, ent, w);
             ++count;
             // After the entity is counted: a fault here loses only its layers.
             if (cls.props.overlay) WriteLayers((unsigned char*)ent, (uint16_t)i, layers, layerCount, layerDropped);
@@ -1338,9 +1358,6 @@ static uint32_t WielderOf(uint16_t index) {
     return owner;
 }
 
-// Read by the melee routine (server.dll+0x407D70) for the not-alerted multiplier:
-// abs([npc+0x36EC]) <= mul_damages_Npc_Not_alerted_level and [npc+0x1A5C] != 3.
-static const int kAlertLevelOffset = 0x36EC, kNpcStateOffset = 0x1A5C;
 // The attacker's critical byte: the melee routine's DmgCrit is DmgBase x (1 + (byte != 0)).
 static const int kCriticalOffset = 0x21F7;
 

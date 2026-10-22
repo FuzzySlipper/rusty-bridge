@@ -637,6 +637,36 @@ small ones up by index in each NPC class's sequence cache (+0x2C0F40, read throu
 - **Not read:** the selector in server.dll (the measured rule stands in for it), and the electrocuted, disarmed and
   shield hits (`Hit_electrocuted`, `Hit_Disarmed`, `Hit_Shield`).
 
+### Perception
+
+An orc can be unaware of the player (#10154; `Npc/OrcPerception.cs`; `combat.json` `orc.spawnUnaware`, off by
+default, so the arena's orc walks in to fight). Its alert level is server.dll's (NPC +0x36EC, which Wire v18 streams
+every tick; docs/wire.md, "Alertness"): 0 unaware, 4 fighting. Measured in four scenarios on l01_a with the level's
+other NPCs removed (docs/recording.md; `PerceptionCalibration`):
+
+| The player | The recorded orcs | The lab |
+| --- | --- | --- |
+| Standing still in plain view 300, 600, 1000 units in front, or 150 behind, for 8 s | never noticed | never notices: it doesn't see (l01_a is in the settings' `nostealth` list) |
+| Crouched, walking up from 1000 in front to 558, or from 800 behind to 458 | never noticed | hears a crouched step (`SoundPresenceDist_Inaudible`) at 100 units |
+| Running (180 units a second) or sprinting up from behind | alert 1, 3, then 4: heard 1.4 s after the player came within 500 units (at 260 and 119 units, both times) | hears a run within `SoundPresenceDist_Big` (500) after `delayhear` (1 s) and 0.4 s of thinking; a walk within `_Average` (300) |
+| Striking it | 0 to 4 on the blow's tick (3 of 3) | a blow makes it fight at once |
+
+- **Unaware**, it idles where it stands (`idle_0`–`idle_3`), facing as it was, and doesn't defend (the defence's gate,
+  +0x2A8856, needs the NPC's combat state); hearing the player it plays `surprised`, then fights.
+- **Its damage:** a blow on an unaware orc (alert 0, state 1) asks the settings' `mul_damages_Npc_Not_alerted` ×3
+  (`CombatModel`, now from the lab's own orc): the recorded sneak attacks asked 36 = 3 × 12 (power) and 16.8 = 3 ×
+  5.6 (fast), as the model asks them.
+- **The backstab** readies on an unaware orc's turned back (it idles, never on guard) and kills it, as the daggers'
+  does (#10148).
+- **Against the recordings** (the smoke): the lab's rule, run on each recorded approach's path and gaits, notices
+  when the donor's orc did, within 0.1 s, and not otherwise: 10 of 10.
+- **Calls for help:** none recorded. A second orc 400 and 1000 units from one the player struck stayed idle for 8 s
+  (`call4helpdist` is 700): orcs spawned by `mm_npc_create` belong to no squad (`SquadAwarnessDist`), and the arena's
+  NPCs that do were removed. The lab has one orc; a second answering a call waits on #10155's NPCs and a recording
+  with squads.
+- **Factions** (`mm_relationship.txt`): orcs like orcs and hate the rest, the player, guards, goblins and ghouls
+  included. The lab's one orc has only the player to hate.
+
 ## Calibration
 
 `lab/tests/DarkMessiah.Lab.Smoke` measures the moves against every local recording of Wire v9 or later. Those recordings carry the client's view-model layers.

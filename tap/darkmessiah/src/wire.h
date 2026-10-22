@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 17;
+const uint32_t kVersion = 18;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -75,6 +75,7 @@ struct SlotHeader {
 
 const uint8_t kHasHealth = 1;       // health, max_health and life_state are valid
 const uint8_t kHasAnimation = 2;    // sequence, cycle and playback_rate are valid
+const uint8_t kHasAlert = 4;        // v18: alert and npc_state are valid (npc_* entities)
 
 struct Entity {
     uint16_t index;             // edict index
@@ -94,12 +95,12 @@ struct Entity {
     uint16_t link;              // the entity it stands in for or with: an NPC's knockdown ragdoll
                                 //   (m_hRagdollFall, +0x29E4), a prop_ragdoll's NPC (m_hUnragdoll,
                                 //   +0x16A0); kNoEntity when none
-    uint16_t reserved;
+    uint16_t alert;             // v18 (reserved before): an npc_*'s alert level, the magnitude of +0x36EC
     uint32_t link_serial;       // the linked entity's serial; 0 with kNoEntity
     // v10
     uint16_t parent;            // m_hMoveParent: what the entity is attached to; kNoEntity when none
     uint8_t parent_attachment;  // m_iParentAttachment: 1-based into the parent model's attachments; 0 = none
-    uint8_t reserved2;
+    uint8_t npc_state;          // v18 (reserved before): an npc_*'s state, +0x1A5C (3 combat)
     uint32_t parent_serial;
     uint16_t owner;             // m_hOwnerEntity, or a weapon's m_hOwner when that is empty; kNoEntity when none
     uint16_t reserved3;

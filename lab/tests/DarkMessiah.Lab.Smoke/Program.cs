@@ -680,6 +680,37 @@ host.Call(engine =>
         Check(!orc.Wounded && orc.Stamina.Left == full, "a new orc has its stamina back");
     }
 
+    // Perception (#10154): the lab's hearing against every recorded approach on an unaware orc (Wire v18), and the
+    // donor's sneak attacks: an unaware orc's alert level is 0 and a blow asks ×3.
+    {
+        var approaches = PerceptionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories),
+            orc.Perception.Data);
+        foreach (var a in approaches)
+            Console.WriteLine(FormattableString.Invariant($"  approach {a.Recording} {a.Orc} {a.Gaits}, closest {a.Closest:0}: donor {(a.Donor is double d ? $"noticed at {d:0.00} s" : "never")}, lab {(a.Lab is double l ? $"at {l:0.00} s" : "never")}"));
+        var noticed = approaches.Where(a => a.Donor is not null).ToList();
+        bool agree(ApproachCase a) => a.Donor is null ? a.Lab is null : a.Lab is double l && Math.Abs(l - a.Donor.Value) <= .6;
+        Check(approaches.Count >= 8 && noticed.Count >= 2 && approaches.Count(a => a.Donor is null) >= 4 && approaches.All(agree),
+            FormattableString.Invariant($"an unaware orc notices the player when the donor's did, within 0.6 s, and not otherwise: {approaches.Count(agree)} of {approaches.Count} recorded approaches ({noticed.Count} noticed, by a run or sprint within 500 units; none still or crouched, behind or in front)"));
+        var sneak = new List<(DamageCase Case, string Recording)>();
+        foreach (var path in Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*sneak-attack*.rbrec", SearchOption.AllDirectories))
+        {
+            // The scenario gives every skill: the player's strength from its recorded extra_damage level (#10146).
+            int extraDamage = 0;
+            using (var statsStream = File.OpenRead(path))
+                foreach (var f in RecordingReader.Frames(statsStream)) if (f.Stats.Valid != 0) { extraDamage = f.Stats.SkillLevel("extra_damage"); break; }
+            float strength = combat.Model.Data.PlayerStrength(extraDamage);
+            using var stream = File.OpenRead(path);
+            foreach (var d in DarkMessiah.Combat.Blows.Read(Path.GetFileNameWithoutExtension(path), stream).Damage)
+                if (d.Attacker.IsPlayer && d.Victim.Class == "npc_orc_sword" && d.VictimAlert is not null) sneak.Add((d with { PlayerStrength = strength }, path));
+        }
+        // Each blow on an unaware orc as the model asks it, and the same blow had the orc been fighting (alert 4, state 3).
+        var unaware = sneak.Where(x => x.Case.VictimAlert == 0)
+            .Select(x => (x.Case, Unaware: combat.Model.Damage(x.Case) ?? float.NaN, Aware: combat.Model.Damage(x.Case with { VictimAlert = 4, VictimNpcState = 3 }) ?? float.NaN)).ToList();
+        foreach (var u in unaware) Console.WriteLine(FormattableString.Invariant($"  sneak {u.Case}: recorded {u.Case.Requested:0.##}, model {u.Unaware:0.##}, aware {u.Aware:0.##}"));
+        Check(unaware.Count >= 3 && unaware.All(u => MathF.Abs(u.Unaware - u.Case.Requested) < 1e-3f && MathF.Abs(u.Unaware - 3 * u.Aware) < 1e-3f),
+            FormattableString.Invariant($"the donor's blows on an unaware orc (alert 0) asked ×3, as the model asks them: {string.Join(", ", unaware.Select(u => $"{u.Case.Requested:0.#} = 3 × {u.Aware:0.#}"))}"));
+    }
+
     // Hit reactions (#10153): the lab's rule against every recorded player blow on an orc.
     {
         var reactions = ReactionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
@@ -957,6 +988,55 @@ host.Call(engine =>
         orc.Spawn();
     }
 
+    // Perception through the combat (#10154): an unaware orc stays so with the player standing behind it, hears a run
+    // within 500 units 1.4 s on, and a sneak attack asks ×3 and makes it fight.
+    {
+        var tuned = combat.Tuning;
+        combat.Retune(tuned with { Orc = tuned.Orc with { SpawnUnaware = true } });
+        orc.Hold = false;
+        Vector3 look = Vector3.Normalize(product.Player.Forward with { Y = 0 });
+        Vector3 feet = product.Player.Feet, eye = product.Player.Eye;
+        void Unaware(float metres)
+        {
+            orc.Spawn();
+            orc.PlaceAt(feet + look * metres);
+            orc.TurnTo(look);
+        }
+        float Seconds(Func<bool> until, Func<int, Vector3> at, float limit)
+        {
+            float t = 0;
+            for (int i = 0; t < limit && !until(); i++, t += Tick)
+                combat.Step(Tick, step++, false, false, false, at(i) + (eye - feet), look, at(i));
+            return t;
+        }
+        Unaware(150 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+        Seconds(() => false, _ => feet, 3);
+        bool stillQuiet = orc.State == OrcState.Quiet && !orc.Perception.Aware;
+        // A run from 800 units behind it at the donor's 180 units a second.
+        Unaware(800 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+        float run = 180 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit * Tick;
+        float heardAfter = Seconds(() => orc.Perception.Aware, i => feet + look * run * i, 8);
+        float units = (800 - 180 * heardAfter);
+        float inReach = (800 - 500) / 180f;
+        string alarm = orc.Clip;
+        Check(stillQuiet && orc.Perception.Aware && Math.Abs(heardAfter - inReach - orc.Perception.Data.HearDelay) <= 2 * Tick && alarm == "surprised",
+            FormattableString.Invariant($"an unaware orc doesn't notice a player standing 150 units behind it for 3 s, and hears one running up {heardAfter - inReach:0.00} s after they come within 500 units ({units:0} off), playing {alarm}"));
+        // A sneak attack: a power attack on its back asks ×3, and it fights.
+        Unaware(1.1f);
+        var asleep = orc.Alert;
+        int hits = combat.Player.Hits;
+        for (int i = 0; i < 40; i++) combat.Step(Tick, step++, true, false, false, eye, look, feet);
+        for (int i = 0; i < 60 && combat.Player.Hits == hits; i++) combat.Step(Tick, step++, false, false, false, eye, look, feet);
+        var blow = combat.LastBlow;
+        var party = new DarkMessiah.Combat.Party("player", "", [blow?.Move ?? ""], blow?.Cycle ?? 0, "#1", LabCombat.PlayerModel);
+        float awareAsk = combat.PlayerAsks(party, orc.Party(), blow?.Group, kick: false, 1000, alert: (4, 3));
+        Check(asleep == (0, 1) && blow is { Damage: > 0 } && MathF.Abs(blow.Damage - 3 * awareAsk) < 1e-3f && orc.Perception.Aware && orc.State != OrcState.Quiet,
+            FormattableString.Invariant($"a sneak attack on its back asks ×3 ({blow?.Damage:0.#} against {awareAsk:0.#} aware, alert {asleep.Level}), and it fights after: alert {orc.Alert.Level}, {orc.State}"));
+        combat.Retune(tuned);
+        orc.Hold = true;
+        orc.Spawn();
+    }
+
     // A jump attack fells only after the player has dropped 50 units below where they left the ground (R10152-1),
     // through the combat: ten from 30 units up, ten from 60, each a press in the air held through the wind-up.
     {
@@ -1214,6 +1294,29 @@ host.Call(engine =>
                 $"through the combat, the orc turning as attack goes down lets the readied backstab go, with no blow ({afterTurn}, hits {combat.Player.Hits - hitsBefore})");
             Check(back == SwordMove.BackstabIn && guarded == SwordMove.Ready && facingPlayer == SwordMove.Ready,
                 $"the backstab readies on an orc's turned back ({back}), not on one on guard ({guarded}) or facing the player ({facingPlayer})");
+        }
+        // The lab's own orc, unaware (#10154): idling with its back turned it is no guard, the backstab readies, and the
+        // blow kills it (die_backstabbed).
+        {
+            var tuned = combat.Tuning;
+            combat.Retune(tuned with { Orc = tuned.Orc with { SpawnUnaware = true } });
+            combat.Reset();
+            Vector3 eye = product.Player.Eye, look = Vector3.Normalize(product.Player.Forward with { Y = 0 }), at = product.Player.Feet;
+            combat.Orc.PlaceAt(at + look * 1.2f);
+            combat.Orc.TurnTo(look);
+            for (int i = 0; i < 60 && combat.Sword.Move != SwordMove.BackstabIdle; i++) combat.Step(Tick, step++, false, false, false, eye, look, at);
+            bool readied = combat.Sword.Move == SwordMove.BackstabIdle && combat.Orc.State == OrcState.Quiet;
+            combat.Step(Tick, step++, true, false, false, eye, look, at);
+            string stabbed = "";
+            for (int i = 0; i < 120 && combat.Orc.Alive; i++)
+            {
+                combat.Step(Tick, step++, false, false, false, eye, look, at);
+                if (combat.Orc.State == OrcState.Backstabbed) stabbed = combat.Orc.Clip;
+            }
+            Check(readied && stabbed == "die_backstabbed" && !combat.Orc.Alive,
+                $"the daggers' backstab readies on the lab's own unaware orc, its back turned in its idle, and kills it ({stabbed})");
+            combat.Retune(tuned);
+            combat.Reset();
         }
         // Both daggers are drawn (R10148-3), one in each hand, through a chain of taps; switching away leaves one weapon.
         var blades = new List<int>();

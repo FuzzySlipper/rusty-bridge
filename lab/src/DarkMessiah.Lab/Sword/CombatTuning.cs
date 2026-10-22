@@ -96,7 +96,8 @@ internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases
 /// <param name="WalkSpeed">How fast it walks in, Source units a second: the donor's orcs covered a median 61 between
 /// position updates while playing CombatWalk (whose root motion would be 96: Source's navigator moves an NPC slower
 /// than its walk clip's feet), fitted by <c>OrcCalibration</c> (R10150-2).</param>
-internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings);
+/// <param name="SpawnUnaware">A new orc is unaware of the player (#10154): it idles until it hears the player or is struck.</param>
+internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings, bool SpawnUnaware = false);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

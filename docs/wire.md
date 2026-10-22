@@ -1,4 +1,4 @@
-# Wire v16
+# Wire v18
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -32,11 +32,12 @@ player's input carries its user commands as the server received them: the
 movement, the buttons and Arkane's action bytes, the kick among them. Since v15 each tick carries the
 player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn, and since v16
 each skill's level. Since v17 each tick carries the melee sweeps the server ran: the start, direction and range of each
-ray it swept for a swing. A control file beside the Wire holds the donor
+ray it swept for a swing. Since v18 every NPC carries its alert level and state each tick (they were on damage
+records only), so its alertness is seen climbing. A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v16 replaced v1 between 2026-10-17 and 2026-10-19. Readers check `version`; the tap writes
+v2–v18 replaced v1 between 2026-10-17 and 2026-10-22. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
@@ -96,17 +97,17 @@ Entities:
 | 32 | `health` f32 | `CBaseEntity::m_fHealth` (+0x310) |
 | 36 | `max_health` f32 | `CBaseEntity::m_fMaxHealth` (+0x30C) |
 | 40 | `sequence` i16 | `CBaseAnimating::m_nSequence` (+0xEC4) |
-| 42 | `flags` u8 | 1 = health fields valid, 2 = animation fields valid |
+| 42 | `flags` u8 | 1 = health fields valid, 2 = animation fields valid, 4 = alert fields valid (v18) |
 | 43 | `life_state` u8 | `CBaseEntity::m_lifeState` (+0x300) |
 | 44 | `cycle` f32 | `CBaseAnimating::m_flCycle` (+0xEBC), 0..1 |
 | 48 | `playback_rate` f32 | `CBaseAnimating::m_flPlaybackRate` (+0xE70) |
 | 52 | `serial` u32 | the entity's EHANDLE serial (`IServerEntity::GetRefEHandle() >> 12`) |
 | 56 | `link` u16 | v7: an `npc_*`'s `m_hRagdollFall` (+0x29E4), or a `prop_ragdoll`'s `m_hUnragdoll` (+0x16A0); 0xFFFF for none |
-| 58 | reserved u16 | |
+| 58 | `alert` u16 | v18 (reserved before): an `npc_*`'s alert level, the magnitude of +0x36EC (below, "Alertness") |
 | 60 | `link_serial` u32 | the linked entity's serial |
 | 64 | `parent` u16 | v10: `m_hMoveParent` (+0x3E4, the send prop `moveparent`): what the entity is attached to; 0xFFFF for none |
 | 66 | `parent_attachment` u8 | v10: `m_iParentAttachment` (+0x3E0): the parent model's attachment, numbered from 1 in the model's order (the import's `asset.extras.attachments`); 0 for none |
-| 67 | reserved u8 | |
+| 67 | `npc_state` u8 | v18 (reserved before): an `npc_*`'s state, +0x1A5C (3 combat) |
 | 68 | `parent_serial` u32 | |
 | 72 | `owner` u16 | v10: `m_hOwnerEntity` (+0x500), or a weapon's `m_hOwner` when that is empty (the player's weapons); 0xFFFF for none |
 | 74 | reserved u16 | |
@@ -591,6 +592,15 @@ the level's guards):
 - **Adrenaline:** it rises by the `adrenalineadd` of each attack that lands
   (0.5 for fast attacks, 1–3 for power attacks, from `first_basic.qct`)
   and decays. `max_adrenaline` is 20 in l01_a. The highest seen was 10.5.
+
+## Alertness
+
+Since v18 every `npc_*` entity carries, each tick, the two fields the melee routine's not-alerted multiplier reads
+(server.dll+0x407D70; "Melee damage" above): the alert level, the magnitude of NPC +0x36EC (the same read as the
+damage record's `victim_alert`, v11), and the NPC state, +0x1A5C (the damage record's `victim_npc_state`). They are
+plain reads: no hook patches code for them. The offsets come from the melee routine's own reads, at
+server.dll+0x408692 (`mov ecx,[esi+0x36EC]`, its absolute value compared with `mul_damages_Npc_Not_alerted_level`,
+settings +0x434) and +0x4086AE (`cmp [esi+0x1A5C],3`). A read that faults leaves flag 4 off for that entity.
 
 ## Finding fields: send tables
 

@@ -47,7 +47,7 @@ internal sealed record CombatEvent(ulong Tick, bool ByPlayer, string Move, Defen
 internal sealed class LabCombat : IDisposable
 {
     internal const string Set = "lab.combat";
-    const string PlayerModel = "models/npc/player/player_basic.mdl";
+    internal const string PlayerModel = "models/npc/player/player_basic.mdl";
     /// <summary>
     /// The trace's radius, metres: the player's sweep is a box of half-size <c>collision_inc_size_ray</c>, 1.5 units (its
     /// type 0; docs/wire.md, "Melee sweeps"), swept as a sphere of that radius.
@@ -290,7 +290,7 @@ internal sealed class LabCombat : IDisposable
         }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
         FirstPerson.Pose(Sword, seconds, eye, forward);
-        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing) : Orc.Follow(orcPose, seconds);
+        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, Gait(seconds, feet, sprinting, crouched)) : Orc.Follow(orcPose, seconds);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
@@ -611,13 +611,23 @@ internal sealed class LabCombat : IDisposable
     internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false,
         string? weapon = null, (int Level, int NpcState)? alert = null) => (kick
         ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false,
-            VictimAlert: alert?.Level ?? AlertOrc, VictimNpcState: alert?.NpcState ?? 0))
+            VictimAlert: alert?.Level ?? Orc.Alert.Level, VictimNpcState: alert?.NpcState ?? Orc.Alert.NpcState))
         : model.Damage(new DamageCase(0, victim, player, weapon ?? FirstPerson.SwordModel, group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? AlertOrc, VictimNpcState: alert?.NpcState ?? 0,
+            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? Orc.Alert.Level, VictimNpcState: alert?.NpcState ?? Orc.Alert.NpcState,
             AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
 
-    /// <summary>The alert level the lab's own orc fights at: alert, above the settings' not-alerted level (0).</summary>
-    const int AlertOrc = 3;
+    Vector3? lastFeet;
+
+    /// <summary>
+    /// How the player moves this step, as an orc hears it (#10154): still, crouched, walking (under 2.5 m/s on the
+    /// ground) or running (the donor's run, 180 units a second, is 3.4 m/s; a sprint is a run to the orc's ears).
+    /// </summary>
+    PlayerGait Gait(float seconds, Vector3 feet, bool sprinting, bool crouched)
+    {
+        float speed = lastFeet is { } was && seconds > 0 ? ((feet - was) with { Y = 0 }).Length() / seconds : 0;
+        lastFeet = feet;
+        return OrcPerception.GaitOf(speed, crouched, sprinting);
+    }
 
     /// <summary>
     /// In a replay, the alert level and NPC state the donor's blow near a tick found its victim at (#10198): an orc

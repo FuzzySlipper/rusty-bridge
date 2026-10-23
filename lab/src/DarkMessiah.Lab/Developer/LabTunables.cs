@@ -38,6 +38,7 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
         ("fov", "Field of view °", 50, 110, 1, "/fieldOfViewDegrees", t => t.FieldOfViewDegrees, (t, v) => t with { FieldOfViewDegrees = v }),
         ("sensitivity", "Mouse rad/unit", .0005f, .006f, .0001f, "/pointerRadiansPerUnit", t => t.PointerRadiansPerUnit, (t, v) => t with { PointerRadiansPerUnit = v }),
         ("bob", "Head bob m", 0, .1f, .005f, "/headBobMetres", t => t.HeadBobMetres, (t, v) => t with { HeadBobMetres = v }),
+        ("landing", "Landing dip ×", 0, 1, .05f, "/landingDip", t => t.LandingDip, (t, v) => t with { LandingDip = v }),
         ("bob-stride", "Bob stride m", .5f, 3, .05f, "/headBobStrideMetres", t => t.HeadBobStrideMetres, (t, v) => t with { HeadBobStrideMetres = v }),
     ];
 

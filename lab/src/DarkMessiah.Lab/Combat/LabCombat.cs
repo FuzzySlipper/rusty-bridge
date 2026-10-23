@@ -329,7 +329,7 @@ internal sealed class LabCombat : IDisposable
     /// <param name="sprinting">Sprint is held while the body moves: it sprints, draining stamina, once there is enough to start.</param>
     /// <param name="crouched">The body crouches (duck held).</param>
     internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
-        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false)
+        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false, float lean = 0)
     {
         fightSeconds += seconds;
         AdrenalineGained = 0;
@@ -352,7 +352,7 @@ internal sealed class LabCombat : IDisposable
         // The body's velocity for the head's fall (#10161).
         var bodyVelocity = poseFeet is { } was && seconds > 0 ? (feet - was) / seconds : Vector3.Zero;
         poseFeet = feet;
-        FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity);
+        FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity, lean);
         var gait = Gait(seconds, feet, sprinting, crouched);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
         // Its squad-mate fights on its own, sees the player's swings as the first does, and takes the blows that reach it.

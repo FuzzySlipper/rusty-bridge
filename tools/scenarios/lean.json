@@ -1,0 +1,134 @@
+{
+  "description": "Leaning (#10161, R10161-2): the level's NPCs removed, facing north from (0, -2400): lean left 2 s, right 2 s, a 0.3 s tap left, a walking lean right; then strafing left until a wall stops the body, lean left into it, step off 27 then 54 more units and lean left again, and lean right away from it. Leaning is client-side (nothing in the command): the drawn camera (v9) shows it.",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "+leanleft",
+    {
+      "wait": 2
+    },
+    "-leanleft",
+    {
+      "wait": 1.5
+    },
+    "+leanright",
+    {
+      "wait": 2
+    },
+    "-leanright",
+    {
+      "wait": 1.5
+    },
+    "+leanleft",
+    {
+      "wait": 0.3
+    },
+    "-leanleft",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+leanright",
+    {
+      "wait": 2
+    },
+    "-leanright",
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setang 0 90 0",
+    "+moveleft",
+    {
+      "wait": 6
+    },
+    "-moveleft",
+    {
+      "wait": 1
+    },
+    "+leanleft",
+    {
+      "wait": 2
+    },
+    "-leanleft",
+    {
+      "wait": 1.5
+    },
+    "+moveright",
+    {
+      "wait": 0.15
+    },
+    "-moveright",
+    {
+      "wait": 1
+    },
+    "+leanleft",
+    {
+      "wait": 2
+    },
+    "-leanleft",
+    {
+      "wait": 1.5
+    },
+    "+moveright",
+    {
+      "wait": 0.3
+    },
+    "-moveright",
+    {
+      "wait": 1
+    },
+    "+leanleft",
+    {
+      "wait": 2
+    },
+    "-leanleft",
+    {
+      "wait": 1.5
+    },
+    "+leanright",
+    {
+      "wait": 2
+    },
+    "-leanright",
+    {
+      "wait": 1.5
+    }
+  ]
+}

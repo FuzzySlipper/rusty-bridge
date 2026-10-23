@@ -399,6 +399,25 @@ if (Environment.GetEnvironmentVariable("RB_ITEMS") is { Length: > 0 } itemsPath)
     return 0;
 }
 
+// RB_LEAN=path prints the drawn camera against the eye, in the view's frame, every tick (R10161-2) and stops.
+if (Environment.GetEnvironmentVariable("RB_LEAN") is { Length: > 0 } leanPath)
+{
+    using var stream = File.OpenRead(leanPath);
+    foreach (var f in RecordingReader.Frames(stream))
+    {
+        var v = f.ClientView;
+        if (!v.Flags.HasFlag(ClientViewFlags.Camera)) continue;
+        // Source axes: the view's forward, left and up from its pitch and yaw.
+        float yaw = v.ViewYaw * MathF.PI / 180, pitch = v.ViewPitch * MathF.PI / 180;
+        var forward = new Vector3(MathF.Cos(pitch) * MathF.Cos(yaw), MathF.Cos(pitch) * MathF.Sin(yaw), -MathF.Sin(pitch));
+        var left = new Vector3(-MathF.Sin(yaw), MathF.Cos(yaw), 0);
+        var up = Vector3.Cross(forward, left);
+        var d = new Vector3(v.CameraX - v.OriginX - v.ViewOffsetX, v.CameraY - v.OriginY - v.ViewOffsetY, v.CameraZ - v.OriginZ - v.ViewOffsetZ);
+        Console.WriteLine(FormattableString.Invariant($"LEAN {f.Tick} fwd {Vector3.Dot(d, forward):0.0} left {Vector3.Dot(d, left):0.0} up {Vector3.Dot(d, up):0.0} roll {v.CameraRoll - v.ViewRoll:0.0} viewroll {v.ViewRoll:0.0} vo {v.ViewOffsetX:0.0},{v.ViewOffsetY:0.0},{v.ViewOffsetZ:0.0} cam {v.CameraX - v.OriginX:0.0},{v.CameraY - v.OriginY:0.0},{v.CameraZ - v.OriginZ:0.0} pos {v.OriginX:0} {v.OriginY:0} {v.OriginZ:0} yaw {v.ViewYaw:0}"));
+    }
+    return 0;
+}
+
 // RB_HEALTH=1 prints the donor player's health through each recording (#10162) and stops.
 if (Environment.GetEnvironmentVariable("RB_HEALTH") == "1")
 {
@@ -745,6 +764,110 @@ host.Call(engine =>
     Check(combat.Build!.Has("double_sprint") && combat.Stamina.Rules.Max == 12, $"stamina 1 gives double_sprint, and stamina's maximum becomes 12: {combat.Stamina.Rules.Max}");
     combat.Rebuild(file);
     Check(combat.Stamina.Rules.Max == 9 && combat.Stamina.Value <= 9, "back at stamina 0 the maximum is 9 again");
+    // The drawn camera follows the look and the eye between steps (R10161-3): turned 30° with no step, the published
+    // view turns 30°; placed a metre over, it moves a metre.
+    {
+        var p = product.Player;
+        p.Camera = combat.FirstPerson.View;
+        var drawnBefore = p.Descriptor();
+        p.LookBy(30, 0);
+        var drawnTurned = p.Descriptor();
+        float degrees = MathF.Acos(Math.Clamp(Vector3.Dot(drawnBefore.Basis.Forward, drawnTurned.Basis.Forward), -1, 1)) * 180 / MathF.PI;
+        p.LookBy(-30, 0);
+        var at = p.Position;
+        p.Place(at + Vector3.UnitX, p.LookState.YawRadians * 180 / MathF.PI, p.LookState.PitchRadians * 180 / MathF.PI);
+        var drawnMoved = p.Descriptor();
+        p.Place(at, p.LookState.YawRadians * 180 / MathF.PI, p.LookState.PitchRadians * 180 / MathF.PI);
+        float metres = Vector3.Distance(drawnMoved.Pose.Position, drawnBefore.Pose.Position);
+        Check(MathF.Abs(degrees - 30) < .5f && MathF.Abs(metres - 1) < .01f && drawnBefore.BasisMode == CameraBasisMode.Explicit,
+            FormattableString.Invariant($"the first-person camera follows a look turned with no step ({degrees:0.0}°) and a placing ({metres:0.00} m)"));
+    }
+    // Leaning (R10161-2): the view rolls 15° and the eye moves 25 units to the side, easing at cl_leanspeed; against a
+    // wall the camera stops 5 units short of it along the line from the eye, as the donor's did.
+    {
+        var p = product.Player;
+        var leanStart = p.Position;
+        float startYaw = p.LookState.YawRadians * 180 / MathF.PI, startPitch = p.LookState.PitchRadians * 180 / MathF.PI;
+        (Vector3 Out, float Roll) Leaned(bool left, int steps)
+        {
+            for (int i = 0; i < steps; i++)
+            {
+                p.Lean.Step(Tick, left, false);
+                combat.Step(Tick, step++, false, false, false, p.Eye, p.Forward, p.Feet, lean: p.Lean.Value);
+            }
+            p.Camera = combat.FirstPerson.View;
+            var drawn = p.Descriptor();
+            var look = Vector3.Normalize(p.Forward);
+            var right = Vector3.Normalize(Vector3.Cross(look, Vector3.UnitY));
+            float roll = MathF.Atan2(Vector3.Dot(drawn.Basis.Up, right), Vector3.Dot(drawn.Basis.Up, Vector3.Cross(right, look))) * -180 / MathF.PI;
+            return (drawn.Pose.Position - p.Eye, roll);
+        }
+        float half = p.Tuning.Height / 2 + p.Config.Shape.ContactSkin, floor = p.Feet.Y;
+        p.Place(new Vector3(12, floor + half, 12), 0);
+        float eased = 0;
+        for (int i = 0; i < 8; i++) { p.Lean.Step(PlayerStamina.GameTick, true, false); }
+        eased = -p.Lean.Value;
+        p.Lean.Reset();
+        var open = Leaned(true, 90);
+        var right0 = Vector3.Normalize(Vector3.Cross(Vector3.Normalize(p.Forward), Vector3.UnitY));
+        float openSide = Vector3.Dot(open.Out, right0) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var back = Leaned(false, 90);
+        // Against the west wall (its face at x 0.5), facing -Z so it's on the left.
+        p.Place(new Vector3(.5f + p.Tuning.Radius + .01f, floor + half, 12), 0);
+        var walled = Leaned(true, 90);
+        float wallSide = Vector3.Dot(walled.Out, right0) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        float cameraX = (p.Eye + walled.Out).X;
+        Leaned(false, 90);
+        p.Lean.Reset();
+        p.Place(leanStart, startYaw, startPitch);
+        p.Camera = combat.FirstPerson.View;
+        Check(MathF.Abs(eased - .7f) < .03f && MathF.Abs(openSide + 27.3f) < 1.5f && MathF.Abs(MathF.Abs(open.Roll) - 15) < .5f && back.Out.Length() < .3f && MathF.Abs(back.Roll) < .1f
+            && wallSide > -11 && cameraX >= .5f + PlayerLean.HullMetres - .01f,
+            FormattableString.Invariant($"leaning left eases {eased:0.00} of the way in 8 game ticks (the donor's 0.73), rolls the view {MathF.Abs(open.Roll):0.0}° and puts the camera {-openSide:0.0} units out (the donor's 15° and 27.3); let go it comes back ({back.Roll:0.0}°); against a wall the camera stops {-wallSide:0.0} units out, {(cameraX - .5f) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit:0.0} from it (the donor's 11 out, 5 from it)"));
+    }
+    // The lean against the recording: each recorded lean's start and release driving the lab's, its roll within 1° of
+    // the donor's view roll on each tick.
+    if (Path.Combine(repo, "local", "recordings", "experiments", "l01_a-v18-lean.rbrec") is var leanRecording && File.Exists(leanRecording))
+    {
+        var rolls = new List<float>();
+        using (var stream = File.OpenRead(leanRecording))
+            foreach (var f in RecordingReader.Frames(stream))
+                if (f.ClientView.Flags.HasFlag(ClientViewFlags.ViewAngles)) rolls.Add(f.ClientView.ViewRoll);
+        var lean = new PlayerLean();
+        int leanNear = 0, leaning = 0, leans = 0;
+        float target = 0;
+        for (int i = 1; i < rolls.Count; i++)
+        {
+            // Pressed the tick before the roll leaves 0; let go the tick before it leaves full.
+            if (target == 0 && MathF.Abs(rolls[i]) > .05f && MathF.Abs(rolls[i - 1]) <= .05f) { target = MathF.Sign(rolls[i]); leans++; }
+            else if (target != 0 && MathF.Abs(rolls[i]) < MathF.Abs(rolls[i - 1]) - .05f) target = 0;
+            lean.Step(PlayerStamina.GameTick, target < 0, target > 0);
+            if (MathF.Abs(rolls[i]) > .05f || MathF.Abs(lean.RollDegrees) > .05f)
+            {
+                leaning++;
+                if (MathF.Abs(lean.RollDegrees - rolls[i]) <= 1) leanNear++;
+            }
+        }
+        Check(leans >= 6 && leanNear >= leaning * 9 / 10, $"l01_a-v18-lean: {leans} leans driven from their recorded starts and releases, the lab's roll within 1° of the donor's on {leanNear} of {leaning} leaning ticks");
+    }
+    // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
+    {
+        var head = combat.FirstPerson.Head;
+        float DipAt(float scale)
+        {
+            head.LandingScale = scale;
+            head.Step(Tick, null, false, Vector3.Zero);
+            head.Step(Tick, null, true, new Vector3(0, -5, 0));
+            for (float t = Tick; t < .19f; t += Tick) head.Step(Tick, null, false, Vector3.Zero);
+            float pitch = head.Turn.Pitch;
+            for (int i = 0; i < 120; i++) head.Step(Tick, null, false, Vector3.Zero);
+            return pitch;
+        }
+        float full = DipAt(1), half = DipAt(.5f), none = DipAt(0);
+        head.LandingScale = product.Player.Tuning.LandingDip;
+        Check(full > 7 && MathF.Abs(half - full / 2) < .05f && none == 0 && product.Player.Tuning.LandingDip == 1,
+            FormattableString.Invariant($"the landing dips the view {full:0.0}° at landingDip 1 (player.json's), {half:0.0}° at 0.5, {none:0.0}° at 0"));
+    }
     // Health (#10162): 50 and 10 an extra_health level; fast_metabolism regains 0.25 a second; the belt's potions give
     // their give_health up to the maximum, one fewer each use; keys 1 to 9 are its slots.
     {
@@ -1879,6 +2002,9 @@ host.Call(engine =>
             bool hand = report.Name.Contains("arena-hand", StringComparison.Ordinal);
             Check(hand ? cam.Near >= cam.Ticks * 4 / 10 && cam.Median <= 2 : cam.Median <= 3,
                 FormattableString.Invariant($"{report.Name}: the lab's camera turns as the donor's within {CombatReplay.CameraTolerance}° on {cam.Near} of {cam.Ticks} ticks (median {cam.Median:0.0}°)"));
+            // And in place, every tick (R10161-4): 9 units above the eye and 2.1 ahead, turned with the view.
+            Check(report.CameraPlace is { } place && place.Near >= place.Ticks * 8 / 10 && place.Median <= .5f,
+                FormattableString.Invariant($"{report.Name}: the lab's camera stands within {CombatReplay.CameraPlaceTolerance} unit of the donor's on {report.CameraPlace?.Near} of {report.CameraPlace?.Ticks} ticks (median {report.CameraPlace?.Median:0.00})"));
         }
         // From v14 each move is held to its own clip too: fast attack A or B, each power attack's direction.
         if (report.Kicks is not null && report.Clips is { } byClip)

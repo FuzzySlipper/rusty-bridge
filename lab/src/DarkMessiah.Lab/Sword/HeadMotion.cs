@@ -107,6 +107,9 @@ internal sealed class HeadMotion : IDisposable
         : seconds < PunchPeak ? (1 - MathF.Cos(MathF.PI * seconds / PunchPeak)) / 2
         : (1 + MathF.Cos(MathF.PI * (seconds - PunchPeak) / (PunchEnd - PunchPeak))) / 2;
 
+    /// <summary>A comfort scale on the landing's dip (<c>player.json</c>'s <c>landingDip</c>): 1 as the donor's, 0 none (R10161-1).</summary>
+    internal float LandingScale { get; set; } = 1;
+
     /// <summary>The head's turn now, Source degrees: pitch down, yaw left, roll right side down.</summary>
     internal (float Pitch, float Yaw, float Roll) Turn { get; private set; }
     /// <summary>The clip it plays now, or null for none.</summary>
@@ -146,7 +149,9 @@ internal sealed class HeadMotion : IDisposable
         var u = Vector3.Transform(Vector3.UnitY, turn);
         float aboutX = MathF.Asin(Math.Clamp(-f.Y, -1, 1)) * 180 / MathF.PI, aboutY = MathF.Atan2(f.X, f.Z) * 180 / MathF.PI,
             aboutZ = MathF.Atan2(-u.X, u.Y) * 180 / MathF.PI;
-        Turn = (-aboutZ + punch.Pitch * kick, aboutX + punch.Yaw * kick, -aboutY);
+        // The landing's dip at the comfort scale; every other clip as the donor plays it.
+        float scale = p.Clip.StartsWith("jump_out_", StringComparison.Ordinal) ? LandingScale : 1;
+        Turn = (-aboutZ * scale + punch.Pitch * kick, aboutX * scale + punch.Yaw * kick, -aboutY * scale);
     }
 
     /// <summary>The view's roll at most, degrees, strafing: <c>sv_rollangle</c>.</summary>

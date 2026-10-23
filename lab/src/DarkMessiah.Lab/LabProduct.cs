@@ -123,6 +123,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         bool blockHeld = physical.Held(PointerButton.Secondary) || physical.Held(ControllerButton.Button6);
         bool kickHeld = physical.Held(KeyboardControl.KeyF);
         float delta = (float)facts.FixedDeltaSeconds;
+        combat.FirstPerson.Head.LandingScale = player.Tuning.LandingDip;
+        bool leanLeft = physical.Held(KeyboardControl.KeyZ), leanRight = physical.Held(KeyboardControl.KeyX);
         for (uint step = 0; step < facts.AdmittedStepCount; step++)
         {
             scene.SimulationStep = checked(facts.SimulationStep + step);
@@ -137,12 +139,13 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             if (usePending) cubes.Use();
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
+            player.Lean.Step(delta, leanLeft, leanRight);
             combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
                 move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
-                crouched: player.Motion.Stance == CharacterStance.Crouched);
+                crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value);
             kickPending = attackPending = blockPending = false;
-            // The first person draws from the arms' eyes, turned by the head (#10161).
-            player.Camera = combat.FirstPerson.Camera;
+            // The first person draws from above the eye, turned by the head (#10161).
+            player.Camera = combat.FirstPerson.View;
             scene.Step(delta, cubes.PrepareStep());
         }
         time.SetSlow(combat.TimeScale);
@@ -208,7 +211,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private static readonly string[] PlaytestActions =
         ["forward", "back", "left", "right", "jump", "crouch", "sprint", "use", "attack", "power", "parry", "kick", "throw",
-         "god", "belt1", "hold-world", "step-world", "reset"];
+         "god", "belt1", "lean-left", "lean-right", "hold-world", "step-world", "reset"];
 
     private PlaytestAction Action(string id) => id switch
     {
@@ -229,6 +232,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         "kick" => new(id, "KeyF", 100, false),
         "god" => new(id, "KeyG", 100, false),
         "belt1" => new(id, "Digit1", 100, false),
+        "lean-left" => new(id, "KeyZ", 800, false),
+        "lean-right" => new(id, "KeyX", 800, false),
         "throw" => new(id, "Primary", 100, false, cubes.Held is not null, cubes.Held is null ? "No cube held" : null),
         "hold-world" => new(id, "KeyP", 100, false),
         "step-world" => new(id, "KeyO", 100, false),
@@ -347,6 +352,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         scene.Reset();
         combat.Reset();
         PlaceAtSpawn();
+        player.Lean.Reset();
         player.ResetCounters();
         ClearPending();
         Publish();

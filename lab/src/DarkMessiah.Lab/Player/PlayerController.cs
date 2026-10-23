@@ -221,17 +221,45 @@ internal sealed class PlayerController : IDisposable
         0, 0, 0, false, 0, Vector3.Zero, Vector3.Zero, Quaternion.Identity, Vector3.Zero, centre.Y, centre.Y, 0, 0);
 
     /// <summary>
-    /// The camera the first person draws from (#10161: the arms' <c>eyes</c> attachment, turned by the head), or null to
-    /// draw from the eye along the look.
+    /// The camera the first person draws from (#10161: 9 units above the eye and 2.1 ahead, turned by the head) against the
+    /// eye and the look, or null to draw from the eye along the look. Composed with the current eye and look each time
+    /// the camera is published, a step or not (R10161-3).
     /// </summary>
-    internal (Vector3 Position, Vector3 Forward, Vector3 Up)? Camera { get; set; }
+    internal Sword.CameraRig? Camera { get; set; }
 
-    private CameraDescriptor Descriptor()
+    /// <summary>The lean (Z and X, as the donor's <c>config.cfg</c> binds them): presentation, as in the donor's client.</summary>
+    internal PlayerLean Lean { get; } = new();
+
+    /// <summary>
+    /// Where the leaned camera may be (R10161-2): a ray from the eye to it stops <see cref="PlayerLean.Hull"/> short of
+    /// the arena, and the camera comes back along it, as the donor's against a wall. Not leaning, as composed.
+    /// </summary>
+    private Vector3 Clear(Vector3 eye, Vector3 camera)
+    {
+        if (Lean.Value == 0) return camera;
+        Vector3 out_ = camera - eye;
+        float length = out_.Length();
+        if (length < 1e-4f) return camera;
+        var hit = engine.Spatial.CastRay(new SpatialRaycastRequest(session, eye, out_ / length, length + 4 * PlayerLean.HullMetres,
+            new SpatialQueryFilter(uint.MaxValue, uint.MaxValue), ReadOnlyMemory<SpatialEntityCollider>.Empty, new[] { entity.Value }, ReadOnlyMemory<SpatialEntityCollider>.Empty));
+        if (!hit.Present) return camera;
+        // The hull keeps its distance square to what it meets, as the donor's box trace does: along a slanted ray, more.
+        var direction = out_ / length;
+        // The surface's normal; where the cast gives none, a wall's (the arena's are upright): against the ray's level part.
+        var level = direction with { Y = 0 };
+        var normal = hit.Normal.LengthSquared() > .25f ? Vector3.Normalize(hit.Normal)
+            : level.LengthSquared() > 1e-6f ? -Vector3.Normalize(level) : -direction;
+        float facing = MathF.Abs(Vector3.Dot(direction, normal));
+        float back = facing > 1e-3f ? PlayerLean.HullMetres / facing : length;
+        return eye + out_ * Math.Clamp(((float)hit.Distance - back) / length, 0, 1);
+    }
+
+    internal CameraDescriptor Descriptor()
     {
         Vector3 bob = Vector3.UnitY * (Tuning.HeadBobMetres * bobScale * MathF.Sin(bobPhase));
         Vector3 eye = Eye + bob;
-        if (Camera is var (at, forward, up))
-            return new(new CameraPose(at + bob, LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
+        if (Camera is { } rig && rig.At(eye, Forward) is var (at, forward, up))
+            return new(new CameraPose(Clear(eye, at), LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
                 CameraBasisMode.Explicit, new CameraBasis(forward, Vector3.Normalize(Vector3.Cross(forward, up)), up),
                 new CameraProjection(CameraProjectionKind.Perspective, Tuning.FieldOfViewDegrees, 0, NearPlane, Tuning.FarPlane),
                 new CameraViewport(0, 0, 1, 1));

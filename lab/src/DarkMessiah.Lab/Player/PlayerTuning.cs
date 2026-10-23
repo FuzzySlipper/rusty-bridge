@@ -20,11 +20,13 @@ namespace DarkMessiah.Lab.Player;
 /// m/s), fitted so the lab's start and stop take the donor's time and slide (#10159).</param>
 /// <param name="JumpReleaseGravity">Gravity's multiple once jump is let go while rising (1: none): the donor's jump rose 34
 /// units held 0.15 s and 41 held to its peak (l01_a-v18-jump-hold; Arkane's mm_jump_rework).</param>
+/// <param name="LandingDip">A comfort scale on the landing's head dip (<c>jump_out_*</c>, #10161): 1 as the donor's (7.9° at its
+/// peak), 0 none. Presentation only.</param>
 internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Radius, float EyeBelowTop,
     float Speed, float SprintSpeed, float JumpSpeed, float Gravity, float MaximumStepHeight, float MaximumSlopeDegrees,
     float JumpBufferSeconds, float CoyoteSeconds, float PointerRadiansPerUnit, float FieldOfViewDegrees, float FarPlane,
     float HeadBobMetres, float HeadBobStrideMetres, float BackSpeed, float CrouchSpeed, float Acceleration, float Braking, float Friction, float StopSpeed,
-    float JumpReleaseGravity)
+    float JumpReleaseGravity, float LandingDip)
 {
     internal const string Path = "player.json";
 
@@ -56,6 +58,7 @@ internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Ra
         Authored.Positive(Path, "farPlane", t.FarPlane);
         Authored.AtLeast(Path, "headBobMetres", t.HeadBobMetres, 0);
         Authored.Positive(Path, "headBobStrideMetres", t.HeadBobStrideMetres);
+        Authored.Within(Path, "landingDip", t.LandingDip, 0, 1);
         return t;
     }
 }

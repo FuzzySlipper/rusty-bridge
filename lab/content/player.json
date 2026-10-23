@@ -22,5 +22,6 @@
   "braking": 0,
   "friction": 4,
   "stopSpeed": 1.27,
-  "jumpReleaseGravity": 2
+  "jumpReleaseGravity": 2,
+  "landingDip": 1
 }

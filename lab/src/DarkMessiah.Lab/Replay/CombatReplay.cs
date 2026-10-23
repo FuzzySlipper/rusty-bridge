@@ -49,7 +49,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
     IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
     (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null,
-    (int Near, int Ticks, float Worst, int MaxAgree)? Health = null)
+    (int Near, int Ticks, float Worst, int MaxAgree)? Health = null, (int Near, int Ticks, float Median, float Worst)? CameraPlace = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -58,6 +58,8 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
             yield return FormattableString.Invariant($"  health: the lab's within {CombatReplay.HealthTolerance} of the donor's on {healthNear} of {healthTicks} ticks (worst {healthWorst:0.##}), its maximum the donor's on {maxAgree}");
         if (Camera is var (near, turned, median))
             yield return FormattableString.Invariant($"  camera: where the donor's head turned it ({turned} ticks), the lab's within {CombatReplay.CameraTolerance}° on {near} (median {median:0.0}°)");
+        if (CameraPlace is var (placedNear, placed, placeMedian, placeWorst))
+            yield return FormattableString.Invariant($"  camera place: the lab's within {CombatReplay.CameraPlaceTolerance} units of the donor's on {placedNear} of {placed} ticks (median {placeMedian:0.00}, worst {placeWorst:0.0})");
         foreach (var (clip, m) in Moves)
             yield return $"  {clip}: donor {m.Donor}, lab {m.Lab}, {m.Together} begin together";
         if (Clips is { Count: > 0 } c)
@@ -205,6 +207,8 @@ internal static class CombatReplay
 
     /// <summary>The lab's camera agrees with the donor's when its forward and up are this close, degrees (#10161).</summary>
     internal const float CameraTolerance = 1.5f;
+    /// <summary>The lab's camera agrees with the donor's in place this close, Source units (R10161-4).</summary>
+    internal const float CameraPlaceTolerance = 1;
     /// <summary>The lab's health agrees with the donor's this close (#10162): its regeneration steps 0.25.</summary>
     internal const float HealthTolerance = .3f;
 
@@ -239,6 +243,7 @@ internal static class CombatReplay
         int hurtAt = 0, drunkAt = 0;
         BeltItem life = BeltItem.Of(combat.Donor, PotionModels.Life), full = BeltItem.Of(combat.Donor, PotionModels.FullLife);
         var cameraOffs = new List<float>();
+        var placeOffs = new List<float>();
         float staminaWorst = 0;
         var labTrace = new List<Calibration.MovementSample>();
         // A lab-space point (metres, Y up) as Source units (Z up), for the movement calibration.
@@ -336,6 +341,12 @@ internal static class CombatReplay
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                // The lab's camera in place against the donor's drawn one, every tick (R10161-4): the eyes attachment of
+                // the arms posed at the recorded eye.
+                if (t.Camera is { } drawnCamera)
+                    placeOffs.Add(Vector3.Distance(combat.FirstPerson.Camera.Position, drawnCamera.Position) / SourceSpace.MetresPerUnit);
+                if (t.Camera is { } traced && Environment.GetEnvironmentVariable("RB_PLACE_TRACE") == "1" && placeOffs[^1] > 5)
+                    Console.WriteLine(FormattableString.Invariant($"PLACE {t.Tick} off {placeOffs[^1]:0.0} {combat.Sword.Move} eye {t.Eye / SourceSpace.MetresPerUnit:0} donor camera {traced.Position / SourceSpace.MetresPerUnit:0}"));
                 // The lab's camera against the donor's drawn one (Wire v9; #10161), where the donor's head turned it.
                 if (t.Camera is { Turned: true } donorCamera)
                 {
@@ -568,7 +579,8 @@ internal static class CombatReplay
                 + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
             shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null,
             cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null,
-            healthTicks > 0 ? (healthNear, healthTicks, healthWorst, maxAgree) : null);
+            healthTicks > 0 ? (healthNear, healthTicks, healthWorst, maxAgree) : null,
+            placeOffs.Count > 0 ? (placeOffs.Count(o => o <= CameraPlaceTolerance), placeOffs.Count, placeOffs.Order().ElementAt(placeOffs.Count / 2), placeOffs.Max()) : null);
     }
 
     /// <summary>

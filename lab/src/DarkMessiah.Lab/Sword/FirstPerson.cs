@@ -8,14 +8,32 @@ namespace DarkMessiah.Lab.Sword;
 /// <summary>
 /// The player's first-person arms and weapon, as Dark Messiah draws them: Arkane's <c>first_basic</c> arms with the
 /// move's clip laid over their class's idle, their origin at the eye and turned with the head (<see cref="HeadMotion"/>),
-/// the camera at their <c>eyes</c> attachment (#10161: the donor's view model sits at the eye, its drawn camera 2.1
-/// units ahead and 9 above it, both turned by the head and the strafe roll, <see cref="HeadMotion.StrafeRoll"/>), and the weapon
+/// the camera 2.1 units ahead of the eye and 9 above it (#10161, <see cref="CameraOffset"/>: the donor's view model sits
+/// at the eye, its drawn camera there, both turned by the head, the strafe roll, <see cref="HeadMotion.StrafeRoll"/>, and
+/// the lean), and the weapon
 /// (the build's, <see cref="Equip"/>; the short sword until one is) on the attachment the donor parents it to
 /// (<see cref="HandOf"/>), the daggers' second blade on <c>RightHand_Daggers</c>, a shield (<see cref="Shield"/>) on
 /// <c>Leftshield</c> (attachment 6, which the donor parents <c>weapon_arxshield</c> to: <c>l01_a-v17-shield</c>). It also places the blade
 /// for the swing traces: the donor traces from the eye toward the blade, out to the weapon's <c>rangeattack</c> (100
 /// units for the short sword), and records each blow's trace that way.
 /// </summary>
+/// <summary>
+/// The first-person camera against the eye and the look (R10161-3): its offset in the look's frame (X right, Y up, Z
+/// ahead) and its turn, Source degrees (pitch down, yaw left, roll right side down) about the look's axes.
+/// </summary>
+internal readonly record struct CameraRig(Vector3 Offset, (float Pitch, float Yaw, float Roll) Turn)
+{
+    /// <summary>The camera for an eye at <paramref name="eye"/> looking along <paramref name="forward"/>.</summary>
+    internal (Vector3 Position, Vector3 Forward, Vector3 Up) At(Vector3 eye, Vector3 forward)
+    {
+        var look = Vector3.Normalize(forward);
+        var right = Vector3.Normalize(Vector3.Cross(look, Vector3.UnitY));
+        var up = Vector3.Cross(right, look);
+        var turn = HeadMotion.Rotation(Turn, look, up);
+        return (eye + right * Offset.X + up * Offset.Y + look * Offset.Z, Vector3.Transform(look, turn), Vector3.Transform(up, turn));
+    }
+}
+
 internal sealed class FirstPerson : IDisposable
 {
     internal const ulong ArmsId = 0x4C41_0001, SwordId = 0x4C41_0002;
@@ -37,6 +55,14 @@ internal sealed class FirstPerson : IDisposable
     readonly HeadMotion head;
     SwordMove lastMove;
 
+    /// <summary>
+    /// Where the donor's camera sits from the eye, Source units in the view's frame (X right, Y up, Z ahead), before the
+    /// head turns it (R10161-4): 9 above and 2.1 ahead on 5057 of 6000-odd ticks of <c>l01_a-v18-movement</c>, crouched
+    /// (the eye 35 units up, not 61) as standing, and through every swing and kick of the hand fights. Neither the arms'
+    /// animated <c>eyes</c> attachment (6.8 up, 4 to 6 ahead, moving with each clip) nor its reference pose's is it.
+    /// </summary>
+    internal static readonly Vector3 CameraOffset = new(0, 9, 2.1f);
+
     internal FirstPerson(IEngineContext engine, DonorContent donor)
     {
         this.engine = engine;
@@ -50,8 +76,16 @@ internal sealed class FirstPerson : IDisposable
 
     /// <summary>The head's motion (#10161).</summary>
     internal HeadMotion Head => head;
-    /// <summary>The camera as last posed: at the arms' <c>eyes</c> attachment, looking along the head-turned view.</summary>
+    /// <summary>The camera as last posed: <see cref="CameraOffset"/> from the eye, looking along the head-turned view.</summary>
     internal (Vector3 Position, Vector3 Forward, Vector3 Up) Camera { get; private set; } = (Vector3.Zero, Vector3.UnitZ, Vector3.UnitY);
+
+    /// <summary>
+    /// The camera as last posed, against the eye and the look (R10161-3): its offset from the eye in the look's frame (X
+    /// right, Y up, Z ahead), and its turn, Source degrees, about the look's axes (<see cref="HeadMotion.Rotation"/>). The
+    /// player's camera composes it with the current eye and look whenever it's drawn, so looking about while the world
+    /// holds turns the view.
+    /// </summary>
+    internal CameraRig View { get; private set; } = new(Vector3.Zero, (0, 0, 0));
 
     /// <summary>The weapon in hand: its model, class and numbers.</summary>
     internal LabWeapon Weapon { get; private set; }
@@ -122,25 +156,33 @@ internal sealed class FirstPerson : IDisposable
     /// own, the move's clip over it, the head turns them and the camera (#10161). Places the sword and its tip.
     /// </summary>
     /// <param name="airborne">The body is off the ground, and <paramref name="velocity"/> its velocity: the head's fall.</param>
-    internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward, bool airborne = false, Vector3 velocity = default)
+    /// <param name="lean">The lean (<see cref="Player.PlayerLean"/>), −1 left to 1 right: the arms and camera stand at the eye
+    /// moved to that side, the view rolled.</param>
+    internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward, bool airborne = false, Vector3 velocity = default, float lean = 0)
     {
         var idle = arms.Model.Clip(move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
         if (move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
-        // The head turns the view (#10161); the arms stand at the eye, turned with it, and the camera at their eyes.
+        // The head turns the view (#10161); the arms stand at the eye, turned with it, and the camera above it.
         if (move.Move == SwordMove.Away && lastMove != SwordMove.Away) head.Grabbed();
         lastMove = move.Move;
         head.Step(seconds, move.Move == SwordMove.Ready ? null : (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle), airborne, velocity);
         var look = Vector3.Normalize(forward);
         var right = Vector3.Normalize(Vector3.Cross(look, Vector3.UnitY));
         var up = Vector3.Cross(right, look);
-        var turn = HeadMotion.Rotation(head.Turn with { Roll = head.Turn.Roll + HeadMotion.StrafeRoll(velocity, look) }, look, up);
+        var turned = head.Turn with { Roll = head.Turn.Roll + HeadMotion.StrafeRoll(velocity, look) + lean * Player.PlayerLean.Angle };
+        var leaned = eye + right * (lean * Player.PlayerLean.Move * SourceSpace.MetresPerUnit);
+        var turn = HeadMotion.Rotation(turned, look, up);
         var turnedForward = Vector3.Transform(look, turn);
         var turnedUp = Vector3.Transform(up, turn);
-        Arms = new Transform(eye, Rig.Facing(turnedForward, turnedUp), Vector3.One);
+        Arms = new Transform(leaned, Rig.Facing(turnedForward, turnedUp), Vector3.One);
         var pose = Rig.Pose(engine, arms, Arms);
-        Camera = (Rig.Attached(arms.Model, pose, "eyes")?.Translation ?? eye, turnedForward, turnedUp);
+        // The camera: the measured offset from the (leaned) eye, turned by the head and the lean.
+        var rest = CameraOffset * SourceSpace.MetresPerUnit;
+        Camera = (leaned + Vector3.Transform(right * rest.X + up * rest.Y + look * rest.Z, turn), turnedForward, turnedUp);
+        var offset = Camera.Position - eye;
+        View = new CameraRig(new Vector3(Vector3.Dot(offset, right), Vector3.Dot(offset, up), Vector3.Dot(offset, look)), turned);
         var (main, other) = HandOf(Weapon.Class);
         Sword = Rig.Attached(arms.Model, pose, main) ?? Arms;
         OffHand = offHand is not null && other is not null ? Rig.Attached(arms.Model, pose, other) ?? Arms : null;

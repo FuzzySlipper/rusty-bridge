@@ -39,6 +39,7 @@ rusty dev
 | F | Kick (`layer_sword_noshield_kick_medium`), also cutting off a swing whose hit window has passed |
 | E / left button | Pick up a crate / throw it (fptester's cubes) |
 | G | God: the orc's blows still count but take no health |
+| Z / X, hold | Lean left / right (#10161) |
 | 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162) |
 | P / O | Hold the world / step it one frame |
 | R / M / F3 | Reset / menu / developer shell |
@@ -562,8 +563,12 @@ full. `hurtme N` took N.
 
 The camera the donor draws with (Wire v9's client view, its `CViewSetup`) against the player's view (#10161;
 `FirstPerson`, `HeadMotion`):
-- **Where it sits:** the view model (`first_basic`) stands at the eye, turned with the camera, and the camera at its
-  `eyes` attachment: 2.1 units ahead of the eye and 9 above it at rest, never at the eye itself. The lab places both so.
+- **Where it sits:** the view model (`first_basic`) stands at the eye, turned with the camera, and the camera 9 units
+  above the eye and 2.1 ahead in the view's frame, turned with it (`FirstPerson.CameraOffset`), never at the eye
+  itself: so on 5057 of the `movement` scenario's ticks, crouched (the eye 35 units up, not 61) as standing, and
+  through every swing and kick. Not the arms' `eyes` attachment (6.8 up, 4 to 6 ahead, moving with each clip), nor its
+  reference pose's. The player's camera composes it with the current eye and look whenever it's drawn, so looking
+  about while the world holds turns the view (`CameraRig`, R10161-3).
 - **The head:** Arkane's `player_head_mvt.mdl`, one node with 194 clips, turns the camera. It plays the clip named
   as the view model's layer (`layer_bigslash_sword_noshield_out`, `_T_out`, `layer_combo_sword_huge_noshield`, the
   parries...) at its cycle; the node's turn about the model's Z is the camera's pitch, about X its yaw, about Y its roll
@@ -571,6 +576,7 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
   camera still, as recorded: the fast attacks, and the kicks (whose head clips are `layer_sword_kick_*`).
 - **Landing:** `jump_out_idle`, `_walk`, `_run` or `_sprint` (by the body's speed: under 30, 150, 230 units/s) once the
   body falls faster than `mm_player_speed_to_active_fall` (125 units/s), dipping the view 7.9° at 0.19 s.
+  `player.json`'s `landingDip` scales it for comfort (1 as the donor's, 0 none; the developer shell's "Landing dip").
 - **Strafing:** Source's view roll, `sv_rollangle` 3° at `sv_rollspeed` 200 units/s to the side, in proportion below
   it; the right side goes down moving right. With the sword at rest it was the whole of the camera's roll: 1.7° (RMS)
   off the view on `l01_a-v14-arena-hand`, 0.4° off this.
@@ -584,6 +590,15 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
 - **Grabbed:** when an orc's grab takes the hands, the head plays `player_grabed` (40.2° down at its height, as
   recorded), cut at 2.35 s where the donor's is back at the view, then `player_knocked_down` 3.12 s after the grab
   began, as the player is thrown (the three recorded grabs; the grab itself is #10185).
+- **Leaning** (Z and X, the donor's `config.cfg` binds; `PlayerLean`; `l01_a-v18-lean`): `+leanleft` and `+leanright`
+  put nothing in the user command; the client rolls the view 15° (`cl_leanangle`) and moves the eye 25 units to that
+  side (`cl_leanmove`, the view offset itself), easing at `cl_leanspeed` (10 a second: 70% of the way in 0.12 s, in
+  and out), so the camera stands 27.3 units out. Against a wall it comes back along the line from the unleaned eye to
+  5 units short of the wall (`mm_player_lean_hull`): touching it, 11 units out, at that line's height; 15 units off
+  it, 26.5. The lab casts a ray from the eye to the leaned camera and keeps the camera 5 units from what it meets,
+  square to it (in the arena, touching a wall: 7.2 units out, the lab's body being 11.8 units across to the donor's
+  16). Driven from each recorded lean's start and release, its roll is within 1° of the donor's on 1147 of 1271
+  leaning ticks (the smoke). The eye's move doesn't change the sword's trace (not measured).
 - **No bob:** `cl_bob` and `mm_headbobbing` are 0 and the head's walk and run clips don't play; `player.json`'s
   `headBobMetres` is 0.
 - **Against the recordings** (the smoke): on the ticks where the donor's camera turned more than 1° from the view,
@@ -593,10 +608,15 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
   (the donor blends its head in from the charge), the kicks of attacks not measured (the ghouls', the orc's dodge
   strikes), the landing's dip a tick or two apart, and the daggers' and staff's fights (3.4° to 5.6°: the staff's
   power attack releases its head at cycle 0.4 where the lab holds it, and its camera sits 5° down at rest, which no
-  clip explains), reported and not checked. `RB_CAMERA_TRACE=1` prints each tick compared; `RB_CAMERA=1` the head's
-  and the `eyes` attachment's curves by clip.
-- **Not measured:** leaning (`cl_leanangle` 15, `mm_player_lean_eye` 72; none recorded), and the head clips of moves
-  the lab doesn't play.
+  clip explains), reported and not checked. In place, every tick: within 1 unit on 9424 of 10001 (`arena-hand`,
+  median 0.04) and 2895 of 3413 (`arena-hand2`, 0.06), checked at 80% and 0.5 on the arena fights; the experiments
+  85% to 94% (the staff's 78%). The worst are orcs' grabs: one or two ticks at a time, up to 252 units, while the
+  grab carries the player (the eye and the camera read at different moments), and its own camera move
+  (`mm_player_grab_camera_move_dist` 20, up to 20 units through the hands' taking; #10185). `RB_PLACE_TRACE=1`
+  prints each tick more than 5 units off. `RB_CAMERA_TRACE=1` prints each tick
+  compared; `RB_CAMERA=1` the head's and the `eyes` attachment's curves by clip; `RB_LEAN=path` the drawn camera
+  against the eye every tick.
+- **Not measured:** `mm_player_lean_eye` (72), and the head clips of moves the lab doesn't play.
 
 ## The orc
 

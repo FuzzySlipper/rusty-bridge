@@ -418,6 +418,22 @@ if (Environment.GetEnvironmentVariable("RB_LEAN") is { Length: > 0 } leanPath)
     return 0;
 }
 
+// RB_PROPS=path prints where a recording's props stand (crates, tables, barrels: their model and origin) and stops (#10163).
+if (Environment.GetEnvironmentVariable("RB_PROPS") is { Length: > 0 } propsPath)
+{
+    using var stream = File.OpenRead(propsPath);
+    foreach (var f in RecordingReader.Frames(stream))
+    {
+        foreach (var (index, e) in f.Entities)
+            if (f.Models.GetValueOrDefault(e.ModelIndex) is { } model && (model.Contains("crate", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("table", StringComparison.OrdinalIgnoreCase) || model.Contains("barrel", StringComparison.OrdinalIgnoreCase)
+                || model.Contains("box", StringComparison.OrdinalIgnoreCase)))
+                Console.WriteLine(FormattableString.Invariant($"PROP {f.Tick} #{index} {model} {e.OriginX:0} {e.OriginY:0} {e.OriginZ:0} yaw {e.Yaw:0}"));
+        if (Environment.GetEnvironmentVariable("RB_PROPS_ALL") != "1") break;
+    }
+    return 0;
+}
+
 // RB_HEALTH=1 prints the donor player's health through each recording (#10162) and stops.
 if (Environment.GetEnvironmentVariable("RB_HEALTH") == "1")
 {
@@ -881,13 +897,15 @@ host.Call(engine =>
         float max = combat.Health.Max;
         combat.UseBelt(0);
         float potion = combat.PlayerHealth;
+        // The HUD's health bar follows it (R10162-1): 50 of 70 fills 71.4%.
+        string barFill = DarkMessiah.Lab.Ui.LabHud.Fields(product.Observation()).First(f => f.Key == "healthFill").Text;
         for (int i = 0; i < 125; i++) combat.Health.Step(Tick);
         float regained = combat.PlayerHealth - potion;
         combat.UseBelt(1);
         float full = combat.PlayerHealth;
         combat.UseBelt(1);
-        Check(max == 70 && potion == 50 && MathF.Abs(regained - .5f) < 1e-4f && full == 70 && combat.Belt[0]?.Count == 2 && combat.Belt[1] is null,
-            FormattableString.Invariant($"extra_health 2 makes 70 ({max}); a life potion 40 to {potion}; fast_metabolism regains {regained:0.##} in 2.08 s; the full life potion fills it ({full}) and its slot is empty after"));
+        Check(max == 70 && potion == 50 && MathF.Abs(regained - .5f) < 1e-4f && full == 70 && combat.Belt[0]?.Count == 2 && combat.Belt[1] is null && barFill == "71.4",
+            FormattableString.Invariant($"extra_health 2 makes 70 ({max}); a life potion 40 to {potion}, the HUD's bar {barFill}% full; fast_metabolism regains {regained:0.##} in 2.08 s; the full life potion fills it ({full}) and its slot is empty after"));
         combat.Rebuild(file);
         combat.Reset();
         Check(combat.Health.Max == 50 && combat.PlayerHealth == 50 && combat.Belt[0]?.Count == 3 && (KeyboardControl)((int)KeyboardControl.Digit1 + 8) == KeyboardControl.Digit9,

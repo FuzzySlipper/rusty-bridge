@@ -253,7 +253,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private DebugCommandResult Observe() => DebugCommandResult.Success(JsonSerializer.Serialize(Observation(), ObservationJson.Default.LabObservation));
 
-    private LabObservation Observation()
+    internal LabObservation Observation()
     {
         static float[] Vec(Vector3 value) => [value.X, value.Y, value.Z];
         CharacterMotion motion = player.Motion;

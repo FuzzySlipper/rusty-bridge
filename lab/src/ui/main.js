@@ -25,6 +25,8 @@ export function mountProductUi(root, context) {
       .fp-lab h1 { margin:2px 0; font-size:22px; letter-spacing:.02em; font-weight:600; }
       .fp-lab .eyebrow { color:#8ed8cf; font:11px ui-monospace,monospace; letter-spacing:.14em; }
       .fp-lab .room { margin-top:8px; color:#c7d3e4; font-size:12px; }
+      .fp-lab .health-bar { margin-top:8px; width:240px; height:10px; border:1px solid #ffffff40; border-radius:5px; background:#1a0d10cc; overflow:hidden; }
+      .fp-lab .health-bar > div { height:100%; width:0; background:linear-gradient(#e25b5b,#a32626); transition:width .12s linear; }
       .fp-lab .telemetry { position:absolute; top:24px; right:24px; width:270px; padding:14px 18px; border:1px solid #ffffff26; border-radius:8px; background:#111a28d9; }
       .fp-lab .telemetry strong { color:#7adebc; font:11px ui-monospace,monospace; letter-spacing:.07em; }
       .fp-lab dl { display:grid; grid-template-columns:62px 1fr; margin:10px 0 0; gap:5px 12px; font:11px/1.6 ui-monospace,monospace; }
@@ -45,7 +47,7 @@ export function mountProductUi(root, context) {
       .fp-lab .developer-host > * { pointer-events:auto; }
       .fp-lab .developer-error { position:absolute; top:24px; left:28px; margin:0; padding:8px 12px; border-radius:6px; background:#5a1f24; }
     </style>
-    <header><div class="eyebrow">RUSTY BRIDGE / DARK MESSIAH COMBAT LAB</div><h1>Sword against orc</h1><div class="room" data-fact="health"></div></header>
+    <header><div class="eyebrow">RUSTY BRIDGE / DARK MESSIAH COMBAT LAB</div><h1>Sword against orc</h1><div class="health-bar" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100"><div data-fill="healthFill"></div></div><div class="room" data-fact="health"></div></header>
     <aside class="telemetry" aria-label="Controller telemetry"><strong data-fact="grounded">CONNECTING</strong>
       <dl><dt>sword</dt><dd data-fact="move"></dd><dt>orc</dt><dd data-fact="orc"></dd><dt>last blow</dt><dd data-fact="blow"></dd><dt>you</dt><dd data-fact="swings"></dd><dt>orc blows</dt><dd data-fact="orcblows"></dd><dt>feet XYZ</dt><dd data-fact="position"></dd><dt>stance</dt><dd data-fact="stance"></dd><dt>world</dt><dd data-fact="world"></dd><dt>step</dt><dd data-fact="step"></dd></dl>
     </aside>
@@ -59,6 +61,8 @@ export function mountProductUi(root, context) {
   root.append(panel);
   let disposed = false;
   const fields = [...panel.querySelectorAll('[data-fact]')];
+  // Bars sized by a fact's percent: the health bar follows the player's health against its maximum.
+  const fills = [...panel.querySelectorAll('[data-fill]')];
   const menu = panel.querySelector('.menu');
   const developerButton = panel.querySelector('[data-developer]');
   const toGameplay = () => {
@@ -121,6 +125,11 @@ export function mountProductUi(root, context) {
     if (disposed || envelope?.stream !== 'darkmessiah-lab' || envelope.contract !== 'rusty-bridge.lab.hud') return;
     const facts = envelope.value;
     for (const field of fields) field.textContent = facts[field.dataset.fact] ?? '';
+    for (const fill of fills) {
+      const percent = Math.min(100, Math.max(0, Number(facts[fill.dataset.fill] ?? 0) || 0));
+      fill.style.width = `${percent}%`;
+      fill.parentElement?.setAttribute('aria-valuenow', String(percent));
+    }
   });
   return {
     dispose() {

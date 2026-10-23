@@ -779,6 +779,35 @@ host.Call(engine =>
         var noStealth = Squad("l01_a", 300, 0, 300, false);
         var mateFar = Squad("l05_a", 400, 0, 600, false);
         var behind = Squad("l05_a", 0, 0, 300, true);
+        // The squad-mate is fought as the first orc is (R10154-3): a swing and a kick at it, the first held 20 m off.
+        (float Mate, float First, string Victim) HitMate(bool kick)
+        {
+            var spawnAt = new Vector3(saved.Orc.Spawn[0], saved.Orc.Spawn[1], saved.Orc.Spawn[2]);
+            var mateAt = spawnAt + side * 300 * mpu;
+            combat.Retune(saved with { Orc = saved.Orc with { Map = "l05_a", SquadMate = [mateAt.X, mateAt.Y, mateAt.Z] } });
+            combat.Reset();
+            bool wasGod = combat.God;
+            combat.God = true;
+            foreach (var o in new[] { combat.Orc, combat.Mate! }) { o.Hold = true; o.Defending.Forced = Defence.None; }
+            combat.Orc.PlaceAt(spawnAt - side * 20);
+            combat.Mate!.Face(face);
+            var feet = mateAt + face * 45 * mpu;
+            var look = Vector3.Normalize((mateAt - feet) with { Y = 0 });
+            float mate = combat.Mate.Health, first = combat.Orc.Health;
+            ulong t = 0;
+            for (int i = 0; i < 120; i++)
+            {
+                combat.Mate.PlaceAt(mateAt);
+                combat.Step(Tick, t++, !kick && i < 3, false, kick && i < 3, feet + Vector3.UnitY * 1.6f, look, feet);
+            }
+            combat.God = wasGod;
+            foreach (var o in new[] { combat.Orc, combat.Mate }) { o.Hold = false; o.Defending.Forced = null; }
+            return (mate - combat.Mate.Health, first - combat.Orc.Health, combat.Victim == combat.Mate ? "the mate" : "the first orc");
+        }
+        var swungAt = HitMate(false);
+        var kickedAt = HitMate(true);
+        Check(swungAt.Mate > 0 && swungAt.First == 0 && kickedAt.Mate > 0 && kickedAt.First == 0 && swungAt.Victim == "the mate",
+            FormattableString.Invariant($"the player's blows land on the squad-mate they reach (R10154-3): a fast attack takes {swungAt.Mate:0.##} and a kick {kickedAt.Mate:0.##} from it, none from the first orc 20 m off ({swungAt.First:0.##}, {kickedAt.First:0.##})"));
         combat.Retune(saved);
         combat.Reset();
         static string When(double? t) => t is double v ? FormattableString.Invariant($"{v:0.00} s") : "never";

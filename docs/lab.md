@@ -693,9 +693,11 @@ level's other NPCs removed (docs/recording.md; `PerceptionCalibration`; the l05_
   `SquadAwarnessDist` (500), who fight 2.4 s later (`OrcPerceptionData.CallDelay`), skipping `surprised`.
   `call4helpdist` (700) and `ouchcall4helpdist` didn't show: no blow called, and 600 off didn't come.
 - **The second orc** (`combat.json` `orc.squadMate`, a place, or null): the first orc's squad-mate. It fights on its
-  own and its blows land on the player, but the player's swings reach only the first orc (the combat's sweep,
-  defence and reactions have one target). The smoke checks it through the lab's combat in l05_a: it answers its mate's
-  sighting 2.42 s after, not 600 units off, and not a blow from behind.
+  own, sees the player's swings and defends as the first does, and its blows land on the player. The player's blows
+  land on the orc they reach (R10154-3): a swing on the one its sweep meets first along the ray, a kick or the Whirlwind
+  on the nearest in reach, the backstab on the one whose back it readied on (`LabCombat.Victim`). The smoke checks it
+  through the lab's combat in l05_a: it answers its mate's sighting 2.42 s after, not 600 units off, and not a blow
+  from behind; a fast attack and a kick at it hurt it, not the first orc 20 m off.
 - **Factions** (`mm_relationship.txt`): orcs like orcs and hate the rest, the player, guards, goblins and ghouls
   included.
 

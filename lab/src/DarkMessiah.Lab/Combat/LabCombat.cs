@@ -84,6 +84,7 @@ internal sealed class LabCombat : IDisposable
         FirstPerson = new FirstPerson(engine, donor);
         Sword = new PlayerSword(FirstPerson.Clips(FirstPerson.Weapon, tuning));
         Orc = new Orc(engine, donor, tuning.Orc);
+        hitOrc = Orc;
         this.donor = donor;
         Mates(tuning.Orc);
         staminaRules = StaminaRules.From(donor);
@@ -261,6 +262,17 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     internal Orc? Mate { get; private set; }
 
+    /// <summary>The orcs in the fight: the first, and its squad-mate if there is one.</summary>
+    IEnumerable<Orc> Orcs => Mate is { } mate ? [Orc, mate] : [Orc];
+
+    // The orc the player's blow being decided lands on (R10154-3): the one its sweep met first, the nearest a kick or the
+    // Whirlwind reaches, the one whose back the backstab readied on. The first orc in a replay.
+    Orc hitOrc;
+    Orc? backstabVictim;
+
+    /// <summary>The orc the player's last blow was decided against.</summary>
+    internal Orc Victim => hitOrc;
+
     /// <summary>The squad's calls: whichever orc saw the player this step calls the other, within reach.</summary>
     void Squad()
     {
@@ -318,8 +330,8 @@ internal sealed class LabCombat : IDisposable
         FirstPerson.Pose(Sword, seconds, eye, forward);
         var gait = Gait(seconds, feet, sprinting, crouched);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
-        // Its squad-mate fights on its own and doesn't see the player's swings: the player's blows land only on the first orc.
-        var mateBlows = Mate is { } mate && orcPose is null ? mate.Step(seconds, feet, IncomingSwing.None, 0, gait) : [];
+        // Its squad-mate fights on its own, sees the player's swings as the first does, and takes the blows that reach it.
+        var mateBlows = Mate is { } mate && orcPose is null ? mate.Step(seconds, feet, Incoming(), Sword.Swing, gait) : [];
         Squad();
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
@@ -342,7 +354,9 @@ internal sealed class LabCombat : IDisposable
     {
         // The donor sweeps several rays a tick, at most about 10° apart, across the arc the swing covered (#10179):
         // from where the last step left it to where it is now, the first contact ending the swing for its target.
-        var targets = Orc.Targets();
+        // Each orc's body and items, the nearest contact along a ray striking (R10154-3).
+        var posed = Orcs.Select(o => (Orc: o, Targets: o.Targets())).Where(o => o.Targets.Count > 0).ToList();
+        var targets = posed.FirstOrDefault().Targets ?? [];
         float from = Sword.TraceFromCycle, to = Sword.TraceCycle;
         var (fromSide, _) = ArcAt(from);
         var (toSide, _) = ArcAt(to);
@@ -352,21 +366,23 @@ internal sealed class LabCombat : IDisposable
         for (int r = 1; r <= rays && contacts.Count == 0; r++)
         {
             (start, end) = Aim(eye, forward, from + (to - from) * r / rays);
-            if (targets.Count > 0) contacts = sweep.Sweep(start, end, Radius, targets);
+            foreach (var (o, t) in posed)
+                if (sweep.Sweep(start, end, Radius, t) is { Count: > 0 } met && (contacts.Count == 0 || met[0].Along < contacts[0].Along))
+                    (contacts, targets, hitOrc) = (met, t, o);
         }
         if (contacts.Count == 0) { Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, start, end, null, "none")); return; }
         settledSwing = SwingKey;
         decidedSwing = Sword.Swing;
         var c = contacts[0];
-        var orc = Orc.Party();
+        var orc = hitOrc.Party();
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
         Struck struck = c.Target == 0 ? Struck.Body : c.Target == 1 ? Struck.Weapon : Struck.OffHand;
-        Vector3 toPlayer = feet - Orc.Feet;
+        Vector3 toPlayer = feet - hitOrc.Feet;
         toPlayer.Y = 0;
-        float front = toPlayer.LengthSquared() > 1e-6f ? Vector3.Dot(Orc.Facing, Vector3.Normalize(toPlayer)) : 0;
+        float front = toPlayer.LengthSquared() > 1e-6f ? Vector3.Dot(hitOrc.Facing, Vector3.Normalize(toPlayer)) : 0;
         // A dodging orc can't be touched in its dodge's window (#10198): the donor's no-effect verdict.
         bool untouchable = model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle);
-        var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, Orc.DefenseState, untouchable));
+        var verdict = CombatModel.Verdict(new DefenseCase((int)tick, orc, player, "weapon_arx_short_sword", struck, front, DefenseResult.Hit, hitOrc.DefenseState, untouchable));
         bool bash = Sword.Move == SwordMove.Bash;
         // The bash's event has breakparade: it goes through a parry. Not recorded (no orc parried one).
         if (bash && verdict == DefenseResult.Parry && model.EventOf(player)?.BreaksParry == true) verdict = DefenseResult.Hit;
@@ -391,18 +407,18 @@ internal sealed class LabCombat : IDisposable
         // A head blow asks what it asks, the Fatality's too (720 on the head): cutheadflag cuts the head off only a
         // blow that kills (the one recorded, an orc at 40 health, left npc_orc_noHead), and no head blow killed by
         // itself (#10198: the 100000-health orcs #10177 saw fall were knocked down and got up).
-        bool wasAlive = Orc.Alive;
-        Orc.Damage(asked);
+        bool wasAlive = hitOrc.Alive;
+        hitOrc.Damage(asked);
         // A Fatality that kills slows the world, as the donor's every Fatality kill did (#10147).
-        if (Sword.Move == SwordMove.Fatality && wasAlive && !Orc.Alive) AskSlowTime(SlowTime.FatalityKill);
+        if (Sword.Move == SwordMove.Fatality && wasAlive && !hitOrc.Alive) AskSlowTime(SlowTime.FatalityKill);
         // Its reaction (#10153): the bash's push slides it its measured 1.4 m.
-        React(hit, kick: false, asked, group, forward, (Orc.Feet - feet) with { Y = 0 }, bash ? BashPush : 0);
+        React(hit, kick: false, asked, group, forward, (hitOrc.Feet - feet) with { Y = 0 }, bash ? BashPush : 0);
         // It may stun or knock the orc down (#10152): the shield's bash is no staff's and multiplies by 1.
         Stagger(hit, feet, bash);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
         Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, FormattableString.Invariant($"{asked:0.##} ({what})"), group, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, player.Layers[0], verdict, asked, group));
-        Message = !Orc.Alive ? "The orc falls" : bash ? "Bash" : FormattableString.Invariant($"Hit for {asked:0.##}");
+        Message = !hitOrc.Alive ? "The orc falls" : bash ? "Bash" : FormattableString.Invariant($"Hit for {asked:0.##}");
     }
 
     /// <summary>
@@ -452,8 +468,9 @@ internal sealed class LabCombat : IDisposable
         decidedSwing = Sword.Swing;
         // The Whirlwind asks its .qct slow motion as it begins (×0.5 for 2.5 s; recorded at its first tick).
         if (model.EventOf(new Party("player", "", [Sword.Clip.Clip], 0, "#1"))?.SlowTime is { } whirlSlow) AskSlowTime(whirlSlow);
-        Vector3 flat = (Orc.Feet - feet) with { Y = 0 };
-        if (!Orc.Alive || flat.Length() > WhirlwindReach)
+        hitOrc = Orcs.Where(o => o.Alive).OrderBy(o => ((o.Feet - feet) with { Y = 0 }).Length()).FirstOrDefault() ?? Orc;
+        Vector3 flat = (hitOrc.Feet - feet) with { Y = 0 };
+        if (!hitOrc.Alive || flat.Length() > WhirlwindReach)
         {
             Player = Player with { Missed = Player.Missed + 1 };
             Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, eye, null, "none"));
@@ -461,14 +478,14 @@ internal sealed class LabCombat : IDisposable
         }
         var player = new Party("player", "", [Sword.Clip.Clip], 0, "#1", PlayerModel);
         // Its .qct event has critical_enable: it rolls (or, replayed, takes the donor's) as any blow does (R10146-1).
-        float asked = Asked(tick, player, Orc.Party(), 0);
-        Orc.Damage(asked);
-        React(model.EventOf(player), kick: false, asked, 0, flat.LengthSquared() > 1e-6f ? Vector3.Normalize(flat) : Orc.Facing * -1, flat, 0);
+        float asked = Asked(tick, player, hitOrc.Party(), 0);
+        hitOrc.Damage(asked);
+        React(model.EventOf(player), kick: false, asked, 0, flat.LengthSquared() > 1e-6f ? Vector3.Normalize(flat) : hitOrc.Facing * -1, flat, 0);
         Stagger(model.EventOf(player), feet);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
-        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
+        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, 0, eye, hitOrc.Feet + Vector3.UnitY, hitOrc.Feet + Vector3.UnitY, FormattableString.Invariant($"whirlwind {asked:0.##}"), 0, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, 0));
-        Message = Orc.Alive ? FormattableString.Invariant($"Whirlwind for {asked:0.##}") : "The orc falls";
+        Message = hitOrc.Alive ? FormattableString.Invariant($"Whirlwind for {asked:0.##}") : "The orc falls";
     }
 
     bool lastCritical;
@@ -479,14 +496,14 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     void React(AttackEvent? blow, bool kick, float damage, int? group, Vector3 forward, Vector3 pushDirection, float pushMetres)
     {
-        var facing = Orc.Facing with { Y = 0 };
+        var facing = hitOrc.Facing with { Y = 0 };
         var left = new Vector3(facing.Z, 0, -facing.X);
         var look = forward with { Y = 0 };
         float angle = look.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f
             ? MathF.Atan2(Vector3.Dot(look, left), Vector3.Dot(look, facing)) * 180 / MathF.PI : 180;
         var reaction = OrcReactions.Pick(new ReactionBlow(blow, kick, damage, !kick && lastCritical, group, angle),
-            Orc.State == OrcState.Stunned, Orc.SinceSmallHit);
-        if (reaction.Clip is not null) Orc.React(reaction, pushDirection, pushMetres);
+            hitOrc.State == OrcState.Stunned, hitOrc.SinceSmallHit);
+        if (reaction.Clip is not null) hitOrc.React(reaction, pushDirection, pushMetres);
     }
 
     /// <summary>
@@ -500,9 +517,9 @@ internal sealed class LabCombat : IDisposable
         {
             Criticals++;
             lastCritical = true;
-            return PlayerAsks(player, victim, group, kick: false, Orc.Health, critical: true, weapon: weapon, alert: AlertAt(tick));
+            return PlayerAsks(player, victim, group, kick: false, hitOrc.Health, critical: true, weapon: weapon, alert: AlertAt(tick));
         }
-        return PlayerAsks(player, victim, group, kick: false, Orc.Health, weapon: weapon, alert: AlertAt(tick));
+        return PlayerAsks(player, victim, group, kick: false, hitOrc.Health, weapon: weapon, alert: AlertAt(tick));
     }
 
     /// <summary>
@@ -517,9 +534,17 @@ internal sealed class LabCombat : IDisposable
     /// <param name="pose">In a replay, the followed orc's pose this step (the orc takes it after the sword steps).</param>
     bool BackstabReady(Vector3 forward, Vector3 feet, OrcPose? pose = null)
     {
-        bool alive = pose is null ? Orc.Alive : pose.Health > 0;
-        if (Sword.Clips.Backstab is null || !alive || !Orc.Backstable || Orc.State == OrcState.Backstabbed || Orc.Guarded(pose?.Sequence ?? Orc.Clip)) return false;
-        Vector3 toOrc = ((pose?.Feet ?? Orc.Feet) - feet) with { Y = 0 }, look = forward with { Y = 0 }, facing = (pose?.Facing ?? Orc.Facing) with { Y = 0 };
+        // A replay's followed orc, else either orc (R10154-3): the first whose back is in reach.
+        backstabVictim = pose is not null || Orc.Following ? (BackstabReady(Orc, forward, feet, pose) ? Orc : null)
+            : Orcs.FirstOrDefault(o => BackstabReady(o, forward, feet, null));
+        return backstabVictim is not null;
+    }
+
+    bool BackstabReady(Orc orc, Vector3 forward, Vector3 feet, OrcPose? pose)
+    {
+        bool alive = pose is null ? orc.Alive : pose.Health > 0;
+        if (Sword.Clips.Backstab is null || !alive || !orc.Backstable || orc.State == OrcState.Backstabbed || Npc.Orc.Guarded(pose?.Sequence ?? orc.Clip)) return false;
+        Vector3 toOrc = ((pose?.Feet ?? orc.Feet) - feet) with { Y = 0 }, look = forward with { Y = 0 }, facing = (pose?.Facing ?? orc.Facing) with { Y = 0 };
         if (look.LengthSquared() < 1e-6f || facing.LengthSquared() < 1e-6f) return false;
         look = Vector3.Normalize(look);
         float units = toOrc.Length() / SourceSpace.MetresPerUnit;
@@ -539,32 +564,33 @@ internal sealed class LabCombat : IDisposable
     void Backstab(ulong tick, Vector3 eye, Vector3 forward, Vector3 feet)
     {
         float from = Sword.TraceFromCycle, to = Sword.Cycle;
+        if (Sword.SwingStarted) hitOrc = backstabVictim ?? Orc;
         // The back lost by the time it strikes (the orc turned this very step): it strikes nothing (R10148-4).
-        if (Sword.SwingStarted && !Orc.Following && !BackstabReady(forward, feet))
+        if (Sword.SwingStarted && !hitOrc.Following && !BackstabReady(forward, feet))
         {
             settledSwing = SwingKey;
             decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
             return;
         }
-        if (decidedSwing == Sword.Swing && Orc.State != OrcState.Backstabbed) return;
+        if (decidedSwing == Sword.Swing && hitOrc.State != OrcState.Backstabbed) return;
         // Its first contact asks nothing and leaves the victim at 1 health (the donor's, at the 2102, 4 of 4).
         if (from <= BackstabClips.Kill && to > BackstabClips.Kill || Sword.SwingStarted && to > BackstabClips.Kill)
         {
-            Orc.Backstabbed();
+            hitOrc.Backstabbed();
             Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, 0, null));
         }
         if (!(from <= BackstabClips.Blow && to > BackstabClips.Blow) || decidedSwing == Sword.Swing) return;
         settledSwing = SwingKey;
         decidedSwing = Sword.Swing;
-        if (Orc.State != OrcState.Backstabbed && !Orc.Following) { Player = Player with { Missed = Player.Missed + 1 }; return; }
+        if (hitOrc.State != OrcState.Backstabbed && !hitOrc.Following) { Player = Player with { Missed = Player.Missed + 1 }; return; }
         var player = new Party("player", "", [Sword.Clip.Clip], BackstabClips.Blow, "#1", PlayerModel);
-        float asked = Asked(tick, player, Orc.Party(), null);
-        Orc.Damage(asked);
+        float asked = Asked(tick, player, hitOrc.Party(), null);
+        hitOrc.Damage(asked);
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
-        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, BackstabClips.Blow, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"backstab {asked:0.##}"), 0, asked), blow: true);
+        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, BackstabClips.Blow, eye, hitOrc.Feet + Vector3.UnitY, hitOrc.Feet + Vector3.UnitY, FormattableString.Invariant($"backstab {asked:0.##}"), 0, asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
-        Message = Orc.Alive ? FormattableString.Invariant($"Backstab for {asked:0.##}") : "Backstabbed";
+        Message = hitOrc.Alive ? FormattableString.Invariant($"Backstab for {asked:0.##}") : "Backstabbed";
     }
 
     /// <summary>
@@ -582,7 +608,7 @@ internal sealed class LabCombat : IDisposable
     void Stagger(AttackEvent? blow, Vector3 from, bool shield = false)
     {
         var weapon = Weapon;
-        var outcome = Orc.Struck(blow, fightSeconds, from, !shield && weapon.Class == WeaponClass.Staff, shield ? 1 : weapon.StunMultiplier,
+        var outcome = hitOrc.Struck(blow, fightSeconds, from, !shield && weapon.Class == WeaponClass.Staff, shield ? 1 : weapon.StunMultiplier,
             Sword.Move == SwordMove.LeapOut ? Drop : null);
         if (outcome == Npc.Stagger.KnockedDown) Message = "Knocked down";
         else if (outcome == Npc.Stagger.Stunned) Message = "Stunned";
@@ -598,9 +624,14 @@ internal sealed class LabCombat : IDisposable
     {
         settledSwing = SwingKey;
         decidedSwing = Sword.Swing;
-        Vector3 toOrc = Orc.Feet + Vector3.UnitY * 1.0f - eye;
-        Vector3 flat = toOrc with { Y = 0 };
-        bool reaches = Orc.Alive && flat.Length() <= Tuning.KickRange && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(flat)) > .5f;
+        bool Reaches(Orc o)
+        {
+            var at = (o.Feet - eye) with { Y = 0 };
+            return o.Alive && at.Length() <= Tuning.KickRange && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(at)) > .5f;
+        }
+        hitOrc = Orcs.Where(Reaches).OrderBy(o => ((o.Feet - eye) with { Y = 0 }).Length()).FirstOrDefault() ?? Orc;
+        Vector3 flat = (hitOrc.Feet - eye) with { Y = 0 };
+        bool reaches = Reaches(hitOrc);
         Stamina.Kicked(reaches);
         if (!reaches)
         {
@@ -610,22 +641,22 @@ internal sealed class LabCombat : IDisposable
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
         // An orc in its dodge's window can't be touched, by a kick as by a swing (R10151-3): the donor's no-effect.
-        var orc = Orc.Party();
+        var orc = hitOrc.Party();
         if (model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle))
         {
             Player = Player with { Missed = Player.Missed + 1 };
-            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, "NoEffect (kick)"), blow: true);
+            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, hitOrc.Feet + Vector3.UnitY, hitOrc.Feet + Vector3.UnitY, "NoEffect (kick)"), blow: true);
             Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.NoEffect, 0, null));
             Message = "The orc dodges";
             return;
         }
-        float asked = PlayerAsks(player, orc, null, kick: true, Orc.Health, alert: AlertAt(tick));
-        Orc.Damage(asked);
+        float asked = PlayerAsks(player, orc, null, kick: true, hitOrc.Health, alert: AlertAt(tick));
+        hitOrc.Damage(asked);
         React(null, kick: true, asked, null, forward, flat, Tuning.KickPush);
         // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
-        Stagger(null, eye with { Y = Orc.Feet.Y });
+        Stagger(null, eye with { Y = hitOrc.Feet.Y });
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
-        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, Orc.Feet + Vector3.UnitY, Orc.Feet + Vector3.UnitY, FormattableString.Invariant($"kick {asked:0.##}"), Damage: asked), blow: true);
+        Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, hitOrc.Feet + Vector3.UnitY, hitOrc.Feet + Vector3.UnitY, FormattableString.Invariant($"kick {asked:0.##}"), Damage: asked), blow: true);
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
         Message = "Kick";
     }
@@ -642,9 +673,9 @@ internal sealed class LabCombat : IDisposable
     internal float PlayerAsks(Party player, Party victim, int? group, bool kick, float victimHealth, float? strength = null, bool critical = false,
         string? weapon = null, (int Level, int NpcState)? alert = null) => (kick
         ? model.Damage(new DamageCase(0, victim, player, "-", null, CombatModel.KickDamage, 0x20, 0, victimHealth, victimHealth, false,
-            VictimAlert: alert?.Level ?? Orc.Alert.Level, VictimNpcState: alert?.NpcState ?? Orc.Alert.NpcState))
+            VictimAlert: alert?.Level ?? hitOrc.Alert.Level, VictimNpcState: alert?.NpcState ?? hitOrc.Alert.NpcState))
         : model.Damage(new DamageCase(0, victim, player, weapon ?? FirstPerson.SwordModel, group, 0x4, 0, 0, victimHealth, victimHealth, false,
-            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? Orc.Alert.Level, VictimNpcState: alert?.NpcState ?? Orc.Alert.NpcState,
+            WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? hitOrc.Alert.Level, VictimNpcState: alert?.NpcState ?? hitOrc.Alert.NpcState,
             AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
 
     Vector3? lastFeet;

@@ -132,6 +132,9 @@ internal sealed class LabScene : IDisposable
         return material;
     }
 
+    /// <summary>A ladder as the player climbs it.</summary>
+    internal static Player.Ladder Ladder(LadderDefinition l) => new(l.Label, LabDefinition.Vector(l.Foot), l.Top, LabDefinition.Vector(l.Facing));
+
     private void AdmitFixtures()
     {
         List<StaticMeshAsset> assets = [];
@@ -147,6 +150,17 @@ internal sealed class LabScene : IDisposable
             Transform pose = new(LabDefinition.Vector(block.Center), Quaternion.Identity, LabDefinition.Vector(block.Size));
             fixtures.Add(new AppearanceFact(entity.Value, false, 0, pose, cubeAppearance, true, RenderLayer.Scene));
             instances.Add(new StaticMeshInstance(entity.Value, 1, pose));
+        }
+        // The ladders, drawn only (R10163-2): their rails and rungs against the faces they stand on.
+        if (Definition.Ladders.Length > 0)
+        {
+            MeshResource woodMesh = LabGeometry.Cube(engine, Material(new Color(.45f, .3f, .17f, 1)));
+            meshes.Add(woodMesh);
+            Appearance wood = engine.Graphics.CreateMeshAppearance(woodMesh);
+            appearances.Add(wood);
+            foreach (LadderDefinition definition in Definition.Ladders)
+                foreach (var (centre, size) in Player.LadderRules.Pieces(Ladder(definition)))
+                    fixtures.Add(new AppearanceFact(Entities.Create().Value, false, 0, new Transform(centre, Quaternion.Identity, size), wood, true, RenderLayer.Scene));
         }
         foreach (RampDefinition ramp in Definition.Ramps)
         {

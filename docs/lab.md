@@ -572,11 +572,15 @@ recorded):
 - **Climbing:** `mm_player_ladder_speed`, 80 units/s, up with forward and down with back. Forward climbs down
   looking more than 60° down (`mm_ladder_friction_pitch` taken so; not measured).
 - **Getting off:** at the top, onto what it leads to, `mm_dist_to_exit_ladder` (5 units) past it
-  (`sv_autoladderdismount` 1); at its foot climbing down; a jump lets go.
-- **Not played:** `mm_time_to_exit_enter_ladder` (1 s) and the body's `Player_ladder_*` clips: the lab mounts and
-  gets off at once. Not measured against the donor.
-- **The smoke:** mounted in 7 steps walking into it, 80 units/s up and down, off onto the loft at the top, mounted
-  again from the top, off at the foot, a jump letting go.
+  (`sv_autoladderdismount` 1); at its foot climbing down, the same distance back; a jump lets go at once.
+- **Getting on and off takes** `mm_time_to_exit_enter_ladder`, 1 s: an eased move onto the rail or off it, the
+  controls held off meanwhile (R10163-1). The body's `Player_ladder_*` clips aren't played. Not measured against the
+  donor.
+- **Drawn:** two side rails and a rung every 0.3 m, 0.5 m wide, against the face from its foot to its top
+  (`LadderRules.Pieces`; drawn only, the climb is the rail's), so it's found where it's climbed (R10163-2).
+- **The smoke:** the drawn ladder stands 0.05 m off its face either side of the climb (the rail 0.53 m off); got on
+  walking into it in 1.02 s without climbing, 80 units/s up and down, off onto the loft in 1.02 s, on again from the
+  top, off at the foot, a jump letting go.
 
 Mantling is #10329 (its trigger in server.dll's movement code, 0x223F2707, not yet reproduced) and climbing ropes
 #10330.

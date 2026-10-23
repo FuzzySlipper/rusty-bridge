@@ -55,7 +55,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         donor = DonorContent.Open(engine);
         scene = new LabScene(engine, LabDefinition.Load(engine));
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
-        player.Ladders = scene.Definition.Ladders.Select(l => new Ladder(l.Label, LabDefinition.Vector(l.Foot), l.Top, LabDefinition.Vector(l.Facing))).ToArray();
+        player.Ladders = scene.Definition.Ladders.Select(LabScene.Ladder).ToArray();
         cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).

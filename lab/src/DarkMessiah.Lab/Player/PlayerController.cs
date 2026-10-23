@@ -97,15 +97,34 @@ internal sealed class PlayerController : IDisposable
         CharacterMotion before = Motion;
         CharacterStepReceipt receipt;
         Sprinted = input.SprintHeld && !input.CrouchHeld;
-        // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it; jump lets go.
-        if (Climbing is null && input.Movement.Y > 0 && !jumpPressed) Climbing = LadderInReach();
-        // Or from its top: at the edge, facing the ladder's way, backing off steps onto the rail's top (the exit's reverse).
-        else if (Climbing is null && input.Movement.Y < 0 && !jumpPressed && LadderBehind() is var (fromTop, railTop))
+        // Getting on or off a ladder (R10163-1): mm_time_to_exit_enter_ladder's second onto or off the rail, eased, the
+        // controls held off meanwhile.
+        if (LadderMove is { } move)
         {
-            Climbing = fromTop;
-            entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = railTop });
+            float done = Math.Min(1, (move.Elapsed + delta) / LadderRules.EnterExitSeconds);
+            float eased = done * done * (3 - 2 * done);
+            var at = Vector3.Lerp(move.From, move.To, eased);
+            entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = at });
+            entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(at));
+            LadderMove = done >= 1 ? null : move with { Elapsed = move.Elapsed + delta };
+            if (done >= 1) Climbing = move.Then;
+            lastClear = at;
+            return BodyEvent.None;
         }
-        else if (Climbing is not null && jumpPressed) Climbing = null;
+        // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it; jump lets go.
+        if (Climbing is null && input.Movement.Y > 0 && !jumpPressed && LadderInReach() is { } reached)
+        {
+            var (bottom, top) = LadderRules.Rail(reached, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+            StartLadderMove(bottom with { Y = Math.Clamp(Position.Y, bottom.Y, top.Y) }, reached);
+            return BodyEvent.None;
+        }
+        // Or from its top: at the edge, facing the ladder's way, backing off steps onto the rail's top (the exit's reverse).
+        if (Climbing is null && input.Movement.Y < 0 && !jumpPressed && LadderBehind() is var (fromTop, railTop))
+        {
+            StartLadderMove(railTop, fromTop);
+            return BodyEvent.None;
+        }
+        if (Climbing is not null && jumpPressed) Climbing = null;
         float climbIntent = 0;
         try
         {
@@ -132,15 +151,18 @@ internal sealed class PlayerController : IDisposable
         if (Climbing is { } held)
         {
             var climb = receipt.Movement;
+            var facing = Vector3.Normalize(held.Facing with { Y = 0 });
             if (climb.ClimbAtTop && climbIntent > 0)
             {
                 Climbing = null;
-                var facing = Vector3.Normalize(held.Facing with { Y = 0 });
-                var onTop = receipt.Transform.Translation + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres);
-                entities.Set(entity, EngineComponentTypes.Transform, receipt.Transform with { Translation = onTop });
-                receipt = receipt with { Transform = receipt.Transform with { Translation = onTop } };
+                StartLadderMove(receipt.Transform.Translation + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres), null);
             }
-            else if (climb.ClimbAtBottom && climbIntent < 0 || !climb.ClimbAttached) Climbing = null;
+            else if (climb.ClimbAtBottom && climbIntent < 0)
+            {
+                Climbing = null;
+                StartLadderMove(receipt.Transform.Translation - facing * LadderRules.ExitMetres, null);
+            }
+            else if (!climb.ClimbAttached) Climbing = null;
         }
         // Let go of jump while still rising, the donor's jump falls back sooner (#10159: held 0.15 s it rose 34 units,
         // held to its peak 41): gravity × jumpReleaseGravity for the rest of the rise.
@@ -172,6 +194,8 @@ internal sealed class PlayerController : IDisposable
     {
         entities.Set(entity, EngineComponentTypes.Transform, new Transform(centre, Quaternion.Identity, Vector3.One));
         entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(centre));
+        Climbing = null;
+        LadderMove = null;
         LookState = new LookState(yawDegrees * MathF.PI / 180, 0);
         LookBy(0, pitchDegrees);
         Input.Physical.Clear();
@@ -263,6 +287,11 @@ internal sealed class PlayerController : IDisposable
     internal IReadOnlyList<Ladder> Ladders { get; set; } = [];
     /// <summary>The ladder the player is on, or null.</summary>
     internal Ladder? Climbing { get; private set; }
+
+    /// <summary>Getting on or off a ladder (R10163-1): from, to, the time so far, and the ladder climbed after (null: off).</summary>
+    internal (Vector3 From, Vector3 To, float Elapsed, Ladder? Then)? LadderMove { get; private set; }
+
+    private void StartLadderMove(Vector3 to, Ladder? then) => LadderMove = (Position, to, 0, then);
 
     /// <summary>A ladder whose rail is within reach, its top above the body and its foot below, the look toward it.</summary>
     private Ladder? LadderInReach()

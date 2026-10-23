@@ -1,6 +1,7 @@
 using System.Numerics;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Npc;
+using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Sword;
 using RustyBridge.Wire;
 using RustyBridge.Wire.Donor;
@@ -47,11 +48,14 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
     IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
-    (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null)
+    (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null,
+    (int Near, int Ticks, float Worst, int MaxAgree)? Health = null)
 {
     internal IEnumerable<string> Lines()
     {
         yield return FormattableString.Invariant($"{Name}: {Ticks} ticks replayed ({Seconds:0.0} s), {Skipped} recorded frames without input");
+        if (Health is var (healthNear, healthTicks, healthWorst, maxAgree))
+            yield return FormattableString.Invariant($"  health: the lab's within {CombatReplay.HealthTolerance} of the donor's on {healthNear} of {healthTicks} ticks (worst {healthWorst:0.##}), its maximum the donor's on {maxAgree}");
         if (Camera is var (near, turned, median))
             yield return FormattableString.Invariant($"  camera: where the donor's head turned it ({turned} ticks), the lab's within {CombatReplay.CameraTolerance}° on {near} (median {median:0.0}°)");
         foreach (var (clip, m) in Moves)
@@ -201,6 +205,8 @@ internal static class CombatReplay
 
     /// <summary>The lab's camera agrees with the donor's when its forward and up are this close, degrees (#10161).</summary>
     internal const float CameraTolerance = 1.5f;
+    /// <summary>The lab's health agrees with the donor's this close (#10162): its regeneration steps 0.25.</summary>
+    internal const float HealthTolerance = .3f;
 
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
@@ -226,7 +232,12 @@ internal static class CombatReplay
         var donorSpeeds = new List<float>();
         var labSpeeds = new List<float>();
         var donorTrace = new List<Calibration.MovementSample>();
-        int staminaTicks = 0, staminaNear = 0, cameraTicks = 0, cameraNear = 0;
+        int staminaTicks = 0, staminaNear = 0, cameraTicks = 0, cameraNear = 0, healthTicks = 0, healthNear = 0, maxAgree = 0;
+        float healthWorst = 0;
+        float? lastDonorHealth = null;
+        bool healthSet = false, regenSynced = false;
+        int hurtAt = 0, drunkAt = 0;
+        BeltItem life = BeltItem.Of(combat.Donor, PotionModels.Life), full = BeltItem.Of(combat.Donor, PotionModels.FullLife);
         var cameraOffs = new List<float>();
         float staminaWorst = 0;
         var labTrace = new List<Calibration.MovementSample>();
@@ -336,6 +347,30 @@ internal static class CombatReplay
                     cameraOffs.Add(off);
                     if (Environment.GetEnvironmentVariable("RB_CAMERA_TRACE") == "1")
                         Console.WriteLine(FormattableString.Invariant($"CAMT {t.Tick} off {off:0.0} donor {donorCamera.Turn.Pitch:0.0},{donorCamera.Turn.Yaw:0.0},{donorCamera.Turn.Roll:0.0} lab {combat.FirstPerson.Head.Turn.Pitch:0.0},{combat.FirstPerson.Head.Turn.Yaw:0.0},{combat.FirstPerson.Head.Turn.Roll:0.0} {combat.FirstPerson.Head.Playing ?? "-"} sword {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} {combat.Sword.Move} orc {t.Orc?.Sequence}@{t.Orc?.Cycle:0.00} side {(lastDonor is Vector3 pd && t.Seconds > 0 ? Vector3.Dot((t.Feet - pd) / t.Seconds, Vector3.Normalize(Vector3.Cross(t.Forward, Vector3.UnitY))) / SourceSpace.MetresPerUnit : 0):0}"));
+                }
+                // The lab's health against the donor's (#10162): it starts from the donor's, takes what the donor's blows took
+                // (the lab's own orc is held off by god), and drinks where the donor's rose beyond its regeneration: the full
+                // life potion where it reached the maximum past a life potion's 10, else a life potion. Its regeneration
+                // takes the donor's phase from its first 0.25.
+                if (t.Health is var (donorHealth, donorMax))
+                {
+                    if (!healthSet) { combat.Health.Set(donorHealth); healthSet = true; }
+                    // Each up to this tick, a frame the replay skips included.
+                    for (; hurtAt < timeline.Hurt.Count && timeline.Hurt[hurtAt].Tick <= t.Tick; hurtAt++) combat.Health.Take(timeline.Hurt[hurtAt].Taken);
+                    for (; drunkAt < timeline.Drinks.Count && timeline.Drinks[drunkAt].Tick <= t.Tick; drunkAt++)
+                        combat.Health.Heal((timeline.Drinks[drunkAt].ToMax && timeline.Drinks[drunkAt].Rise > life.GiveHealth + .5f ? full : life).GiveHealth);
+                    if (!regenSynced && lastDonorHealth is float was && MathF.Abs(donorHealth - was - combat.Health.Rules.ModuleRegeneration) < .01f)
+                    {
+                        combat.Health.Sync();
+                        combat.Health.Set(donorHealth);
+                        regenSynced = true;
+                    }
+                    lastDonorHealth = donorHealth;
+                    float off = MathF.Abs(combat.Health.Value - donorHealth);
+                    healthTicks++;
+                    if (off <= HealthTolerance) healthNear++;
+                    healthWorst = MathF.Max(healthWorst, off);
+                    if (combat.Health.Max == donorMax) maxAgree++;
                 }
                 // The lab's stamina against the donor's streamed one (Wire v15; #10160).
                 if (t.Stamina is float donorStamina)
@@ -532,7 +567,8 @@ internal static class CombatReplay
             timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, each played from its tick" : "")}"
                 + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
             shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null,
-            cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null);
+            cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null,
+            healthTicks > 0 ? (healthNear, healthTicks, healthWorst, maxAgree) : null);
     }
 
     /// <summary>

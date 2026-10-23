@@ -17,7 +17,7 @@ namespace DarkMessiah.Lab.Sword;
 /// <param name="SwingArcs">Where each swing's trace points across its hit window, by first-person clip (docs/lab.md, "The
 /// blade's trace"): calibrated against the donor's recorded traces. A shield set's clip not listed takes its sword-only
 /// twin's (<see cref="ArcFor"/>); any other clip not listed traces straight along the view.</param>
-internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScale, float[] KickWindow,
+internal sealed record CombatTuning(float AttackMovementScale, float[] KickWindow,
     float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc, Dictionary<string, SwingArc>? SwingArcs = null)
 {
     internal const string Path = "combat.json";
@@ -35,7 +35,6 @@ internal sealed record CombatTuning(float PlayerHealth, float AttackMovementScal
 
     internal static CombatTuning Validate(CombatTuning t)
     {
-        Authored.Positive(Path, "playerHealth", t.PlayerHealth);
         Authored.Within(Path, "attackMovementScale", t.AttackMovementScale, 0, 1);
         Authored.Require(t.KickWindow.Length == 2 && t.KickWindow[0] >= 0 && t.KickWindow[1] <= 1 && t.KickWindow[0] < t.KickWindow[1],
             Path, "kickWindow", "must be two cycles, the first below the second, within [0, 1].");

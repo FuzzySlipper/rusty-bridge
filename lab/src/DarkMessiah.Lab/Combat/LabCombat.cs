@@ -58,6 +58,7 @@ internal sealed class LabCombat : IDisposable
     readonly IEngineContext engine;
     readonly DonorContent donor;
     readonly StaminaRules staminaRules;
+    readonly HealthRules healthRules;
     readonly SpatialSession session;
     readonly HitSweep sweep;
     readonly CombatModel model;
@@ -89,7 +90,8 @@ internal sealed class LabCombat : IDisposable
         Mates(tuning.Orc);
         staminaRules = StaminaRules.From(donor);
         Stamina = new PlayerStamina(staminaRules);
-        PlayerHealth = tuning.PlayerHealth;
+        healthRules = HealthRules.From(donor);
+        Health = new PlayerHealth(healthRules);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -109,6 +111,8 @@ internal sealed class LabCombat : IDisposable
     {
         Build = build;
         Stamina.Retune(staminaRules.For(build));
+        Health.Retune(healthRules.For(build));
+        if (build.Belt is { } belt) Belt.Fill(donor, belt);
         Wear(ShieldOf(build));
         if (arm && LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
         Sword.CanParry = build.Has("combat_parry");
@@ -235,7 +239,23 @@ internal sealed class LabCombat : IDisposable
     internal PlayerAdrenaline Adrenaline { get; } = new();
     internal FirstPerson FirstPerson { get; }
     internal Orc Orc { get; }
-    internal float PlayerHealth { get; private set; }
+    /// <summary>The donor content the fight reads.</summary>
+    internal DonorContent Donor => donor;
+    /// <summary>The player's health (#10162): its maximum and regeneration from the build.</summary>
+    internal PlayerHealth Health { get; }
+    /// <summary>What the belt holds, used by its keys (#10162).</summary>
+    internal PlayerBelt Belt { get; } = new();
+    internal float PlayerHealth => Health.Value;
+
+    /// <summary>
+    /// Uses belt slot <paramref name="slot"/> (0 to 8; the keys 1 to 9, the donor's <c>usebelt1</c>–<c>9</c>): its item's
+    /// health at once. Dead, nothing is used.
+    /// </summary>
+    internal void UseBelt(int slot)
+    {
+        if (PlayerHealth <= 0) return;
+        if (Belt.Use(slot, Health) is { } item) Message = FormattableString.Invariant($"{item.Name}: health {PlayerHealth:0.#} of {Health.Max:0}");
+    }
     internal bool God { get; set; }
     /// <summary>The orc's blows kick the player's view (#10161); a replay kicks it with the donor's blows instead.</summary>
     internal bool BlowsPunch { get; set; } = true;
@@ -352,7 +372,8 @@ internal sealed class LabCombat : IDisposable
         }
         foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward, Orc);
         foreach (var blow in mateBlows) OrcStrikes(tick, blow, feet, forward, Mate!);
-        if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { PlayerHealth = Tuning.PlayerHealth; deadSeconds = 0; Message = "Back on your feet"; }
+        Health.Step(seconds);
+        if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { Health.Fill(); deadSeconds = 0; Message = "Back on your feet"; }
     }
 
     void Swing(ulong tick, Vector3 eye, Vector3 forward, Vector3 feet)
@@ -799,8 +820,7 @@ internal sealed class LabCombat : IDisposable
         if (BlowsPunch) FirstPerson.Head.Punch(HeadMotion.PunchOf(blow.Attack, reach.Part?.HitPow ?? 1));
         if (!God)
         {
-            PlayerHealth -= asked;
-            if (PlayerHealth <= 0) { PlayerHealth = 0; deadSeconds = 0; OrcStats = OrcStats with { Deaths = OrcStats.Deaths + 1 }; Message = "You fall"; return; }
+            if (Health.Take(asked)) { deadSeconds = 0; OrcStats = OrcStats with { Deaths = OrcStats.Deaths + 1 }; Message = "You fall"; return; }
         }
         Message = FormattableString.Invariant($"The orc's {blow.Attack} hits for {asked:0.##}");
     }
@@ -856,7 +876,8 @@ internal sealed class LabCombat : IDisposable
         Orc.Spawn();
         Mate?.Reseed();
         Mate?.Spawn();
-        PlayerHealth = Tuning.PlayerHealth;
+        Health.Fill();
+        if (Build?.Belt is { } belt) Belt.Fill(donor, belt);
         recent.Clear();
         Player = default;
         OrcStats = default;

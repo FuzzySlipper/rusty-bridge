@@ -1,0 +1,230 @@
+{
+  "description": "The player's health (#10162): notarget, the save's 15 health; two life potions, a red apple, a roasted chicken, cooked bread and a full life potion given, then belt slots 1 to 9 used 3 s apart (give fills the belt); then in the sheet's misc tab stamina, extra_health to 3 and fast_metabolism learned one double click at a time (the icons at (868, 323), (848, 409), (848, 471) of the 1280x720 capture), 8 s, hurtme 10, 20 s of regeneration, hurtme 5, 10 s. The Wire's player health and v16 skill levels show each step.",
+  "seconds": 115,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_add_skillpoints 60",
+    "give item_potion_life",
+    "give item_potion_life",
+    "give item_food_red_apple",
+    "give item_food_chicken_roasted",
+    "give item_food_bread01_cooked",
+    "give item_potion_full_life",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "wait": 2
+    },
+    "usebelt1",
+    {
+      "wait": 3
+    },
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "usebelt3",
+    {
+      "wait": 3
+    },
+    "usebelt4",
+    {
+      "wait": 3
+    },
+    "usebelt5",
+    {
+      "wait": 3
+    },
+    "usebelt6",
+    {
+      "wait": 3
+    },
+    "usebelt7",
+    {
+      "wait": 3
+    },
+    "usebelt8",
+    {
+      "wait": 3
+    },
+    "usebelt9",
+    {
+      "wait": 3
+    },
+    "mm_open_charsheet",
+    {
+      "wait": 1.5
+    },
+    {
+      "point": [
+        912,
+        275
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 1
+    },
+    {
+      "point": [
+        868,
+        323
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 2
+    },
+    {
+      "point": [
+        848,
+        409
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 2
+    },
+    {
+      "point": [
+        848,
+        409
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 2
+    },
+    {
+      "point": [
+        848,
+        409
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 2
+    },
+    {
+      "point": [
+        848,
+        471
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 0.08
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 2
+    },
+    "togglecharsheet",
+    {
+      "wait": 8
+    },
+    "hurtme 10",
+    {
+      "wait": 20
+    },
+    "hurtme 5",
+    {
+      "wait": 10
+    }
+  ]
+}

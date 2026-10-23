@@ -58,7 +58,6 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
         ("kick-windup", "Kick windup ×", .25f, 4, .05f, "/phases/kick/windup", t => t.Phases.Kick.Windup, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Windup = v } } }),
         ("kick-active", "Kick active ×", .25f, 4, .05f, "/phases/kick/active", t => t.Phases.Kick.Active, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Active = v } } }),
         ("kick-recovery", "Kick recovery ×", .25f, 4, .05f, "/phases/kick/recovery", t => t.Phases.Kick.Recovery, (t, v) => t with { Phases = t.Phases with { Kick = t.Phases.Kick with { Recovery = v } } }),
-        ("health", "Player health", 1, 400, 1, "/playerHealth", t => t.PlayerHealth, (t, v) => t with { PlayerHealth = v }),
     ];
 
     private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] OrcControls =

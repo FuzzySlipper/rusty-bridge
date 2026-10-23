@@ -113,6 +113,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             attackPending |= cubes.Held is null && (physical.Pressed(PointerButton.Primary) || physical.Pressed(ControllerButton.Button7));
             blockPending |= physical.Pressed(PointerButton.Secondary) || physical.Pressed(ControllerButton.Button6);
             if (physical.Pressed(KeyboardControl.KeyG)) combat.God = !combat.God;
+            // The belt's slots on 1 to 9, as the donor's usebelt1–9 (#10162).
+            for (int slot = 0; slot < PlayerBelt.Slots; slot++)
+                if (physical.Pressed((KeyboardControl)((int)KeyboardControl.Digit1 + slot))) combat.UseBelt(slot);
             if (physical.Pressed(KeyboardControl.KeyP)) time.Toggle();
             if (physical.Pressed(KeyboardControl.KeyO)) time.Step(WorldTime.StepSeconds);
         }
@@ -205,7 +208,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private static readonly string[] PlaytestActions =
         ["forward", "back", "left", "right", "jump", "crouch", "sprint", "use", "attack", "power", "parry", "kick", "throw",
-         "god", "hold-world", "step-world", "reset"];
+         "god", "belt1", "hold-world", "step-world", "reset"];
 
     private PlaytestAction Action(string id) => id switch
     {
@@ -225,6 +228,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         "parry" => new(id, "Secondary", 800, false),
         "kick" => new(id, "KeyF", 100, false),
         "god" => new(id, "KeyG", 100, false),
+        "belt1" => new(id, "Digit1", 100, false),
         "throw" => new(id, "Primary", 100, false, cubes.Held is not null, cubes.Held is null ? "No cube held" : null),
         "hold-world" => new(id, "KeyP", 100, false),
         "step-world" => new(id, "KeyO", 100, false),
@@ -265,7 +269,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 combat.Player.Swings, combat.Player.Hits, combat.Player.Parried, combat.Player.Blocked, combat.Player.Missed, combat.Player.Dealt,
                 orc.State.ToString(), orc.Clip, orc.Cycle, orc.Health, Vec(orc.Feet), Vector3.Distance(orc.Feet with { Y = 0 }, player.Feet with { Y = 0 }),
                 combat.OrcStats.Blows, combat.OrcStats.Reached, combat.OrcStats.Parried, combat.OrcStats.Broken, combat.OrcStats.Dealt, combat.OrcStats.Deaths,
-                blow, donor.Source),
+                blow, donor.Source, combat.Health.Max, combat.Belt.Describe()),
             scene.Cubes.Select(cube => new LabCubeFacts(cube.Entity.Value, cube.Definition.Label, cube.Definition.Size, cube.Definition.Mass,
                 Vec(scene.Pose(cube).Translation), Vec(scene.Motion(cube).LinearVelocity), scene.Motion(cube).Sleeping, cube == cubes.Held)).ToArray(),
             cubes.TargetLabel, cubes.Held is null && combat.Message.Length > 0 ? combat.Message : cubes.Message,

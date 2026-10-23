@@ -24,7 +24,7 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(80, .5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], 3, 61, []));
+var tuning = new CombatTuning(.5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], 3, 61, []));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
@@ -381,6 +381,56 @@ if (repo is null || !Directory.Exists(Path.Combine(repo, "local", "import")))
     return failures == 0 ? 0 : 1;
 }
 
+// RB_ITEMS=path prints when item_* entities appear and go (#10162) and stops.
+if (Environment.GetEnvironmentVariable("RB_ITEMS") is { Length: > 0 } itemsPath)
+{
+    var seen = new Dictionary<int, string>();
+    using var stream = File.OpenRead(itemsPath);
+    foreach (var f in RecordingReader.Frames(stream))
+    {
+        var now = new Dictionary<int, string>();
+        foreach (var (index, e) in f.Entities)
+            if (f.Classes.GetValueOrDefault(e.ClassId) is { } c && (c.StartsWith("item_", StringComparison.Ordinal) || c.Contains("potion", StringComparison.Ordinal)))
+                now[index] = c;
+        foreach (var (i, c) in now) if (!seen.ContainsKey(i)) Console.WriteLine($"ITEM {f.Tick} + {c} #{i}");
+        foreach (var (i, c) in seen) if (!now.ContainsKey(i)) Console.WriteLine($"ITEM {f.Tick} - {c} #{i}");
+        seen = now;
+    }
+    return 0;
+}
+
+// RB_HEALTH=1 prints the donor player's health through each recording (#10162) and stops.
+if (Environment.GetEnvironmentVariable("RB_HEALTH") == "1")
+{
+    foreach (var path in Directory.GetFiles(Path.Combine(repo, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories).Order())
+    {
+        float? last = null, max = null;
+        int rises = 0, falls = 0, skill = -1, metabolism = -1;
+        var events = new List<string>();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            foreach (var f in RecordingReader.Frames(stream))
+            {
+                if (f.Version >= 16 && f.Stats.Valid != 0) { skill = f.Stats.SkillLevel("extra_health"); metabolism = f.Stats.SkillLevel("fast_metabolism"); }
+                if (f.Player.Index == WireLayout.NoEntity || !f.Entities.TryGetValue(f.Player.Index, out var me) || !me.Flags.HasFlag(WireEntityFlags.HasHealth)) continue;
+                if (max != me.MaxHealth) events.Add(FormattableString.Invariant($"max {me.MaxHealth:0.##}@{f.Tick}"));
+                max = me.MaxHealth;
+                if (last is float was && me.Health != was)
+                {
+                    if (me.Health > was) { rises++; if (events.Count < 60) events.Add(FormattableString.Invariant($"+{me.Health - was:0.###}@{f.Tick}")); }
+                    else { falls++; if (events.Count < 60) events.Add(FormattableString.Invariant($"-{was - me.Health:0.###}@{f.Tick}")); }
+                }
+                last = me.Health;
+            }
+        }
+        catch (Exception e) { events.Add("error " + e.Message); }
+        if (max is null) continue;
+        Console.WriteLine(FormattableString.Invariant($"HEALTH {Path.GetFileName(path)} extra_health {skill} fast_metabolism {metabolism} max {max} rises {rises} falls {falls}: {string.Join(" ", events)}"));
+    }
+    return 0;
+}
+
 string labContent = Path.Combine(repo, "lab", "content");
 var content = Directory.GetFiles(labContent).ToDictionary(f => Path.GetFileName(f), f => (ReadOnlyMemory<byte>)File.ReadAllBytes(f));
 using EngineTestHost host = EngineTestHost.Create(new EngineTestHostOptions { Content = content });
@@ -695,6 +745,31 @@ host.Call(engine =>
     Check(combat.Build!.Has("double_sprint") && combat.Stamina.Rules.Max == 12, $"stamina 1 gives double_sprint, and stamina's maximum becomes 12: {combat.Stamina.Rules.Max}");
     combat.Rebuild(file);
     Check(combat.Stamina.Rules.Max == 9 && combat.Stamina.Value <= 9, "back at stamina 0 the maximum is 9 again");
+    // Health (#10162): 50 and 10 an extra_health level; fast_metabolism regains 0.25 a second; the belt's potions give
+    // their give_health up to the maximum, one fewer each use; keys 1 to 9 are its slots.
+    {
+        Check(combat.Health.Max == 50 && combat.Belt[0] is { Count: 3 } firstSlot && firstSlot.Item.GiveHealth == 10 && combat.Belt[1] is { Count: 1 } secondSlot
+            && secondSlot.Item.GiveHealth == 300 && Refused(file with { Belt = [new BeltSlot("models/items/provisions/nothing.mdl", 1)] }) is string noItem && noItem.Contains("imported item"),
+            $"build.json's player has 50 health and a belt of 3 life potions (give_health 10) and a full life potion (300); an item the import lacks is refused ({combat.Belt.Describe()})");
+        var healthy = new Dictionary<string, int>(file.Skills) { ["stamina"] = 1, ["extra_health"] = 2, ["fast_metabolism"] = 1 };
+        combat.Rebuild(file with { Skills = healthy });
+        combat.Health.Set(40);
+        combat.Health.Sync();
+        float max = combat.Health.Max;
+        combat.UseBelt(0);
+        float potion = combat.PlayerHealth;
+        for (int i = 0; i < 125; i++) combat.Health.Step(Tick);
+        float regained = combat.PlayerHealth - potion;
+        combat.UseBelt(1);
+        float full = combat.PlayerHealth;
+        combat.UseBelt(1);
+        Check(max == 70 && potion == 50 && MathF.Abs(regained - .5f) < 1e-4f && full == 70 && combat.Belt[0]?.Count == 2 && combat.Belt[1] is null,
+            FormattableString.Invariant($"extra_health 2 makes 70 ({max}); a life potion 40 to {potion}; fast_metabolism regains {regained:0.##} in 2.08 s; the full life potion fills it ({full}) and its slot is empty after"));
+        combat.Rebuild(file);
+        combat.Reset();
+        Check(combat.Health.Max == 50 && combat.PlayerHealth == 50 && combat.Belt[0]?.Count == 3 && (KeyboardControl)((int)KeyboardControl.Digit1 + 8) == KeyboardControl.Digit9,
+            "back on build.json and reset: 50 of 50, the belt full again; the keys 1 to 9 are the belt's nine slots");
+    }
     combat.Rebuild(combat.Build! with { Modules = new HashSet<string>(), Source = "no modules" });
     var parries = new List<SwordMove>();
     for (int i = 0; i < 20; i++) { combat.Step(Tick, step++, false, true, false, product.Player.Eye, product.Player.Forward, product.Player.Feet); parries.Add(combat.Sword.Move); }
@@ -1176,7 +1251,7 @@ host.Call(engine =>
     float near = Vector3.Distance(orc.Feet with { Y = 0 }, product.Player.Feet with { Y = 0 });
     Check(near < start && near <= 140 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, FormattableString.Invariant($"the orc walks in from {start:0.0} m to {near:0.0} m, inside its yellow zone"));
     Check(combat.OrcStats.Blows > 0 && combat.OrcStats.Reached > 0, $"the orc's blows reach the player: {combat.OrcStats.Blows} blows, {combat.OrcStats.Reached} reached");
-    Check(combat.PlayerHealth < combat.Tuning.PlayerHealth || combat.OrcStats.Deaths > 0, FormattableString.Invariant($"they take the player's health: {combat.PlayerHealth:0.#} left"));
+    Check(combat.PlayerHealth < combat.Health.Max || combat.OrcStats.Deaths > 0, FormattableString.Invariant($"they take the player's health: {combat.PlayerHealth:0.#} left"));
 
     // A still orc in front: no attacks, no parries, then the player's moves against it.
     combat.Orc.Hold = true;
@@ -1836,6 +1911,14 @@ host.Call(engine =>
             if (Path.GetFileName(path).Contains("-sprint", StringComparison.Ordinal))
                 Check(moved.Stamina is { } st && st.Ticks > 1000 && st.Near >= st.Ticks * 95 / 100,
                     FormattableString.Invariant($"{moved.Name}: the lab's stamina follows the donor's within 0.2 on {moved.Stamina?.Near} of {moved.Stamina?.Ticks} ticks (worst {moved.Stamina?.Worst:0.00})"));
+        }
+        // The donor's health through blows, potions, extra_health learned and fast_metabolism's regeneration (#10162).
+        if (Path.Combine(recordings, "experiments", "l01_a-v18-health.rbrec") is var healthPath && File.Exists(healthPath))
+        {
+            var healthReplay = CombatReplay.Run(combat, healthPath, product);
+            foreach (var line in healthReplay.Lines().Where(l => l.Contains("health:", StringComparison.Ordinal))) Console.WriteLine(line);
+            Check(healthReplay.Health is { } hr && hr.Ticks > 5000 && hr.Near >= hr.Ticks * 99 / 100 && hr.MaxAgree == hr.Ticks,
+                FormattableString.Invariant($"{healthReplay.Name}: the lab's health follows the donor's within {CombatReplay.HealthTolerance} on {healthReplay.Health?.Near} of {healthReplay.Health?.Ticks} ticks, its maximum on {healthReplay.Health?.MaxAgree}"));
         }
         // Steady speed by command (30 ticks each at least), within 10%.
         var speeds = donorMove.Steady.Where(x => x.Value.Count >= 30 && labMove.Steady.GetValueOrDefault(x.Key) is { Count: >= 30 })

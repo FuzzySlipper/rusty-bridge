@@ -10,15 +10,20 @@ namespace DarkMessiah.Lab.Player;
 /// <summary>
 /// The player's build as authored in <c>content/build.json</c> (live, and on the developer shell's Build group): each
 /// skill's level from <c>scripts/mm_skills_infos.txt</c>, the weapon and the off-hand item by model path, and the spells
-/// known by Arkane's id (<c>air_1</c> is telekinesis). Validated against the donor's tables by <see cref="CharacterBuild.From"/>.
+/// known by Arkane's id (<c>air_1</c> is telekinesis), and what the belt holds. Validated against the donor's tables by
+/// <see cref="CharacterBuild.From"/>.
 /// </summary>
 /// <param name="OffHand">Null for none, or a shield's model path.</param>
-internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, string? OffHand, string[] Spells)
+/// <param name="Belt">The belt's slots 1 to 9 in order (#10162): each an item's model path and how many.</param>
+internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, string? OffHand, string[] Spells, BeltSlot[] Belt)
 {
     internal const string Path = "build.json";
 
     internal static BuildFile Load(IEngineContext engine) => Authored.Read(engine, Path, BuildJson.Default.BuildFile);
 }
+
+/// <summary>A belt slot as authored: an item's model path and how many it holds.</summary>
+internal sealed record BeltSlot(string Item, int Count);
 
 /// <summary>
 /// What the player can do, as the game decides it (docs/lab.md, "Builds"): the skill modules learned, the weapon and
@@ -31,8 +36,9 @@ internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, 
 /// </list>
 /// </summary>
 /// <param name="SkillLevels">Each skill's level: the file's, or from Wire v16 the recording's (empty before v16, read as 0).</param>
+/// <param name="Belt">The belt's slots (#10162): the file's; a recording's is empty (the Wire doesn't carry it).</param>
 internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapon, string? OffHand, IReadOnlyList<string> Spells, string Source,
-    IReadOnlyDictionary<string, int> SkillLevels)
+    IReadOnlyDictionary<string, int> SkillLevels, IReadOnlyList<BeltSlot>? Belt = null)
 {
     /// <summary>A skill's level; 0 for one the build doesn't name.</summary>
     internal int Level(string skill) => SkillLevels.GetValueOrDefault(skill);
@@ -87,8 +93,14 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
         }
         foreach (var spell in file.Spells)
             Authored.Require(tables.Spells.ContainsKey(spell), P, $"spells.{spell}", $"isn't a spell in spells.txt ({string.Join(", ", tables.Spells.Keys.Order())}).");
+        Authored.Require(file.Belt.Length <= PlayerBelt.Slots, P, "belt", $"has {PlayerBelt.Slots} slots; found {file.Belt.Length}.");
+        for (int i = 0; i < file.Belt.Length; i++)
+        {
+            Authored.Require(isItem(file.Belt[i].Item), P, $"belt[{i}].item", $"{file.Belt[i].Item} isn't an imported item (no .qct).");
+            Authored.Require(file.Belt[i].Count >= 0, P, $"belt[{i}].count", $"must be 0 or more; found {file.Belt[i].Count}.");
+        }
         return new CharacterBuild(modules, VpkIndex.Normalize(file.Weapon), file.OffHand is null ? null : VpkIndex.Normalize(file.OffHand), file.Spells, P,
-            new Dictionary<string, int>(file.Skills));
+            new Dictionary<string, int>(file.Skills), file.Belt);
     }
 
     /// <summary>

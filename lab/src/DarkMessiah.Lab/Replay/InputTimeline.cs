@@ -30,7 +30,7 @@ namespace DarkMessiah.Lab.Replay;
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
     bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null, float? Stamina = null,
-    DonorCamera? Camera = null);
+    DonorCamera? Camera = null, (float Value, float Max)? Health = null);
 
 /// <summary>
 /// The camera the donor's client drew with (Wire v9, its <c>CViewSetup</c>), in lab space: where it was and its forward
@@ -74,6 +74,13 @@ internal sealed class InputTimeline
     internal IReadOnlyList<(int Tick, float Damage)> ShieldWear { get; private init; } = [];
     /// <summary>Each blow an orc landed on the player, and its damage: the replay kicks the lab's view with them (#10161).</summary>
     internal IReadOnlyList<(int Tick, float Damage)> Struck { get; private init; } = [];
+    /// <summary>Each blow that took the player's health, by anything, and what it took (its record's health before less after; #10162).</summary>
+    internal IReadOnlyList<(int Tick, float Taken)> Hurt { get; private init; } = [];
+    /// <summary>
+    /// Each rise of the player's health beyond regeneration (more than 0.3 in a tick): a belt item used, by how much, and
+    /// whether it reached the maximum (#10162).
+    /// </summary>
+    internal IReadOnlyList<(int Tick, float Rise, bool ToMax)> Drinks { get; private init; } = [];
     /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
     internal bool HasCommands { get; init; }
     /// <summary>
@@ -131,6 +138,9 @@ internal sealed class InputTimeline
         var kicks = new List<(int, string, string, float)>();
         var shieldWear = new List<(int, float)>();
         var struck = new List<(int, float)>();
+        var hurt = new List<(int, float)>();
+        var drinks = new List<(int, float, bool)>();
+        float? lastHealth = null;
         var playing = new Dictionary<string, float>();
         bool seeded = false;
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
@@ -148,9 +158,18 @@ internal sealed class InputTimeline
             foreach (var f in RecordingReader.Frames(stream))
             {
                 foreach (var d in f.Damage)
-                    if (f.Entities.TryGetValue(d.Victim, out var hurt) && f.Classes.GetValueOrDefault(hurt.ClassId) == "player"
-                        && f.Entities.TryGetValue(d.Attacker, out var by) && f.Classes.GetValueOrDefault(by.ClassId) == OrcClass)
-                        struck.Add((d.Tick, d.Damage));
+                    if (f.Entities.TryGetValue(d.Victim, out var victim) && f.Classes.GetValueOrDefault(victim.ClassId) == "player")
+                    {
+                        if (f.Entities.TryGetValue(d.Attacker, out var by) && f.Classes.GetValueOrDefault(by.ClassId) == OrcClass) struck.Add((d.Tick, d.Damage));
+                        if (d.HealthBefore - d.HealthAfter > 0) hurt.Add((d.Tick, d.HealthBefore - d.HealthAfter));
+                    }
+                // The donor's health rising by more than its regeneration's 0.25: a belt item used (#10162; the Wire doesn't
+                // carry the belt's use).
+                if (f.Player.Index != WireLayout.NoEntity && f.Entities.TryGetValue(f.Player.Index, out var me) && me.Flags.HasFlag(WireEntityFlags.HasHealth))
+                {
+                    if (lastHealth is float was && me.Health - was > .3f) drinks.Add((f.Tick, me.Health - was, me.Health >= me.MaxHealth));
+                    lastHealth = me.Health;
+                }
                 foreach (var d in f.Damage)
                     // A kick's push is a call of its own, zero damage and untraced: not the kick's blow.
                     if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
@@ -243,15 +262,18 @@ internal sealed class InputTimeline
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
                     f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command,
-                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view)));
+                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view), HealthOf(f)));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
-        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, ShieldWear = shieldWear, Struck = struck, Skipped = skipped, HasCommands = commands,
+        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, ShieldWear = shieldWear, Struck = struck, Hurt = hurt, Drinks = drinks, Skipped = skipped, HasCommands = commands,
             Build = build, Builds = builds, Unplayable = unplayable, WeaponChanges = weaponChanges };
     }
 
-    /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>
+    /// <summary>The player's health and its maximum this tick, or null when the Wire doesn't carry them.</summary>
+    static (float Value, float Max)? HealthOf(RecordedFrame f) =>
+        f.Player.Index != WireLayout.NoEntity && f.Entities.TryGetValue(f.Player.Index, out var me) && me.Flags.HasFlag(WireEntityFlags.HasHealth) ? (me.Health, me.MaxHealth) : null;
+
     /// <summary>The client's drawn camera (v9), or null when not read.</summary>
     static DonorCamera? CameraOf(in WireClientView view)
     {

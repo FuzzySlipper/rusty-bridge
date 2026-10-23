@@ -1,0 +1,39 @@
+{
+  "description": "The character sheet with skill points and god mode, its third tab clicked, to see where the stamina line's skills (extra_health, fast_metabolism, poison_recovery) sit (#10162).",
+  "seconds": 40,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_add_skillpoints 30",
+    {
+      "wait": 1
+    },
+    "mm_open_charsheet",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    {
+      "point": [
+        912,
+        275
+      ],
+      "of": [
+        1280,
+        720
+      ]
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 40
+    },
+    {
+      "wait": 30
+    }
+  ]
+}

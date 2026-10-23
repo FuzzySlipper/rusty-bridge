@@ -39,6 +39,7 @@ rusty dev
 | F | Kick (`layer_sword_noshield_kick_medium`), also cutting off a swing whose hit window has passed |
 | E / left button | Pick up a crate / throw it (fptester's cubes) |
 | G | God: the orc's blows still count but take no health |
+| 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162) |
 | P / O | Hold the world / step it one frame |
 | R / M / F3 | Reset / menu / developer shell |
 
@@ -527,6 +528,35 @@ scenarios (#10160; docs/recording.md):
   sprints when the lab's stamina lets it (`IReplayBody.Step`'s `sprint`).
 - **Not measured:** the view model's `Megasprint_sword` clip, and attacking out of a sprint (the rush attack is
   #10144's).
+
+### Health
+
+`PlayerHealth` and `PlayerBelt`, from the donor's numbers (#10162; the `health` scenario, docs/recording.md):
+
+| What | Value | Source |
+| --- | --- | --- |
+| Maximum | 50, and 10 for each `extra_health` level (60, 70, 80) | measured: every recording without the skill 50, at level 3 80; `health` 50, 60, 70, 80 as the levels were learned. No content file holds it: `player_constitution_1`–`4` (5, 6, 7, 8) don't fit |
+| A new maximum | leaves the health where it was | `health`: 50 of 50 became 50 of 60 |
+| Regeneration | none; with `fast_metabolism` 0.25 once a second, on a game clock (every recording rose at the same phase) | `player_basic.qct`'s `player_metabolism` (0) and `player_metabolism_module` (0.25) |
+| A life potion | 10, at once, up to the maximum | `life_potion.qct`'s `give_health`; recorded 15 to 25 |
+| The full life potion | 300: to the maximum | `full_life_potion.qct`; recorded 25 to 50 |
+| Food | the apple 3 (`give_health`); not on the belt (`no_belt_priority`) | data only: `give` put no food on the belt, and `use` drinks or eats nothing |
+
+The belt holds `build.json`'s `belt` (slots 1 to 9: an item's model and how many), used by the keys 1 to 9 as the
+donor's `usebelt1`–`9`; a reset fills it again. Dead, nothing is used; after 2 s the player is back on its feet,
+full. `hurtme N` took N.
+- **Against the recording** (the smoke): `health` replayed, the lab's health within 0.3 of the donor's on 7665 of 7667
+  ticks and its maximum the donor's on every tick, through `hurtme`, two potions, `extra_health` to 3 and the
+  regeneration. The replay starts from the donor's health, takes what each of the donor's damage records took (the
+  lab's own orc is held off by god), drinks where the donor's health rose by more than its regeneration (the full
+  life potion where it reached the maximum past a life potion's 10, else a life potion: the Wire doesn't carry the
+  belt's use) and takes the regeneration's phase from its first 0.25. The two ticks off are a damage record that
+  arrives two ticks before the player's health shows it. Every other replay with the player's health agrees on every
+  tick (the hand fights at 50, the v16 and later fights regaining from 50 to 80).
+  `RB_HEALTH=1` prints the donor player's health, maximum and skill levels through every recording; `RB_ITEMS=path`
+  when a recording's `item_*` entities appear and go (a drunk potion's goes only when it was the last of its stack).
+- **Not measured:** poison (`poison_recovery`, the cure poison potion; nothing in l01_a poisons), the regeneration
+  ring (the settings' `life_time_regen` 2 is likely its), fall damage, food eaten, and the mana potion (#10165).
 
 ### The camera
 

@@ -14,7 +14,8 @@ internal sealed record LabPlayerFacts(float[] Position, float[] Feet, float[] Ey
 internal sealed record LabFightFacts(string Move, string Clip, float Cycle, bool Traced, float PlayerHealth, bool God,
     int Swings, int Hits, int Parried, int Blocked, int Missed, float Dealt,
     string OrcState, string OrcClip, float OrcCycle, float OrcHealth, float[] OrcFeet, float OrcDistance,
-    int OrcBlows, int OrcReached, int PlayerParries, int ParriesBroken, float OrcDealt, int Deaths, LabBlowFacts? LastBlow, string Donor);
+    int OrcBlows, int OrcReached, int PlayerParries, int ParriesBroken, float OrcDealt, int Deaths, LabBlowFacts? LastBlow, string Donor,
+    float PlayerMaxHealth = 0, string Belt = "");
 internal sealed record LabBlowFacts(int Swing, string Move, float Cycle, float[] Start, float[] End, float[]? Point, string Outcome);
 internal sealed record LabCubeFacts(ulong Id, string Label, float Size, float Mass, float[] Position, float[] Velocity, bool Sleeping, bool Held);
 

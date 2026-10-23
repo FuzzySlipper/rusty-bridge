@@ -11,7 +11,7 @@ internal static class LabHud
         string Vec(float[] v) => FormattableString.Invariant($"{v[0]:0.00}, {v[1]:0.00}, {v[2]:0.00}");
         LabFightFacts f = observation.Fight;
         (string Key, string Text)[] fields = [
-            ("health",FormattableString.Invariant($"{f.PlayerHealth:0.#}{(f.God ? " · god" : "")}")),
+            ("health",FormattableString.Invariant($"{f.PlayerHealth:0.#} / {f.PlayerMaxHealth:0}{(f.God ? " · god" : "")}{(f.Belt.Length > 0 ? " · belt " + f.Belt : "")}")),
             ("move",FormattableString.Invariant($"{f.Move} · {f.Clip} {f.Cycle:0.00}{(f.Traced ? " · tracing" : "")}")),
             ("orc",FormattableString.Invariant($"{f.OrcState} · {f.OrcClip} {f.OrcCycle:0.00} · {f.OrcHealth:0.#} health · {f.OrcDistance:0.0} m")),
             ("blow",f.LastBlow is { } b ? FormattableString.Invariant($"{b.Move} at {b.Cycle:0.00}: {b.Outcome}") : ""),

@@ -13,10 +13,18 @@ namespace DarkMessiah.Lab.Player;
 /// <param name="CoyoteSeconds">How long after walking off a ledge the Engine controller still accepts a jump.</param>
 /// <param name="HeadBobMetres">Camera bob height at full walking speed; 0 turns it off. Presentation only.</param>
 /// <param name="HeadBobStrideMetres">Ground walked per bob cycle.</param>
+/// <param name="Speed">Running forward or strafing, m/s: the donor's 180 units a second (#10159, MovementCalibration).</param>
+/// <param name="BackSpeed">Backing off with the back key full, m/s: the donor's 60 units a second (its cl_backspeed command, 150).</param>
+/// <param name="CrouchSpeed">Moving crouched, m/s: 1.29 runs at the donor's 50 units a second (51) against the controller's friction.</param>
+/// <param name="Acceleration">The Engine controller's ground acceleration, braking, friction and stop speed (m/s², 1/s and
+/// m/s), fitted so the lab's start and stop take the donor's time and slide (#10159).</param>
+/// <param name="JumpReleaseGravity">Gravity's multiple once jump is let go while rising (1: none): the donor's jump rose 34
+/// units held 0.15 s and 41 held to its peak (l01_a-v18-jump-hold; Arkane's mm_jump_rework).</param>
 internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Radius, float EyeBelowTop,
     float Speed, float SprintSpeed, float JumpSpeed, float Gravity, float MaximumStepHeight, float MaximumSlopeDegrees,
     float JumpBufferSeconds, float CoyoteSeconds, float PointerRadiansPerUnit, float FieldOfViewDegrees, float FarPlane,
-    float HeadBobMetres, float HeadBobStrideMetres)
+    float HeadBobMetres, float HeadBobStrideMetres, float BackSpeed, float CrouchSpeed, float Acceleration, float Braking, float Friction, float StopSpeed,
+    float JumpReleaseGravity)
 {
     internal const string Path = "player.json";
 
@@ -30,6 +38,13 @@ internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Ra
         Authored.Within(Path, "eyeBelowTop", t.EyeBelowTop, 0, t.CrouchedHeight / 2);
         Authored.Positive(Path, "speed", t.Speed);
         Authored.AtLeast(Path, "sprintSpeed", t.SprintSpeed, t.Speed);
+        Authored.Positive(Path, "backSpeed", t.BackSpeed);
+        Authored.Positive(Path, "crouchSpeed", t.CrouchSpeed);
+        Authored.Positive(Path, "acceleration", t.Acceleration);
+        Authored.AtLeast(Path, "braking", t.Braking, 0);
+        Authored.AtLeast(Path, "friction", t.Friction, 0);
+        Authored.AtLeast(Path, "stopSpeed", t.StopSpeed, 0);
+        Authored.AtLeast(Path, "jumpReleaseGravity", t.JumpReleaseGravity, 1);
         Authored.Positive(Path, "jumpSpeed", t.JumpSpeed);
         Authored.Positive(Path, "gravity", t.Gravity);
         Authored.AtLeast(Path, "maximumStepHeight", t.MaximumStepHeight, 0);

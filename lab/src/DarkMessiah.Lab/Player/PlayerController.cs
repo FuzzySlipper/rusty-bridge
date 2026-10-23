@@ -36,7 +36,7 @@ internal sealed class PlayerController : IDisposable
     private readonly EntityStore entities;
     private readonly EntityId entity;
     private readonly Camera camera;
-    private CharacterControllerConfig walking, sprinting;
+    private CharacterControllerConfig walking, sprinting, crouching;
     private ulong commandSequence;
     private bool cut = true;
     private Vector3 lastClear;
@@ -49,7 +49,7 @@ internal sealed class PlayerController : IDisposable
         this.entities = entities;
         this.entity = entity;
         Tuning = tuning;
-        (walking, sprinting, Input) = Configure(tuning);
+        (walking, sprinting, crouching, Input) = Configure(tuning);
         Place(Vector3.UnitY * (tuning.Height / 2), 0);
         camera = engine.CameraView.CreateCamera(Descriptor());
         try { engine.CameraView.SetActiveCamera(camera); }
@@ -100,7 +100,7 @@ internal sealed class PlayerController : IDisposable
         try
         {
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,
-                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.SprintHeld && !input.CrouchHeld ? sprinting : walking,
+                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld ? crouching : input.SprintHeld ? sprinting : walking,
                 new CharacterControllerCommand(input.Movement * movementScale, LookState.YawRadians, jumpPressed && movementScale > 0,
                     input.JumpHeld, input.CrouchHeld, Vector3.Zero, impulse, delta, ++commandSequence)));
         }
@@ -110,7 +110,13 @@ internal sealed class PlayerController : IDisposable
             return BodyEvent.None;
         }
         entities.Set(entity, EngineComponentTypes.Transform, receipt.Transform);
-        entities.Set(entity, EngineComponentTypes.CharacterMotion, receipt.Motion);
+        // Let go of jump while still rising, the donor's jump falls back sooner (#10159: held 0.15 s it rose 34 units,
+        // held to its peak 41): gravity × jumpReleaseGravity for the rest of the rise.
+        var motion = receipt.Motion;
+        if (!motion.Grounded && !input.JumpHeld && motion.ControlledVelocity.Y > 0 && Tuning.JumpReleaseGravity > 1)
+            motion = motion with { ControlledVelocity = motion.ControlledVelocity with
+            { Y = MathF.Max(0, motion.ControlledVelocity.Y - (Tuning.JumpReleaseGravity - 1) * Tuning.Gravity * delta) } };
+        entities.Set(entity, EngineComponentTypes.CharacterMotion, motion);
         LastStep = receipt;
         lastClear = receipt.Transform.Translation;
         Vector2 planar = new(receipt.Displacement.X, receipt.Displacement.Z);
@@ -124,9 +130,9 @@ internal sealed class PlayerController : IDisposable
     /// <summary>Takes new tuning: rebuilds and validates both configurations and the look sensitivity. Held input is cleared.</summary>
     internal void Retune(PlayerTuning tuning)
     {
-        (CharacterControllerConfig walk, CharacterControllerConfig sprint, FpsInput input) = Configure(tuning);
+        (CharacterControllerConfig walk, CharacterControllerConfig sprint, CharacterControllerConfig crouch, FpsInput input) = Configure(tuning);
         Tuning = tuning;
-        (walking, sprinting, Input) = (walk, sprint, input);
+        (walking, sprinting, crouching, Input) = (walk, sprint, crouch, input);
     }
 
     /// <summary>Stands the body at <paramref name="centre"/> (the capsule's centre), at rest, facing a yaw and pitch.</summary>
@@ -223,26 +229,29 @@ internal sealed class PlayerController : IDisposable
             new CameraViewport(0, 0, 1, 1));
     }
 
-    private (CharacterControllerConfig Walking, CharacterControllerConfig Sprinting, FpsInput Input) Configure(PlayerTuning t)
+    private (CharacterControllerConfig Walking, CharacterControllerConfig Sprinting, CharacterControllerConfig Crouching, FpsInput Input) Configure(PlayerTuning t)
     {
         CharacterControllerConfig baseline = engine.Spatial.DefaultCharacterControllerConfig();
-        CharacterControllerConfig At(float speed) => baseline with
+        // The donor's speeds by direction (#10159): back at backSpeed of a full back key, crouched at crouchSpeed.
+        CharacterControllerConfig At(float speed, float back) => baseline with
         {
             Shape = baseline.Shape with { StandingHeight = t.Height, CrouchedHeight = t.CrouchedHeight, Radius = t.Radius },
-            Ground = baseline.Ground with { ForwardSpeed = speed, BackwardSpeed = speed, StrafeSpeed = speed },
+            Ground = baseline.Ground with { ForwardSpeed = speed, BackwardSpeed = back, StrafeSpeed = speed, Acceleration = t.Acceleration,
+                Braking = t.Braking, Friction = t.Friction, StopSpeed = t.StopSpeed },
             Air = baseline.Air with { MaximumSpeed = speed, WishSpeedCap = speed },
             Vertical = baseline.Vertical with { Gravity = t.Gravity, JumpSpeed = t.JumpSpeed },
             Jump = baseline.Jump with { BufferSeconds = t.JumpBufferSeconds, CoyoteSeconds = t.CoyoteSeconds },
             Surface = baseline.Surface with { MaximumStepHeight = t.MaximumStepHeight, MaximumSlopeRadians = t.MaximumSlopeDegrees * MathF.PI / 180 }
         };
-        CharacterControllerConfig walk = At(t.Speed), sprint = At(t.SprintSpeed);
+        CharacterControllerConfig walk = At(t.Speed, t.BackSpeed), sprint = At(t.SprintSpeed, t.BackSpeed), crouch = At(t.CrouchSpeed, Math.Min(t.BackSpeed, t.CrouchSpeed));
         engine.Spatial.ValidateCharacterControllerConfig(walk);
         engine.Spatial.ValidateCharacterControllerConfig(sprint);
+        engine.Spatial.ValidateCharacterControllerConfig(crouch);
         FpsInput input = new(FpsInputConfig.Standard with
         {
             PointerLookConfig = FpsInputConfig.Standard.PointerLookConfig with
             { HorizontalRadiansPerUnit = t.PointerRadiansPerUnit, VerticalRadiansPerUnit = t.PointerRadiansPerUnit }
         });
-        return (walk, sprint, input);
+        return (walk, sprint, crouch, input);
     }
 }

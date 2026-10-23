@@ -29,7 +29,7 @@ namespace DarkMessiah.Lab.Replay;
 /// lab's gauge to it, since the donor also fills it on blows the lab doesn't follow.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
-    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0);
+    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -45,6 +45,8 @@ internal sealed class InputTimeline
     const float FacingRange = 4;
     /// <summary>The command's movement for a full run: what the lab's movement input of length 1 stands for.</summary>
     internal const float RunMove = 1000;
+    /// <summary>The donor's full back and side keys' commands: cl_backspeed 150, cl_sidespeed 1000 (its ConVars, tools/scenarios/movement-cvars.json).</summary>
+    internal const float BackMove = 150, SideMove = 1000;
     /// <summary>Dark Messiah's kick damage bit (docs/combat.md).</summary>
     const uint KickDamage = 0x40000;
 
@@ -205,6 +207,7 @@ internal sealed class InputTimeline
                 // jump and use. A tick without commands holds the last ones.
                 var held = f.Input.Buttons;
                 Vector2 move = default;
+                Calibration.MoveCommand? command = null;
                 bool jump = false, use = false, kickHeld = kicked, sprint = false;
                 if (f.Version >= 14)
                 {
@@ -215,14 +218,16 @@ internal sealed class InputTimeline
                     jump = now2.Item1.HasFlag(InputButtons.Jump) && !lastCommand.Buttons.HasFlag(InputButtons.Jump);
                     use = now2.Item1.HasFlag(InputButtons.Use) && !lastCommand.Buttons.HasFlag(InputButtons.Use);
                     lastCommand = now2;
-                    // A forwardmove of 1000 is a run; 150 the slow walk the game sends while charging or guarding.
-                    var m = new Vector2(f.Input.SideMove, f.Input.ForwardMove) / RunMove;
+                    // Each axis by the donor's full key (#10159): cl_forwardspeed and cl_sidespeed 1000, cl_backspeed 150. A
+                    // diagonal moves no faster than straight (the donor's 1400 command ran at 180, as 1000 did).
+                    var m = new Vector2(f.Input.SideMove / SideMove, f.Input.ForwardMove / (f.Input.ForwardMove >= 0 ? RunMove : BackMove));
                     move = m.LengthSquared() > 1 ? Vector2.Normalize(m) : m;
+                    command = Calibration.MovementCalibration.Command(f.Input);
                     kickHeld = now2.Item2.HasFlag(PlayerActions.Kick);
                     sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
-                    f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline));
+                    f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

@@ -1,0 +1,36 @@
+{
+  "description": "Movement ConVars (#10159): prints the donor's movement settings and every mm_, sv_ and cl_ ConVar to the console log (console.log beside the game), nothing played.",
+  "seconds": 3,
+  "setup": [
+    "sv_cheats 1",
+    {
+      "wait": 0.5
+    },
+    "echo RBCVARS-BEGIN",
+    "sv_maxspeed",
+    "sv_accelerate",
+    "sv_airaccelerate",
+    "sv_friction",
+    "sv_stopspeed",
+    "sv_gravity",
+    "sv_stepsize",
+    "sv_backspeed",
+    "cl_forwardspeed",
+    "cl_backspeed",
+    "cl_sidespeed",
+    "cl_upspeed",
+    "cl_movespeedkey",
+    "sv_noclipspeed",
+    "sv_maxvelocity",
+    "sv_wateraccelerate",
+    "sv_specspeed",
+    "cvarlist mm_player",
+    "cvarlist mm_",
+    "cvarlist sv_",
+    "cvarlist cl_",
+    "echo RBCVARS-END",
+    {
+      "wait": 2
+    }
+  ]
+}

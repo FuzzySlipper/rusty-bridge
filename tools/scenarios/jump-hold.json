@@ -1,0 +1,203 @@
+{
+  "description": "Jump height by how long jump is held (#10159): the level's NPCs removed, standing at (0, -2400): two jumps each with jump held 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.7 and 1 s.",
+  "seconds": 50,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.05
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.2
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.2
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.25
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.25
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.3
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.3
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.4
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.4
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.5
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.5
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.7
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 0.7
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 1.0
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    },
+    "+jump",
+    {
+      "wait": 1.0
+    },
+    "-jump",
+    {
+      "wait": 1.6
+    }
+  ]
+}

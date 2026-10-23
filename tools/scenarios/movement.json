@@ -1,0 +1,514 @@
+{
+  "description": "Movement (#10159): the level's NPCs removed, from (0, -2400) facing north then east: a run forward, a strafe, a diagonal, backing off, crouched, with the speed key and the walk key, each from standing for 2 s then let go; then standing, running, crouched and backing jumps, nothing attacked or kicked.",
+  "seconds": 120,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+moveleft",
+    {
+      "wait": 2
+    },
+    "-moveleft",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+forward",
+    "+moveright",
+    {
+      "wait": 2
+    },
+    "-moveright",
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+back",
+    {
+      "wait": 2.5
+    },
+    "-back",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+duck",
+    "+forward",
+    {
+      "wait": 2.5
+    },
+    "-forward",
+    "-duck",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+speed",
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    "-speed",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+walk",
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    "-walk",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+moveleft",
+    {
+      "wait": 2
+    },
+    "-moveleft",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+forward",
+    "+moveright",
+    {
+      "wait": 2
+    },
+    "-moveright",
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+back",
+    {
+      "wait": 2.5
+    },
+    "-back",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+duck",
+    "+forward",
+    {
+      "wait": 2.5
+    },
+    "-forward",
+    "-duck",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+speed",
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    "-speed",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 0 0",
+    {
+      "wait": 0.7
+    },
+    "+walk",
+    "+forward",
+    {
+      "wait": 2
+    },
+    "-forward",
+    "-walk",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    {
+      "wait": 0.4
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    {
+      "wait": 0.4
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    {
+      "wait": 0.4
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    {
+      "wait": 0.4
+    },
+    {
+      "wait": 0.1
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+forward",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-forward",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "+forward",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-forward",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "+forward",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-forward",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "+forward",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-forward",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+duck",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-duck",
+    {
+      "wait": 0.4
+    },
+    "+duck",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-duck",
+    {
+      "wait": 0.4
+    },
+    "+duck",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-duck",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 0.7
+    },
+    "+back",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-back",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "+back",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-back",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    "+back",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.15
+    },
+    "-jump",
+    {
+      "wait": 1.4
+    },
+    "-back",
+    {
+      "wait": 0.4
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ]
+}

@@ -296,8 +296,8 @@ is `skilldesc_combat_3` in `resource/mm_itemnames_english.txt`). Recorded in `l0
     its release if attack was let go.
 - **The body's jump:** the donor's jumps from flat ground rise 41 to 42 units (1.06 m) and land 0.84 s later (ten of
   them; a few rose 34 units in 0.74 s). The lab's body jumped as high in 0.65 s (6.5 m/s against gravity 20), so it
-  landed before the donor's strikes; `player.json` now has 5.05 m/s and 12 m/s² (1.06 m, 0.84 s). The rest of the
-  body's movement is #10159's.
+  landed before the donor's strikes; `player.json` then had 5.05 m/s and 12 m/s² (1.06 m, 0.84 s). #10159 refitted
+  the jump by how long jump is held (below, "The body's movement").
 
 ### The rush attack
 
@@ -461,6 +461,37 @@ so a new kick needs F to go down again. Kicks cut into charges and swings. In th
   | 4 | stamina below 3, after sprinting |
   | 3 | in the air, F let go before landing (one of them also below 3) |
   | 1 | no weapon in hand (below, "Replay": the view model shows none) |
+
+### The body's movement
+
+The body is the Engine's character controller, set from the donor's measured movement (#10159; `player.json`,
+`MovementCalibration`). Dark Messiah's own files carry no movement numbers: `player_basic.qct` has none, and its ConVars
+(`tools/scenarios/movement-cvars.json` prints them) are Source's: `sv_maxspeed` 320, `sv_accelerate` 10, `sv_friction`
+4, `sv_stopspeed` 50, `sv_gravity` 600, `sv_stepsize` 18, `cl_forwardspeed` and `cl_sidespeed` 1000, `cl_backspeed`
+150. The game caps the player's speed itself. Measured from Wire v14 recordings (the user command and the player's
+origin, speeds over 0.2 s since the origin reaches the Wire every few ticks), mostly the `movement` and `jump-hold`
+scenarios (docs/recording.md):
+
+| | The donor | The lab (`player.json`) |
+| --- | --- | --- |
+| Run forward, strafe, diagonal | 180 units/s (a diagonal no faster) | `speed` 4.572 m/s (180) |
+| Back (the full back key, a command of 150) | 60 | `backSpeed` 1.524 (60) |
+| Crouched | 50 | `crouchSpeed` 1.29 m/s, which runs at 51 against the controller's friction |
+| Charging an attack, guarding | 180, 185: no slower | `attackMovementScale` 1 (was an authored 0.5) |
+| From standing to 90% | 0.48 s | `acceleration` 4.6, fitted: 0.48 s |
+| Stopping (from 180 to under 18) | 0.61 s, sliding 42 units | `friction` 4 and `stopSpeed` 1.27 (50 units: `sv_friction`, `sv_stopspeed`), `braking` 0: 0.57 s, 36 units |
+| A jump held to its peak | rises 42 units, 1.07 s in the air as measured | `jumpSpeed` 4.6, `gravity` 10.3 (fitted): 42, 1.07 s |
+| A jump let go early | held 0.05 s 27 units, 0.15 s 34, 0.2 s 36, 0.25 s 39, 0.3 s 41, from 0.4 s 42 | `jumpReleaseGravity` 2: gravity doubles for the rest of the rise once jump is let go (`mm_jump_rework` is on): 26, 33, 36, 38, 40, 42 |
+| Sprint | 270 at full stamina | #10160 |
+
+- **Not measured:** fall damage (none taken in the recordings), the walk key (`movement` holds `+speed` and `+walk`,
+  but the calibration doesn't sort by them yet), and moving after a kick or with the jump attack held, which cut the donor's jump short (`sword-timing2`'s
+  jumps rose 24 to 27 units): those jumps are left out.
+- **Against the recordings** (the smoke): `movement` and `jump-hold` replayed through the lab's body, its speed on each
+  command within 10% of the donor's, its start and stop within 0.15 s, its slide within 30%, its jumps' rise within 10%
+  and their time in the air within 0.1 s. A scenario's `setpos` takes the lab's body back to the middle of its arena
+  (`IReplayBody.Return`). `RB_MOVE=1` prints the donor's measures; `RB_MOVEFIT=1` runs the lab's body through the
+  fitting runs.
 
 ### Stamina
 
@@ -906,8 +937,9 @@ Both strikes now begin with the donor's: 8 of 8.
 
 A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
 the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
-- **Movement:** commands run at 1000, about 1400 on a diagonal, and 150 for the slow walk while charging or guarding.
-  The replay scales them against a run. The lab's body averages 4.20 against the donor's 4.69 m/s, and 2.78 against 1.68.
+- **Movement:** commands run at 1000 forward or sideways, about 1400 on a diagonal, and 150 back (the donor's
+  `cl_backspeed`). The replay scales each axis by its full key (#10159). In the fights the lab's body walks into its own
+  arena's walls, which the donor's level hasn't, so their speeds are reported, not compared ("The body's movement").
 - **Jumps:** all 12 came through.
 
 **Where they differ:**

@@ -323,6 +323,14 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded);
     }
 
+    void IReplayBody.Return()
+    {
+        // The middle of the arena's floor (its first volume), at rest.
+        var floor = scene.Definition.Volumes[0];
+        var middle = ((LabDefinition.Vector(floor.Min) + LabDefinition.Vector(floor.Max)) / 2) with { Y = LabDefinition.Vector(floor.Max).Y };
+        player.Place(middle + Vector3.UnitY * (player.Tuning.Height / 2 + player.Config.Shape.ContactSkin), player.LookState.YawRadians * 180 / MathF.PI);
+    }
+
     void IReplayBody.Lift(float metres) =>
         player.Place(player.Position + Vector3.UnitY * metres, player.LookState.YawRadians * 180 / MathF.PI);
 

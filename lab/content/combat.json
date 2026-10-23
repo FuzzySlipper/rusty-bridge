@@ -1,6 +1,6 @@
 {
   "playerHealth": 80,
-  "attackMovementScale": 0.5,
+  "attackMovementScale": 1,
   "kickWindow": [
     0.36,
     0.42

@@ -3,6 +3,7 @@ using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Sword;
 using RustyBridge.Wire;
+using RustyBridge.Wire.Donor;
 
 namespace DarkMessiah.Lab.Replay;
 
@@ -97,7 +98,10 @@ internal sealed record KickRequests(int Requests, int DonorBegan, int LabBegan, 
 /// The lab player's body driven by the recorded movement, jump and use (Wire v14), against the donor's: mean planar
 /// speed over the ticks with movement input, and jumps.
 /// </summary>
-internal sealed record BodyReplay(int MoveTicks, float DonorSpeed, float LabSpeed, int JumpPresses, int LabJumps, int UsePresses)
+/// <param name="Donor">The donor's movement tick by tick, and <paramref name="Lab"/> the lab body's on the same input, for
+/// <see cref="Calibration.MovementCalibration.Analyze"/> (#10159).</param>
+internal sealed record BodyReplay(int MoveTicks, float DonorSpeed, float LabSpeed, int JumpPresses, int LabJumps, int UsePresses,
+    IReadOnlyList<Calibration.MovementSample>? Donor = null, IReadOnlyList<Calibration.MovementSample>? Lab = null)
 {
     public override string ToString() => FormattableString.Invariant(
         $"movement: {MoveTicks} ticks with movement input, donor {DonorSpeed:0.00} m/s, lab {LabSpeed:0.00} m/s on average; jump presses {JumpPresses}, lab jumps {LabJumps}; use presses {UsePresses}");
@@ -118,6 +122,9 @@ internal interface IReplayBody
     (Vector3 Feet, bool Jumped, bool Grounded) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds);
     /// <summary>Raises the body <paramref name="metres"/> where it stands, at rest: it falls from there.</summary>
     void Lift(float metres);
+    /// <summary>Puts the body at rest in the middle of the lab's arena: a scenario's setpos took the donor back to its start
+    /// (#10159), and the lab's body would otherwise run on into the arena's walls.</summary>
+    void Return();
     void End();
 }
 
@@ -211,6 +218,12 @@ internal static class CombatReplay
         bool driveBody = body is not null && timeline.HasCommands;
         var donorSpeeds = new List<float>();
         var labSpeeds = new List<float>();
+        var donorTrace = new List<Calibration.MovementSample>();
+        var labTrace = new List<Calibration.MovementSample>();
+        // A lab-space point (metres, Y up) as Source units (Z up), for the movement calibration.
+        static Calibration.MovementSample Sample(double time, Vector3 at, ReplayTick t) =>
+            new(time, at.X / SourceSpace.MetresPerUnit, at.Z / SourceSpace.MetresPerUnit, at.Y / SourceSpace.MetresPerUnit, t.Command, t.Jump,
+                t.KickHeld || t.Held.HasFlag(InputButtons.Attack) || t.Held.HasFlag(InputButtons.Attack2));
         int jumps = 0, labJumps = 0, uses = 0;
         Vector3? lastDonor = null, lastLab = null;
         bool god = combat.God;
@@ -309,7 +322,12 @@ internal static class CombatReplay
                 {
                     // A recorded teleport (a scenario's setpos: over a metre in a tick) that raises the donor raises the
                     // lab's body as far, to fall as the donor does; the lab's arena has no ground but its floor.
-                    if (lastDonor is Vector3 was && Vector3.Distance(t.Feet, was) > 1 && t.Feet.Y - was.Y > .1f) body!.Lift(t.Feet.Y - was.Y);
+                    if (lastDonor is Vector3 was && Vector3.Distance(t.Feet, was) > 1)
+                    {
+                        // A teleport takes the lab's body back to the middle of its arena, raised as far as the donor was.
+                        body!.Return();
+                        if (t.Feet.Y - was.Y > .1f) body.Lift(t.Feet.Y - was.Y);
+                    }
                     var (feet, jumped, onGround) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds);
                     if (t.Move != Vector2.Zero && t.Seconds > 0 && lastDonor is Vector3 d0 && lastLab is Vector3 l0)
                     {
@@ -318,6 +336,8 @@ internal static class CombatReplay
                     }
                     lastDonor = t.Feet;
                     lastLab = feet;
+                    donorTrace.Add(Sample(t.Time, t.Feet, t));
+                    labTrace.Add(Sample(t.Time, feet, t));
                     jumps += t.Jump ? 1 : 0;
                     uses += t.Use ? 1 : 0;
                     labJumps += jumped ? 1 : 0;
@@ -462,7 +482,7 @@ internal static class CombatReplay
             shieldWear = new ShieldWear(donorWear.Count, donorWear.Sum(w => w.Damage), labWear.Count, labWear.Sum(e => e.Damage), paired, alike);
         }
         BodyReplay? bodyReplay = driveBody
-            ? new BodyReplay(donorSpeeds.Count, donorSpeeds.Count > 0 ? donorSpeeds.Average() : 0, labSpeeds.Count > 0 ? labSpeeds.Average() : 0, jumps, labJumps, uses)
+            ? new BodyReplay(donorSpeeds.Count, donorSpeeds.Count > 0 ? donorSpeeds.Average() : 0, labSpeeds.Count > 0 ? labSpeeds.Average() : 0, jumps, labJumps, uses, donorTrace, labTrace)
             : null;
         return new ReplayReport(timeline.Name, timeline.Ticks.Count, timeline.Ticks.Sum(t => t.Seconds), timeline.Skipped,
             moveCounts, lags.Count > 0 ? lags.Average() : double.NaN,

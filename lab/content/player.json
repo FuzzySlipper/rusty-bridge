@@ -3,10 +3,10 @@
   "crouchedHeight": 1.1,
   "radius": 0.3,
   "eyeBelowTop": 0.15,
-  "speed": 4.5,
+  "speed": 4.572,
   "sprintSpeed": 7,
-  "jumpSpeed": 5.05,
-  "gravity": 12,
+  "jumpSpeed": 4.6,
+  "gravity": 10.3,
   "maximumStepHeight": 0.3,
   "maximumSlopeDegrees": 45,
   "jumpBufferSeconds": 0.12,
@@ -15,5 +15,12 @@
   "fieldOfViewDegrees": 75,
   "farPlane": 120,
   "headBobMetres": 0.03,
-  "headBobStrideMetres": 1.7
+  "headBobStrideMetres": 1.7,
+  "backSpeed": 1.524,
+  "crouchSpeed": 1.29,
+  "acceleration": 4.6,
+  "braking": 0,
+  "friction": 4,
+  "stopSpeed": 1.27,
+  "jumpReleaseGravity": 2
 }

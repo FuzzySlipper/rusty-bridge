@@ -408,6 +408,93 @@ host.Call(engine =>
             Console.WriteLine($"WINDOW {byWindow.Key.Weapon} six-in-ten {byWindow.Key.Six}: {byWindow.Count()} blows, {byWindow.Count(b => b.Outcome == BlowOutcome.Stun)} stuns, mean chance {byWindow.Average(b => b.Event?.ChanceToStun ?? 0):0.00}");
         return;
     }
+    // RB_MOVE=1 prints the donor's movement by command (#10159) and stops.
+    // RB_MOVE=NAME takes only the recordings whose name has NAME.
+    if (Environment.GetEnvironmentVariable("RB_MOVE") is { Length: > 0 } moveFilter)
+    {
+        var m = MovementCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories)
+            .Where(f => moveFilter == "1" || Path.GetFileName(f).Contains(moveFilter, StringComparison.Ordinal)));
+        static string Q(IReadOnlyList<float> v) => v.Count == 0 ? "none" : FormattableString.Invariant($"n {v.Count} p10 {v.Order().ElementAt(v.Count / 10):0.0} median {MovementMeasure.Median(v):0.0} p90 {v.Order().ElementAt(v.Count * 9 / 10):0.0}");
+        foreach (var (c, v) in m.Steady.OrderByDescending(x => x.Value.Count)) Console.WriteLine($"MOVE steady {c}: {Q(v)}");
+        foreach (var (c, v) in m.Accelerations.OrderByDescending(x => x.Value.Count)) Console.WriteLine($"MOVE accel {c}: {Q(v)}");
+        Console.WriteLine($"MOVE stops: seconds {Q(m.Stops.Select(x => x.Seconds).ToList())}; slide {Q(m.Stops.Select(x => x.Slide).ToList())}; from {Q(m.Stops.Select(x => x.From).ToList())}");
+        Console.WriteLine($"MOVE jumps: rise {Q(m.Jumps.Select(x => x.Rise).ToList())}; air {Q(m.Jumps.Select(x => x.Air).ToList())}");
+        foreach (var jumpFile in Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories))
+        {
+            var one = MovementCalibration.Measure([jumpFile]);
+            if (one.Jumps.Count > 0) Console.WriteLine(FormattableString.Invariant($"MOVEJ {Path.GetFileName(jumpFile)}: {string.Join(" ", one.Jumps.Select(j => $"{j.Rise:0}"))}"));
+        }
+        foreach (var j in m.Jumps.OrderBy(j => j.Speed)) Console.WriteLine(FormattableString.Invariant($"MOVE jump rise {j.Rise:0.0} air {j.Air:0.00} speed {j.Speed:0} held {j.Held}"));
+        Console.WriteLine($"MOVE lab ground {product.Player.Config.Ground}; air {product.Player.Config.Air}; vertical {product.Player.Config.Vertical}");
+        return;
+    }
+    // RB_MOVEFIT=1 runs the lab's body through a synthetic start and stop for a grid of ground settings (#10159) and stops.
+    if (Environment.GetEnvironmentVariable("RB_MOVEFIT") == "1")
+    {
+        IReplayBody fitBody = product;
+        var baseTuning = product.Player.Tuning;
+        var run = new MoveCommand("forward", 1000, "none");
+        MovementMeasure Drive(PlayerTuning t)
+        {
+            product.Player.Retune(t);
+            fitBody.Begin();
+            var samples = new List<MovementSample>();
+            double time = 0;
+            for (int cycle = 0; cycle < 3; cycle++)
+                foreach (var (seconds, move) in new[] { (1.0, Vector2.Zero), (2.0, Vector2.UnitY), (2.0, Vector2.Zero) })
+                    for (double end = time + seconds; time < end; time += Tick)
+                    {
+                        // Turned about each cycle, so the arena's walls don't stop it.
+                        var look = cycle % 2 == 0 ? Vector3.UnitX : -Vector3.UnitX;
+                        var (feet, _, _) = fitBody.Step(move, look, false, false, false, false, Tick);
+                        samples.Add(new MovementSample(time, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit,
+                            feet.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, move == Vector2.Zero ? null : run, false));
+                    }
+            fitBody.End();
+            var m = MovementMeasure.Empty();
+            MovementCalibration.Analyze(samples, m);
+            return m;
+        }
+        void Show(string label, MovementMeasure m) => Console.WriteLine(FormattableString.Invariant(
+            $"FIT {label}: steady {MovementMeasure.Median(m.Steady.GetValueOrDefault(run) ?? []):0.0}, accel {MovementMeasure.Median(m.Accelerations.GetValueOrDefault(run) ?? []):0.00} s, stop {MovementMeasure.Median(m.Stops.Select(x => x.Seconds).ToList()):0.00} s, slide {MovementMeasure.Median(m.Stops.Select(x => x.Slide).ToList()):0.0}"));
+        Show("player.json", Drive(baseTuning));
+        foreach (float acc in new[] { 4.3f, 4.5f, 4.7f }) Show(FormattableString.Invariant($"acceleration {acc}"), Drive(baseTuning with { Acceleration = acc }));
+        // Jumps by how long jump is held, against l01_a-v18-jump-hold (34, 36, 39, 39, 41, 41, 41, 41 units).
+        foreach (float release in new[] { 2f, 2.2f, 2.4f })
+        {
+            product.Player.Retune(baseTuning with { JumpReleaseGravity = release, JumpSpeed = 4.6f, Gravity = 10.3f });
+            var rises = new List<string>();
+            foreach (float hold in new[] { .05f, .1f, .15f, .2f, .25f, .3f, .4f, .5f, .7f, 1f })
+            {
+                fitBody.Begin();
+                for (int i = 0; i < 30; i++) fitBody.Step(Vector2.Zero, Vector3.UnitX, false, false, false, false, Tick);
+                float ground = product.Player.Feet.Y, peak = ground;
+                for (float t = 0; t < 1.6f; t += Tick)
+                {
+                    var (feet, _, _) = fitBody.Step(Vector2.Zero, Vector3.UnitX, t == 0, t < hold, false, false, Tick);
+                    peak = MathF.Max(peak, feet.Y);
+                }
+                fitBody.End();
+                rises.Add(FormattableString.Invariant($"{(peak - ground) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit:0}"));
+            }
+            Console.WriteLine(FormattableString.Invariant($"FIT jumpReleaseGravity {release}: held 0.15–1 s rises {string.Join(" ", rises)}"));
+        }
+        product.Player.Retune(baseTuning);
+        foreach (var name in new[] { "l01_a-v18-jump-hold.rbrec", "l01_a-v18-movement.rbrec" })
+        {
+            var path = Path.Combine(repo!, "local", "recordings", "experiments", name);
+            if (!File.Exists(path)) continue;
+            if (CombatReplay.Run(product.Combat, path, product).Body is not { Donor: { } d, Lab: { } l }) continue;
+            var dm = MovementMeasure.Empty(); var lm = MovementMeasure.Empty();
+            MovementCalibration.Analyze(d, dm); MovementCalibration.Analyze(l, lm);
+            Console.WriteLine(FormattableString.Invariant($"FIT {name} donor jumps {string.Join(" ", dm.Jumps.Select(j => $"{j.Rise:0}/{j.Air:0.00}"))}"));
+            Console.WriteLine(FormattableString.Invariant($"FIT {name} lab   jumps {string.Join(" ", lm.Jumps.Select(j => $"{j.Rise:0}/{j.Air:0.00}"))}"));
+            foreach (var (c, v) in dm.Steady.Where(x => x.Value.Count >= 30)) Console.WriteLine(FormattableString.Invariant($"FIT {name} {c}: donor {MovementMeasure.Median(v):0}, lab {MovementMeasure.Median(lm.Steady.GetValueOrDefault(c) ?? []):0}"));
+            Console.WriteLine(FormattableString.Invariant($"FIT {name} accel donor {string.Join(" ", dm.Accelerations.SelectMany(x => x.Value).Select(v => $"{v:0.00}"))}; lab {string.Join(" ", lm.Accelerations.SelectMany(x => x.Value).Select(v => $"{v:0.00}"))}"));
+            Console.WriteLine(FormattableString.Invariant($"FIT {name} stops donor {string.Join(" ", dm.Stops.Select(v => $"{v.Seconds:0.00}/{v.Slide:0}"))}; lab {string.Join(" ", lm.Stops.Select(v => $"{v.Seconds:0.00}/{v.Slide:0}"))}"));
+        }
+        return;
+    }
     if (Environment.GetEnvironmentVariable("RB_REPLAY") is { Length: > 0 } only)
     {
         foreach (var line in CombatReplay.Run(product.Combat, only, product).Lines()) Console.WriteLine(line);
@@ -1598,6 +1685,9 @@ host.Call(engine =>
     // Replay: recordings of Wire v12 and later carry the player's input; it drives the lab's sword against the
     // donor orc the player faced, and the report compares both sides' moves and blows.
     combat.Orc.Hold = true;
+    // The body's movement over every v14 replay (#10159): the donor's and the lab's, on the same commands.
+    var donorMove = MovementMeasure.Empty();
+    var labMove = MovementMeasure.Empty();
     foreach (var path in found.Where(p => RecordingVersion(p) >= 12))
     {
         var report = CombatReplay.Run(combat, path, product);
@@ -1609,6 +1699,7 @@ host.Call(engine =>
             Check(moved.MoveTicks == 0 || moved.LabSpeed > .5f * moved.DonorSpeed && moved.LabSpeed < 2f * moved.DonorSpeed,
                 $"{report.Name}: the recorded movement moves the lab's body ({moved})");
             Check(moved.JumpPresses == 0 || moved.LabJumps > 0, $"{report.Name}: a recorded jump makes the lab's body jump");
+            if (moved.Donor is { } d && moved.Lab is { } l) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
         }
         // Two swings while the player's body animation runs on (review R10122-3): every blow is accounted for.
         if (Path.GetFileName(path) == "l01_a-v12-arena-bot.rbrec")
@@ -1641,6 +1732,37 @@ host.Call(engine =>
             Check(agree >= asked.Requests * 8 / 10, $"{report.Name}: the lab kicks or refuses as the donor did on {agree} of {asked.Requests} requests");
         }
         Check(!combat.Orc.Following && combat.Log is null, $"{report.Name}: the lab's own fight comes back after the replay");
+    }
+    {
+        static float Med(IReadOnlyList<float>? v) => v is null ? float.NaN : MovementMeasure.Median(v);
+        // The fights' replays move the lab's body about its own arena, into walls the donor's level hasn't: reported.
+        foreach (var (c, v) in donorMove.Steady.Where(x => x.Value.Count >= 30).OrderBy(x => x.Key.ToString()))
+            Console.WriteLine(FormattableString.Invariant($"  fights' movement {c}: donor {Med(v):0} units/s, lab {Med(labMove.Steady.GetValueOrDefault(c)):0}"));
+        // The calibration's own: the movement and jump-hold scenarios (#10159), replayed in the open.
+        donorMove = MovementMeasure.Empty();
+        labMove = MovementMeasure.Empty();
+        foreach (var path in Directory.Exists(Path.Combine(recordings, "experiments")) ? Directory.GetFiles(Path.Combine(recordings, "experiments"), "*-v18-*.rbrec")
+                     .Where(p => Path.GetFileName(p).Contains("-movement", StringComparison.Ordinal) || Path.GetFileName(p).Contains("-jump-hold", StringComparison.Ordinal)) : [])
+            if (CombatReplay.Run(combat, path, product).Body is { Donor: { } d, Lab: { } l }) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
+        // Steady speed by command (30 ticks each at least), within 10%.
+        var speeds = donorMove.Steady.Where(x => x.Value.Count >= 30 && labMove.Steady.GetValueOrDefault(x.Key) is { Count: >= 30 })
+            .Select(x => (x.Key, Donor: Med(x.Value), Lab: Med(labMove.Steady[x.Key]))).OrderBy(x => x.Key.ToString()).ToList();
+        foreach (var (c, d, l) in speeds) Console.WriteLine(FormattableString.Invariant($"  movement {c}: donor {d:0} units/s, lab {l:0}"));
+        // Sprinting is #10160's (the replayed body doesn't sprint yet).
+        speeds = speeds.Where(x => x.Key.Modifier != "sprint").ToList();
+        var off = speeds.Where(x => MathF.Abs(x.Lab - x.Donor) > .1f * x.Donor).ToList();
+        Check(speeds.Count >= 4 && off.Count == 0,
+            $"replayed, the lab's body moves at the donor's speed on each command within 10% ({speeds.Count - off.Count} of {speeds.Count}{(off.Count > 0 ? "; off: " + string.Join(", ", off.Select(x => x.Key)) : "")})");
+        float dAccel = Med(donorMove.Accelerations.SelectMany(x => x.Value).ToList()), lAccel = Med(labMove.Accelerations.SelectMany(x => x.Value).ToList());
+        float dStop = Med(donorMove.Stops.Select(x => x.Seconds).ToList()), lStop = Med(labMove.Stops.Select(x => x.Seconds).ToList());
+        float dSlide = Med(donorMove.Stops.Select(x => x.Slide).ToList()), lSlide = Med(labMove.Stops.Select(x => x.Slide).ToList());
+        Console.WriteLine(FormattableString.Invariant($"  movement starts: donor {dAccel:0.00} s to 90% ({donorMove.Accelerations.Sum(x => x.Value.Count)}), lab {lAccel:0.00} ({labMove.Accelerations.Sum(x => x.Value.Count)}); stops: donor {dStop:0.00} s, {dSlide:0} units ({donorMove.Stops.Count}), lab {lStop:0.00} s, {lSlide:0} units ({labMove.Stops.Count})"));
+        Check(MathF.Abs(lAccel - dAccel) <= .15f && MathF.Abs(lStop - dStop) <= .15f && MathF.Abs(lSlide - dSlide) <= .3f * dSlide,
+            FormattableString.Invariant($"it starts and stops as the donor's did: to 90% in {lAccel:0.00} s against {dAccel:0.00}, stopped in {lStop:0.00} s against {dStop:0.00} (within 0.15 s), sliding {lSlide:0} units against {dSlide:0} (within 30%)"));
+        float dRise = Med(donorMove.Jumps.Select(x => x.Rise).ToList()), lRise = Med(labMove.Jumps.Select(x => x.Rise).ToList());
+        float dAir = Med(donorMove.Jumps.Select(x => x.Air).ToList()), lAir = Med(labMove.Jumps.Select(x => x.Air).ToList());
+        Check(donorMove.Jumps.Count >= 5 && MathF.Abs(lRise - dRise) <= .1f * dRise && MathF.Abs(lAir - dAir) <= .1f,
+            FormattableString.Invariant($"its jumps rise and land as the donor's: {lRise:0.0} units against {dRise:0.0} (within 10%), {lAir:0.00} s in the air against {dAir:0.00} (within 0.1 s; {donorMove.Jumps.Count} and {labMove.Jumps.Count} jumps)"));
     }
 
     // A v15 recording replays with the donor player's build (#10140): l01_a-v15-stats starts with the combat skill's

@@ -95,6 +95,13 @@ internal sealed class PlayerStamina(StaminaRules rules)
             Value = MathF.Min(Rules.Max, Value + Rules.AddValue);
     }
 
+    /// <summary>
+    /// The regeneration's clock starts over, its next step a full interval from now: a replay takes the donor's phase
+    /// (R10160-1). The donor's clock runs on through sprints and rests alike (every 9 ticks, its rises 9 ticks apart
+    /// throughout <c>l01_a-v18-sprint-double</c>), so one sync holds for the whole run.
+    /// </summary>
+    internal void Sync() => regained = 0;
+
     /// <summary>A kick was decided: it landed on an NPC, or it didn't.</summary>
     internal void Kicked(bool npc) => Value = MathF.Max(0, Value - (npc ? Rules.KickNpc : 0));
 

@@ -239,7 +239,8 @@ internal static class CombatReplay
         int staminaTicks = 0, staminaNear = 0, cameraTicks = 0, cameraNear = 0, healthTicks = 0, healthNear = 0, maxAgree = 0;
         float healthWorst = 0;
         float? lastDonorHealth = null;
-        bool healthSet = false, regenSynced = false;
+        bool healthSet = false, regenSynced = false, staminaSynced = false;
+        float? lastDonorStamina = null;
         int hurtAt = 0, drunkAt = 0;
         BeltItem life = BeltItem.Of(combat.Donor, PotionModels.Life), full = BeltItem.Of(combat.Donor, PotionModels.FullLife);
         var cameraOffs = new List<float>();
@@ -383,13 +384,24 @@ internal static class CombatReplay
                     healthWorst = MathF.Max(healthWorst, off);
                     if (combat.Health.Max == donorMax) maxAgree++;
                 }
-                // The lab's stamina against the donor's streamed one (Wire v15; #10160).
+                // The lab's stamina against the donor's streamed one (Wire v15; #10160). Its regeneration takes the donor's
+                // phase from the donor's first rise of one step (R10160-1): where the replay starts sets the lab's clock,
+                // and a step's phase decides the tick a sprint may start at 3.
                 if (t.Stamina is float donorStamina)
                 {
+                    if (!staminaSynced && lastDonorStamina is float before && MathF.Abs(donorStamina - before - combat.Stamina.Rules.AddValue) < .005f)
+                    {
+                        combat.Stamina.Sync();
+                        staminaSynced = true;
+                    }
+                    lastDonorStamina = donorStamina;
                     float off = MathF.Abs(combat.Stamina.Value - donorStamina);
                     staminaTicks++;
                     if (off <= .2f) staminaNear++;
                     staminaWorst = MathF.Max(staminaWorst, off);
+                    if (Environment.GetEnvironmentVariable("RB_STAMINA_TRACE") is { Length: > 0 } span && span.Split('-') is [var traceFrom, var traceTo]
+                        && t.Tick >= int.Parse(traceFrom!) && t.Tick <= int.Parse(traceTo!))
+                        Console.WriteLine(FormattableString.Invariant($"STAM {t.Tick} donor {donorStamina:0.000} lab {combat.Stamina.Value:0.000} sprinting {combat.Stamina.Sprinting} asked {t.Sprint} move {t.Move.Length():0.00}"));
                 }
                 if (Trace is var (from, to) && t.Tick >= from && t.Tick <= to)
                     Console.WriteLine($"  trace {t.Tick} held {t.Held} grounded {grounded} move {combat.Sword.Move} {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} donor feet y {t.Feet.Y:0.00}");

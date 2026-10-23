@@ -2121,7 +2121,7 @@ host.Call(engine =>
             // The lab's stamina tick by tick against the donor's streamed one, through sprints, an empty gauge, kicks and
             // regeneration (#10160).
             if (Path.GetFileName(path).Contains("-sprint", StringComparison.Ordinal))
-                Check(moved.Stamina is { } st && st.Ticks > 1000 && st.Near >= st.Ticks * 95 / 100,
+                Check(moved.Stamina is { } st && st.Ticks > 1000 && st.Near == st.Ticks,
                     FormattableString.Invariant($"{moved.Name}: the lab's stamina follows the donor's within 0.2 on {moved.Stamina?.Near} of {moved.Stamina?.Ticks} ticks (worst {moved.Stamina?.Worst:0.00})"));
         }
         // The donor's health through blows, potions, extra_health learned and fast_metabolism's regeneration (#10162).

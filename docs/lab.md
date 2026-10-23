@@ -526,8 +526,12 @@ scenarios (#10160; docs/recording.md):
   2.76 to 3.00 here).
 - **An empty gauge:** at 0 the sprint ends, sprint held or not; the body runs at 180 and stamina regains as ever.
 - **Against the donor** (the smoke): both scenarios replayed, the lab's stamina within 0.2 of the streamed value on
-  3200 of 3200 and 3620 of 3668 ticks, through the sprints, the empty gauge, the kicks and the rests. The replay's body
-  sprints when the lab's stamina lets it (`IReplayBody.Step`'s `sprint`).
+  every tick (3200 of 3200 and 3668 of 3668), through the sprints, the empty gauge, the restart from below 3, the kicks
+  and the rests. The replay's body sprints when the lab's stamina lets it (`IReplayBody.Step`'s `sprint`). The
+  regeneration's clock takes the donor's phase from its first 0.06 rise (R10160-1): the donor's runs on, every 9
+  ticks, through sprints and rests alike, so where the replay starts would otherwise set it, and a step's phase
+  decides the tick a sprint may start (the restart in `sprint-double` came 9 ticks early, 0.24 off, before).
+  `RB_STAMINA_TRACE=from-to` prints the two tick by tick. The donor's streamed stamina moves every other tick.
 - **Not measured:** the view model's `Megasprint_sword` clip, and attacking out of a sprint (the rush attack is
   #10144's).
 

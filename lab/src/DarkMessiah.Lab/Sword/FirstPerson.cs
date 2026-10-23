@@ -7,7 +7,9 @@ namespace DarkMessiah.Lab.Sword;
 
 /// <summary>
 /// The player's first-person arms and weapon, as Dark Messiah draws them: Arkane's <c>first_basic</c> arms with the
-/// move's clip laid over their class's idle, placed so their <c>eyes</c> attachment sits at the camera, and the weapon
+/// move's clip laid over their class's idle, their origin at the eye and turned with the head (<see cref="HeadMotion"/>),
+/// the camera at their <c>eyes</c> attachment (#10161: the donor's view model sits at the eye, its drawn camera 2.1
+/// units ahead and 9 above it, both turned by the head and the strafe roll, <see cref="HeadMotion.StrafeRoll"/>), and the weapon
 /// (the build's, <see cref="Equip"/>; the short sword until one is) on the attachment the donor parents it to
 /// (<see cref="HandOf"/>), the daggers' second blade on <c>RightHand_Daggers</c>, a shield (<see cref="Shield"/>) on
 /// <c>Leftshield</c> (attachment 6, which the donor parents <c>weapon_arxshield</c> to: <c>l01_a-v17-shield</c>). It also places the blade
@@ -32,6 +34,8 @@ internal sealed class FirstPerson : IDisposable
     Puppet? shield;
     (string Joint, Vector3 Tip) blade;
     float idleCycle;
+    readonly HeadMotion head;
+    SwordMove lastMove;
 
     internal FirstPerson(IEngineContext engine, DonorContent donor)
     {
@@ -41,7 +45,13 @@ internal sealed class FirstPerson : IDisposable
         Weapon = LabWeapon.Of(donor, LabWeapon.ShortSword);
         sword = weapons[Weapon.Model] = new Puppet(engine, donor.Model(Weapon.Model), SwordId);
         blade = Rig.BladeTip(sword.Model.Info);
+        head = new HeadMotion(engine, donor);
     }
+
+    /// <summary>The head's motion (#10161).</summary>
+    internal HeadMotion Head => head;
+    /// <summary>The camera as last posed: at the arms' <c>eyes</c> attachment, looking along the head-turned view.</summary>
+    internal (Vector3 Position, Vector3 Forward, Vector3 Up) Camera { get; private set; } = (Vector3.Zero, Vector3.UnitZ, Vector3.UnitY);
 
     /// <summary>The weapon in hand: its model, class and numbers.</summary>
     internal LabWeapon Weapon { get; private set; }
@@ -109,26 +119,45 @@ internal sealed class FirstPerson : IDisposable
 
     /// <summary>
     /// Poses the arms for the sword's move at the eye, looking along <paramref name="forward"/>: the idle runs on its
-    /// own, the move's clip over it. Places the sword and its tip.
+    /// own, the move's clip over it, the head turns them and the camera (#10161). Places the sword and its tip.
     /// </summary>
-    internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward)
+    /// <param name="airborne">The body is off the ground, and <paramref name="velocity"/> its velocity: the head's fall.</param>
+    internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward, bool airborne = false, Vector3 velocity = default)
     {
         var idle = arms.Model.Clip(move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
         if (move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
-        // Facing first, then the offset that puts the model's eyes attachment at the camera.
-        var facing = new Transform(Vector3.Zero, Rig.Facing(forward, Vector3.UnitY), Vector3.One);
-        var atOrigin = Rig.Pose(engine, arms, facing);
-        var eyes = Rig.Attached(arms.Model, atOrigin, "eyes")?.Translation ?? Vector3.Zero;
-        Arms = facing with { Translation = eye - eyes };
+        // The head turns the view (#10161); the arms stand at the eye, turned with it, and the camera at their eyes.
+        if (move.Move == SwordMove.Away && lastMove != SwordMove.Away) head.Grabbed();
+        lastMove = move.Move;
+        head.Step(seconds, move.Move == SwordMove.Ready ? null : (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle), airborne, velocity);
+        var look = Vector3.Normalize(forward);
+        var right = Vector3.Normalize(Vector3.Cross(look, Vector3.UnitY));
+        var up = Vector3.Cross(right, look);
+        var turn = HeadMotion.Rotation(head.Turn with { Roll = head.Turn.Roll + HeadMotion.StrafeRoll(velocity, look) }, look, up);
+        var turnedForward = Vector3.Transform(look, turn);
+        var turnedUp = Vector3.Transform(up, turn);
+        Arms = new Transform(eye, Rig.Facing(turnedForward, turnedUp), Vector3.One);
         var pose = Rig.Pose(engine, arms, Arms);
+        Camera = (Rig.Attached(arms.Model, pose, "eyes")?.Translation ?? eye, turnedForward, turnedUp);
         var (main, other) = HandOf(Weapon.Class);
         Sword = Rig.Attached(arms.Model, pose, main) ?? Arms;
         OffHand = offHand is not null && other is not null ? Rig.Attached(arms.Model, pose, other) ?? Arms : null;
         ShieldAt = shield is not null ? Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms : null;
         var swordPose = Rig.Rest(engine, sword.Instance, Sword);
         Tip = sword.Model.Joints.TryGetValue(blade.Joint, out int j) ? Vector3.Transform(blade.Tip, swordPose[j].World.Rotation) + swordPose[j].World.Translation : Sword.Translation;
+    }
+
+    /// <summary>
+    /// The arms' <c>eyes</c> attachment with <paramref name="clip"/> at <paramref name="cycle"/> played alone, in the arms
+    /// model's frame facing <paramref name="forward"/> (#10161): what the donor's camera follows.
+    /// </summary>
+    internal Transform? EyesAt(string clip, float cycle, Vector3 forward)
+    {
+        arms.Play(clip, cycle);
+        var facing = new Transform(Vector3.Zero, Rig.Facing(forward, Vector3.UnitY), Vector3.One);
+        return Rig.Attached(arms.Model, Rig.Pose(engine, arms, facing), "eyes");
     }
 
     /// <summary>The blade's trace now: from the eye toward the tip, out to the sword's range.</summary>
@@ -149,6 +178,7 @@ internal sealed class FirstPerson : IDisposable
     public void Dispose()
     {
         arms.Dispose();
+        head.Dispose();
         foreach (var weapon in weapons.Values) weapon.Dispose();
     }
 }

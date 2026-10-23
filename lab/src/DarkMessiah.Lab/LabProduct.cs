@@ -138,6 +138,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
                 crouched: player.Motion.Stance == CharacterStance.Crouched);
             kickPending = attackPending = blockPending = false;
+            // The first person draws from the arms' eyes, turned by the head (#10161).
+            player.Camera = combat.FirstPerson.Camera;
             scene.Step(delta, cubes.PrepareStep());
         }
         time.SetSlow(combat.TimeScale);

@@ -29,7 +29,15 @@ namespace DarkMessiah.Lab.Replay;
 /// lab's gauge to it, since the donor also fills it on blows the lab doesn't follow.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
-    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null, float? Stamina = null);
+    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null, float? Stamina = null,
+    DonorCamera? Camera = null);
+
+/// <summary>
+/// The camera the donor's client drew with (Wire v9, its <c>CViewSetup</c>), in lab space: where it was and its forward
+/// and up, and whether the head turned it from the view by more than a degree (#10161).
+/// </summary>
+/// <param name="Turn">Its angles less the view's, Source degrees (pitch down, yaw left, roll).</param>
+internal sealed record DonorCamera(Vector3 Position, Vector3 Forward, Vector3 Up, bool Turned, (float Pitch, float Yaw, float Roll) Turn = default);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -64,6 +72,8 @@ internal sealed class InputTimeline
     /// shield by what it asks, and leaves the player untouched.
     /// </summary>
     internal IReadOnlyList<(int Tick, float Damage)> ShieldWear { get; private init; } = [];
+    /// <summary>Each blow an orc landed on the player, and its damage: the replay kicks the lab's view with them (#10161).</summary>
+    internal IReadOnlyList<(int Tick, float Damage)> Struck { get; private init; } = [];
     /// <summary>The recording carries the player's user commands (Wire v14): kicks are requests, and movement, jump and use are known.</summary>
     internal bool HasCommands { get; init; }
     /// <summary>
@@ -120,6 +130,7 @@ internal sealed class InputTimeline
         var swings = new List<DonorSwing>();
         var kicks = new List<(int, string, string, float)>();
         var shieldWear = new List<(int, float)>();
+        var struck = new List<(int, float)>();
         var playing = new Dictionary<string, float>();
         bool seeded = false;
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
@@ -136,6 +147,10 @@ internal sealed class InputTimeline
         using (var stream = File.OpenRead(path))
             foreach (var f in RecordingReader.Frames(stream))
             {
+                foreach (var d in f.Damage)
+                    if (f.Entities.TryGetValue(d.Victim, out var hurt) && f.Classes.GetValueOrDefault(hurt.ClassId) == "player"
+                        && f.Entities.TryGetValue(d.Attacker, out var by) && f.Classes.GetValueOrDefault(by.ClassId) == OrcClass)
+                        struck.Add((d.Tick, d.Damage));
                 foreach (var d in f.Damage)
                     // A kick's push is a call of its own, zero damage and untraced: not the kick's blow.
                     if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
@@ -228,15 +243,30 @@ internal sealed class InputTimeline
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
                     f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command,
-                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null));
+                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view)));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);
-        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, ShieldWear = shieldWear, Skipped = skipped, HasCommands = commands,
+        return new InputTimeline { Name = Path.GetFileName(path), Ticks = ticks, Swings = swings, Fight = fight, Kicks = kicks, ShieldWear = shieldWear, Struck = struck, Skipped = skipped, HasCommands = commands,
             Build = build, Builds = builds, Unplayable = unplayable, WeaponChanges = weaponChanges };
     }
 
     /// <summary>Source's AngleVectors forward for pitch and yaw in degrees (pitch down is positive).</summary>
+    /// <summary>The client's drawn camera (v9), or null when not read.</summary>
+    static DonorCamera? CameraOf(in WireClientView view)
+    {
+        if (!view.Flags.HasFlag(ClientViewFlags.Camera)) return null;
+        // Source's AngleVectors: pitch down, yaw left, roll right side down.
+        float p = view.CameraPitch * MathF.PI / 180, y = view.CameraYaw * MathF.PI / 180, r = view.CameraRoll * MathF.PI / 180;
+        float sp = MathF.Sin(p), cp = MathF.Cos(p), sy = MathF.Sin(y), cy = MathF.Cos(y), sr = MathF.Sin(r), cr = MathF.Cos(r);
+        var forward = new Vector3(cp * cy, cp * sy, -sp);
+        var up = new Vector3(cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp);
+        static float Wrap(float a) => ((a % 360) + 540) % 360 - 180;
+        bool turned = MathF.Abs(Wrap(view.CameraPitch - view.ViewPitch)) > 1 || MathF.Abs(Wrap(view.CameraYaw - view.ViewYaw)) > 1 || MathF.Abs(Wrap(view.CameraRoll - view.ViewRoll)) > 1;
+        return new DonorCamera(SourceSpace.Position(new Vector3(view.CameraX, view.CameraY, view.CameraZ)), SourceSpace.Direction(forward), SourceSpace.Direction(up), turned,
+            (Wrap(view.CameraPitch - view.ViewPitch), Wrap(view.CameraYaw - view.ViewYaw), Wrap(view.CameraRoll - view.ViewRoll)));
+    }
+
     static Vector3 SourceForward(float pitch, float yaw)
     {
         float p = pitch * MathF.PI / 180, y = yaw * MathF.PI / 180;

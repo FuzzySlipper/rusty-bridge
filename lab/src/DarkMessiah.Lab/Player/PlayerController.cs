@@ -220,9 +220,21 @@ internal sealed class PlayerController : IDisposable
     private static CharacterMotion AtRest(Vector3 centre) => new(Vector3.Zero, Vector3.Zero, false, CharacterStance.Standing,
         0, 0, 0, false, 0, Vector3.Zero, Vector3.Zero, Quaternion.Identity, Vector3.Zero, centre.Y, centre.Y, 0, 0);
 
+    /// <summary>
+    /// The camera the first person draws from (#10161: the arms' <c>eyes</c> attachment, turned by the head), or null to
+    /// draw from the eye along the look.
+    /// </summary>
+    internal (Vector3 Position, Vector3 Forward, Vector3 Up)? Camera { get; set; }
+
     private CameraDescriptor Descriptor()
     {
-        Vector3 eye = Eye + Vector3.UnitY * (Tuning.HeadBobMetres * bobScale * MathF.Sin(bobPhase));
+        Vector3 bob = Vector3.UnitY * (Tuning.HeadBobMetres * bobScale * MathF.Sin(bobPhase));
+        Vector3 eye = Eye + bob;
+        if (Camera is var (at, forward, up))
+            return new(new CameraPose(at + bob, LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
+                CameraBasisMode.Explicit, new CameraBasis(forward, Vector3.Normalize(Vector3.Cross(forward, up)), up),
+                new CameraProjection(CameraProjectionKind.Perspective, Tuning.FieldOfViewDegrees, 0, NearPlane, Tuning.FarPlane),
+                new CameraViewport(0, 0, 1, 1));
         return new(new CameraPose(eye, LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
             CameraBasisMode.Derived, default,
             new CameraProjection(CameraProjectionKind.Perspective, Tuning.FieldOfViewDegrees, 0, NearPlane, Tuning.FarPlane),

@@ -434,6 +434,55 @@ host.Call(engine =>
         Console.WriteLine($"MOVE lab ground {product.Player.Config.Ground}; air {product.Player.Config.Air}; vertical {product.Player.Config.Vertical}");
         return;
     }
+    // RB_CAMERA=1 prints the arms' eyes attachment through the first-person clips (#10161) and stops.
+    if (Environment.GetEnvironmentVariable("RB_CAMERA") == "1")
+    {
+        // The head's own model (#10161): its one moving node through each clip.
+        var headModel = product.Donor.Model("models/npc/player/player_head_mvt.mdl");
+        using (var head = new Puppet(engine, headModel, 0x4C41_9000))
+        {
+            Console.WriteLine($"HEAD joints {string.Join(", ", headModel.Joints.Keys)}"); int node = headModel.Joints.Values.Max();
+            Transform At(string clip, float c)
+            {
+                head.Play(clip, c);
+                return Rig.Pose(engine, head, new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One))[node].World;
+            }
+            var restHead = At("idle", 0);
+            foreach (var clip in headModel.Info.Clips.Keys.Order())
+            {
+                var row = new List<string>();
+                for (float c = 0; c <= 1.001f; c += .1f)
+                {
+                    var e = At(clip, c);
+                    var d = (e.Translation - restHead.Translation) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+                    var turn = Quaternion.Inverse(restHead.Rotation) * e.Rotation;
+                    var f = Vector3.Transform(Vector3.UnitZ, turn);
+                    var u = Vector3.Transform(Vector3.UnitY, turn);
+                    row.Add(FormattableString.Invariant($"{c:0.0}:{d.X:0.0},{d.Y:0.0},{d.Z:0.0}/{MathF.Asin(Math.Clamp(-f.Y, -1, 1)) * 180 / MathF.PI:0.0},{MathF.Atan2(f.X, f.Z) * 180 / MathF.PI:0.0},{MathF.Atan2(-u.X, u.Y) * 180 / MathF.PI:0.0}"));
+                }
+                Console.WriteLine($"HEAD {clip} {headModel.Clip(clip).Seconds:0.00}s {string.Join(" ", row)}");
+            }
+        }
+        var fp = product.Combat.FirstPerson;
+        var look = Vector3.UnitX;
+        var info = fp.ArmsModel.Info;
+        var rest = fp.EyesAt("anm_reference", 0, look) ?? default;
+        foreach (var clip in info.Clips.Keys.Where(n => n.Contains("jump") || n.Contains("fastattack") || n.Contains("bigslash") || n.Contains("kick") || n.Contains("combo") || n.Contains("idle") || n.Contains("land")).Order())
+        {
+            var row = new List<string>();
+            for (float c = 0; c <= 1.001f; c += .1f)
+                if (fp.EyesAt(clip, c, look) is { } e)
+                {
+                    var d = e.Translation - rest.Translation;
+                    var turn = Quaternion.Inverse(rest.Rotation) * e.Rotation;
+                    var f = Vector3.Transform(Vector3.UnitZ, turn);
+                    float pitch = MathF.Asin(Math.Clamp(-f.Y, -1, 1)) * 180 / MathF.PI, yaw = MathF.Atan2(f.X, f.Z) * 180 / MathF.PI;
+                    row.Add(FormattableString.Invariant($"{c:0.0}:{d.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit:0.0},{d.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit:0.0},{d.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit:0.0}/{pitch:0.0},{yaw:0.0}"));
+                }
+            Console.WriteLine($"EYES {clip} {string.Join(" ", row)}");
+        }
+        return;
+    }
     // RB_MOVEFIT=1 runs the lab's body through a synthetic start and stop for a grid of ground settings (#10159) and stops.
     if (Environment.GetEnvironmentVariable("RB_MOVEFIT") == "1")
     {
@@ -1745,6 +1794,17 @@ host.Call(engine =>
         // #10142: the hand-played fights' fast attacks, which the lab once began far more of (21 against 13, 35 against 27).
         if (report.Name.Contains("arena-hand", StringComparison.Ordinal) && report.Moves.TryGetValue("fast attack", out var fastMoves))
             Check(fastMoves.Lab <= fastMoves.Donor + 2, $"{report.Name}: the lab begins no more fast attacks than the donor plus two ({fastMoves.Lab} against {fastMoves.Donor})");
+        // #10161: the lab's camera against the donor's drawn one where the donor's head, a blow, a grab or strafing turned
+        // it. The hand-played fights within 1.5° on 40% of those ticks and 2° at the median; the other arena fights 3° at
+        // the median. What it doesn't follow: the power attack's blend in from the charge, the view's kicks of attacks the
+        // lab hasn't measured (the ghouls'), and the daggers' and staff's (3.4° to 5.6° in the weapon experiments, which
+        // only report: the staff's camera sits 5° down at rest, unexplained).
+        if (report.Camera is { } cam && !report.Name.Contains("daggers", StringComparison.Ordinal) && !report.Name.Contains("staff", StringComparison.Ordinal))
+        {
+            bool hand = report.Name.Contains("arena-hand", StringComparison.Ordinal);
+            Check(hand ? cam.Near >= cam.Ticks * 4 / 10 && cam.Median <= 2 : cam.Median <= 3,
+                FormattableString.Invariant($"{report.Name}: the lab's camera turns as the donor's within {CombatReplay.CameraTolerance}° on {cam.Near} of {cam.Ticks} ticks (median {cam.Median:0.0}°)"));
+        }
         // From v14 each move is held to its own clip too: fast attack A or B, each power attack's direction.
         if (report.Kicks is not null && report.Clips is { } byClip)
         {

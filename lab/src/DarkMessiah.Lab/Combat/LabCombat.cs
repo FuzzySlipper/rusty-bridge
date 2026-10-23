@@ -237,6 +237,8 @@ internal sealed class LabCombat : IDisposable
     internal Orc Orc { get; }
     internal float PlayerHealth { get; private set; }
     internal bool God { get; set; }
+    /// <summary>The orc's blows kick the player's view (#10161); a replay kicks it with the donor's blows instead.</summary>
+    internal bool BlowsPunch { get; set; } = true;
 
     /// <summary>
     /// How far the player is below where they last left the ground, Source units (0 on it): a jump attack knocks an
@@ -327,7 +329,10 @@ internal sealed class LabCombat : IDisposable
             drawing = null;
         }
         if (Sword.Swing != swingsBefore) Player = Player with { Swings = Player.Swings + 1 };
-        FirstPerson.Pose(Sword, seconds, eye, forward);
+        // The body's velocity for the head's fall (#10161).
+        var bodyVelocity = poseFeet is { } was && seconds > 0 ? (feet - was) / seconds : Vector3.Zero;
+        poseFeet = feet;
+        FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity);
         var gait = Gait(seconds, feet, sprinting, crouched);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
         // Its squad-mate fights on its own, sees the player's swings as the first does, and takes the blows that reach it.
@@ -678,7 +683,7 @@ internal sealed class LabCombat : IDisposable
             WeaponModel: weapon ?? FirstPerson.SwordModel, VictimAlert: alert?.Level ?? hitOrc.Alert.Level, VictimNpcState: alert?.NpcState ?? hitOrc.Alert.NpcState,
             AttackerCritical: critical, PlayerStrength: strength ?? PlayerStrength))) ?? 0;
 
-    Vector3? lastFeet;
+    Vector3? lastFeet, poseFeet;
 
     /// <summary>
     /// How the player moves this step, as an orc hears it (#10154): still, crouched, walking (under 2.5 m/s on the
@@ -790,6 +795,8 @@ internal sealed class LabCombat : IDisposable
         }
         OrcStats = OrcStats with { Dealt = OrcStats.Dealt + asked };
         Log?.Add(new CombatEvent(tick, false, blow.Attack, broken ? DefenseResult.PlayerParryBroken : DefenseResult.Hit, asked, null));
+        // The blow kicks the player's view (#10161).
+        if (BlowsPunch) FirstPerson.Head.Punch(HeadMotion.PunchOf(blow.Attack, reach.Part?.HitPow ?? 1));
         if (!God)
         {
             PlayerHealth -= asked;

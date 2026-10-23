@@ -14,7 +14,7 @@
   "pointerRadiansPerUnit": 0.002,
   "fieldOfViewDegrees": 75,
   "farPlane": 120,
-  "headBobMetres": 0.03,
+  "headBobMetres": 0,
   "headBobStrideMetres": 1.7,
   "backSpeed": 1.524,
   "crouchSpeed": 1.29,

@@ -528,6 +528,46 @@ scenarios (#10160; docs/recording.md):
 - **Not measured:** the view model's `Megasprint_sword` clip, and attacking out of a sprint (the rush attack is
   #10144's).
 
+### The camera
+
+The camera the donor draws with (Wire v9's client view, its `CViewSetup`) against the player's view (#10161;
+`FirstPerson`, `HeadMotion`):
+- **Where it sits:** the view model (`first_basic`) stands at the eye, turned with the camera, and the camera at its
+  `eyes` attachment: 2.1 units ahead of the eye and 9 above it at rest, never at the eye itself. The lab places both so.
+- **The head:** Arkane's `player_head_mvt.mdl`, one node with 194 clips, turns the camera. It plays the clip named
+  as the view model's layer (`layer_bigslash_sword_noshield_out`, `_T_out`, `layer_combo_sword_huge_noshield`, the
+  parries...) at its cycle; the node's turn about the model's Z is the camera's pitch, about X its yaw, about Y its roll
+  (the power attack's 6.2°, 6.2°, −1.4° at cycle 0.3, recorded 6.5°, 6.0°, −1.4°). Moves it has no clip for leave the
+  camera still, as recorded: the fast attacks, and the kicks (whose head clips are `layer_sword_kick_*`).
+- **Landing:** `jump_out_idle`, `_walk`, `_run` or `_sprint` (by the body's speed: under 30, 150, 230 units/s) once the
+  body falls faster than `mm_player_speed_to_active_fall` (125 units/s), dipping the view 7.9° at 0.19 s.
+- **Strafing:** Source's view roll, `sv_rollangle` 3° at `sv_rollspeed` 200 units/s to the side, in proportion below
+  it; the right side goes down moving right. With the sword at rest it was the whole of the camera's roll: 1.7° (RMS)
+  off the view on `l01_a-v14-arena-hand`, 0.4° off this.
+- **Struck:** an orc's blow that lands kicks the view (the head has no clip for it): up to its peak in 0.17 s and
+  gone by 0.5 s, half a cosine each way, its size by the orc's attack, not its damage nor its `impactdir`
+  (`HeadMotion.PunchOf`, from 84 blows in the hand fights, `arena-bot` and `chained-slash`): 7.8° down for most
+  (`attack_top`, `_bottom`, `_KickSwing`, the turned strikes: 7.0° to 8.6°), 23.5° down for `attack_Jump`, 15° left for
+  `attack_left`, 10° left for the fast attack's second blow (HitPow 0.8), 2.6° right for `attack_right`, the uppercut,
+  the forward thrust and the fast attack's first blow. A replay kicks it with the donor's own blows (the followed
+  orc's sequence, HitPow from the damage), since when the lab's orc lands them is the fight's comparison.
+- **Grabbed:** when an orc's grab takes the hands, the head plays `player_grabed` (40.2° down at its height, as
+  recorded), cut at 2.35 s where the donor's is back at the view, then `player_knocked_down` 3.12 s after the grab
+  began, as the player is thrown (the three recorded grabs; the grab itself is #10185).
+- **No bob:** `cl_bob` and `mm_headbobbing` are 0 and the head's walk and run clips don't play; `player.json`'s
+  `headBobMetres` is 0.
+- **Against the recordings** (the smoke): on the ticks where the donor's camera turned more than 1° from the view,
+  the lab's within 1.5° on 1487 of 2057 (`arena-hand`, median 0.6°) and 524 of 1146 (`arena-hand2`, 1.8°), checked at
+  40% and 2°; the other arena fights 1.7° to 2.7° at the median, checked within 3°; the experiments' sword and club
+  fights 1.5° to 2.7°, reported. What it doesn't follow: the power attack's first ticks
+  (the donor blends its head in from the charge), the kicks of attacks not measured (the ghouls', the orc's dodge
+  strikes), the landing's dip a tick or two apart, and the daggers' and staff's fights (3.4° to 5.6°: the staff's
+  power attack releases its head at cycle 0.4 where the lab holds it, and its camera sits 5° down at rest, which no
+  clip explains), reported and not checked. `RB_CAMERA_TRACE=1` prints each tick compared; `RB_CAMERA=1` the head's
+  and the `eyes` attachment's curves by clip.
+- **Not measured:** leaning (`cl_leanangle` 15, `mm_player_lean_eye` 72; none recorded), and the head clips of moves
+  the lab doesn't play.
+
 ## The orc
 
 The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the donor's recorded orcs

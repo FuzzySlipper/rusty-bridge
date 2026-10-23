@@ -47,11 +47,13 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
     IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
-    (int Near, int Ticks, float Worst)? Stamina = null)
+    (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null)
 {
     internal IEnumerable<string> Lines()
     {
         yield return FormattableString.Invariant($"{Name}: {Ticks} ticks replayed ({Seconds:0.0} s), {Skipped} recorded frames without input");
+        if (Camera is var (near, turned, median))
+            yield return FormattableString.Invariant($"  camera: where the donor's head turned it ({turned} ticks), the lab's within {CombatReplay.CameraTolerance}° on {near} (median {median:0.0}°)");
         foreach (var (clip, m) in Moves)
             yield return $"  {clip}: donor {m.Donor}, lab {m.Lab}, {m.Together} begin together";
         if (Clips is { Count: > 0 } c)
@@ -197,6 +199,9 @@ internal static class CombatReplay
     /// </summary>
     internal const int WindowApart = 15;
 
+    /// <summary>The lab's camera agrees with the donor's when its forward and up are this close, degrees (#10161).</summary>
+    internal const float CameraTolerance = 1.5f;
+
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
 
@@ -221,7 +226,8 @@ internal static class CombatReplay
         var donorSpeeds = new List<float>();
         var labSpeeds = new List<float>();
         var donorTrace = new List<Calibration.MovementSample>();
-        int staminaTicks = 0, staminaNear = 0;
+        int staminaTicks = 0, staminaNear = 0, cameraTicks = 0, cameraNear = 0;
+        var cameraOffs = new List<float>();
         float staminaWorst = 0;
         var labTrace = new List<Calibration.MovementSample>();
         // A lab-space point (metres, Y up) as Source units (Z up), for the movement calibration.
@@ -247,6 +253,10 @@ internal static class CombatReplay
         combat.RecordedAlert = tick => recordedAlerts.Where(a => Math.Abs(a.Tick - (long)tick) <= CriticalTicks)
             .OrderBy(a => Math.Abs(a.Tick - (long)tick)).Select(a => ((int, int)?)(a.Level, a.VictimNpcState)).FirstOrDefault();
         combat.God = true;
+        // The view's kicks follow the donor's blows on the player, not the lab's: how the lab's orc lands them is the
+        // fight's comparison, the camera's is how each kick moves the view (#10161).
+        combat.BlowsPunch = false;
+        var struck = timeline.Struck.ToLookup(s => s.Tick, s => s.Damage);
         combat.Log = log;
         bool grounded = true;
         int switched = 0, rebuilt = 0;
@@ -307,10 +317,26 @@ internal static class CombatReplay
                 bool donorResting = donorHeights.Count == 4 && donorHeights.Max() - donorHeights.Min() < .005f;
                 bool donorFalling = lastLab is Vector3 lf && t.Feet.Y - lf.Y > DonorAbove && droppedBy > .01f
                     || combat.Sword.Move == SwordMove.Leap && !donorResting;
+                // The orc's blow on the donor's player, by its attack (the followed orc's sequence) and HitPow (the orc's
+                // 8 damage a HitPow of 1).
+                foreach (var damage in struck[t.Tick])
+                    combat.FirstPerson.Head.Punch(HeadMotion.PunchOf(t.Orc?.Sequence ?? "", damage / 8));
                 // With no weapon in hand the donor's player ignores attack, block and kick: so does the lab's sword.
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                // The lab's camera against the donor's drawn one (Wire v9; #10161), where the donor's head turned it.
+                if (t.Camera is { Turned: true } donorCamera)
+                {
+                    var (_, labForward, labUp) = combat.FirstPerson.Camera;
+                    float Degrees(Vector3 a, Vector3 b) => MathF.Acos(Math.Clamp(Vector3.Dot(Vector3.Normalize(a), Vector3.Normalize(b)), -1, 1)) * 180 / MathF.PI;
+                    float off = MathF.Max(Degrees(labForward, donorCamera.Forward), Degrees(labUp, donorCamera.Up));
+                    cameraTicks++;
+                    if (off <= CameraTolerance) cameraNear++;
+                    cameraOffs.Add(off);
+                    if (Environment.GetEnvironmentVariable("RB_CAMERA_TRACE") == "1")
+                        Console.WriteLine(FormattableString.Invariant($"CAMT {t.Tick} off {off:0.0} donor {donorCamera.Turn.Pitch:0.0},{donorCamera.Turn.Yaw:0.0},{donorCamera.Turn.Roll:0.0} lab {combat.FirstPerson.Head.Turn.Pitch:0.0},{combat.FirstPerson.Head.Turn.Yaw:0.0},{combat.FirstPerson.Head.Turn.Roll:0.0} {combat.FirstPerson.Head.Playing ?? "-"} sword {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} {combat.Sword.Move} orc {t.Orc?.Sequence}@{t.Orc?.Cycle:0.00} side {(lastDonor is Vector3 pd && t.Seconds > 0 ? Vector3.Dot((t.Feet - pd) / t.Seconds, Vector3.Normalize(Vector3.Cross(t.Forward, Vector3.UnitY))) / SourceSpace.MetresPerUnit : 0):0}"));
+                }
                 // The lab's stamina against the donor's streamed one (Wire v15; #10160).
                 if (t.Stamina is float donorStamina)
                 {
@@ -368,6 +394,7 @@ internal static class CombatReplay
             if (timeline.Build is not null && ownBuild is not null) combat.Rebuild(ownBuild, draw: false);
             combat.Reset();
             combat.God = god;
+            combat.BlowsPunch = true;
         }
 
         double TimeOf(int tick) => times.TryGetValue(tick, out var s) ? s : double.NaN;
@@ -504,7 +531,8 @@ internal static class CombatReplay
             notCompared, kicks, bodyReplay, byClip, excluded,
             timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, each played from its tick" : "")}"
                 + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
-            shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null);
+            shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null,
+            cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null);
     }
 
     /// <summary>

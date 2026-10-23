@@ -482,14 +482,15 @@ scenarios (docs/recording.md):
 | Stopping (from 180 to under 18) | 0.61 s, sliding 42 units | `friction` 4 and `stopSpeed` 1.27 (50 units: `sv_friction`, `sv_stopspeed`), `braking` 0: 0.57 s, 36 units |
 | A jump held to its peak | rises 42 units, 1.07 s in the air as measured | `jumpSpeed` 4.6, `gravity` 10.3 (fitted): 42, 1.07 s |
 | A jump let go early | held 0.05 s 27 units, 0.15 s 34, 0.2 s 36, 0.25 s 39, 0.3 s 41, from 0.4 s 42 | `jumpReleaseGravity` 2: gravity doubles for the rest of the rise once jump is let go (`mm_jump_rework` is on): 26, 33, 36, 38, 40, 42 |
-| Sprint | 270 at full stamina | #10160 |
+| Sprint | 270 running straight | `sprintSpeed` 6.86 m/s (#10160, "Stamina") |
 
 - **Not measured:** fall damage (none taken in the recordings), the walk key (`movement` holds `+speed` and `+walk`,
   but the calibration doesn't sort by them yet), and moving after a kick or with the jump attack held, which cut the donor's jump short (`sword-timing2`'s
   jumps rose 24 to 27 units): those jumps are left out.
-- **Against the recordings** (the smoke): `movement` and `jump-hold` replayed through the lab's body, its speed on each
-  command within 10% of the donor's, its start and stop within 0.15 s, its slide within 30%, its jumps' rise within 10%
-  and their time in the air within 0.1 s. A scenario's `setpos` takes the lab's body back to the middle of its arena
+- **Against the recordings** (the smoke): `movement`, `jump-hold`, `sprint` and `sprint-double` replayed through the
+  lab's body, its speed on each command running straight within 10% of the donor's (6 of 6, the sprint's 270
+  included), its start within 0.15 s, its stop from a run within 0.15 s and its slide within 30%, its jumps' rise within
+  10% and their time in the air within 0.1 s. A scenario's `setpos` takes the lab's body back to the middle of its arena
   (`IReplayBody.Return`). `RB_MOVE=1` prints the donor's measures; `RB_MOVEFIT=1` runs the lab's body through the
   fitting runs.
 
@@ -500,11 +501,12 @@ scenarios (docs/recording.md):
 | What | Value | Source |
 | --- | --- | --- |
 | Maximum | 9 | `player_basic.qct`, `skills`: `player_stamina_base_max` |
-| Regeneration | 0.06 every 0.12 s | `player_stamina_add_value`, `player_stamina_add_interval` |
-| Sprinting | −2 a second while moving | ConVar `mm_player_stamina_megasprint_cost_per_second` |
+| Regeneration | 0.06 once more than 0.12 s has passed, in the game's 15 ms ticks: every 9 ticks, 0.44 a second, sprinting or not | `player_stamina_add_value`, `player_stamina_add_interval`; the tick and the regeneration while sprinting measured (#10160) |
+| Sprinting | −2 a second while moving, so −1.56 with the regeneration (9 to 0 in 5.7 s) | ConVar `mm_player_stamina_megasprint_cost_per_second`; measured (#10160) |
+| `double_sprint` | maximum 12, the same drain | `player_stamina_double_sprint_max`; `sprint-double` |
 | A kick may start with | 3 | ConVar `mm_player_stamina_needed_for_kick` |
 | A sprint may start with | 3 | measured (#10144, "The rush attack"); it goes on below |
-| A kick costs | 3 when it lands on an NPC, otherwise 1 | `stamina_kick_npc`, `stamina_kick_all` in the settings |
+| A kick costs | 3 when it lands on an NPC; nothing kicking the air (4 of 4 in `sprint`, `sprint-double`) | `stamina_kick_npc` in the settings; `stamina_kick_all` (1) is for a kick on anything else, a prop or the world, which the lab's kick doesn't strike |
 
 The ConVars' defaults are in server.dll; no content file holds them.
 
@@ -512,10 +514,19 @@ Simulated from the hand fights' commands with these numbers, every kick the dono
 refusal on the ground with the arm free had less than 3. Charging the 1 as well as the 3, or always 3, would have
 refused a kick the donor made (116732, at 1.06 or 0.84).
 
-Sprint is the command's action byte +0x95 (Wire `PlayerActions.Sprint`): running ticks with it set have a median
-speed of 229 units/s, against 195 for all running ticks. The lab's body sprints with the sprint key or the replayed
-action, from 3 stamina, and drains it while moving; the sprint stops at 0 (not measured: the recordings stopped
-sprinting first).
+Sprint is the command's action byte +0x95 (Wire `PlayerActions.Sprint`). Measured in the `sprint` and `sprint-double`
+scenarios (#10160; docs/recording.md):
+- **Speed:** 270 units/s running straight (no turn of more than 30° in the last half second): `player.json`
+  `sprintSpeed` 6.86 m/s. The scenarios run round a square, turned every second; the donor's sprint kept its speed
+  through the turns, the lab's loses about 10% after each, so the speeds are compared on the straights.
+- **Starting:** with 3. Held below 3, the body runs, and sprints the tick stamina reaches 3 (#10144's rule, again
+  2.76 to 3.00 here).
+- **An empty gauge:** at 0 the sprint ends, sprint held or not; the body runs at 180 and stamina regains as ever.
+- **Against the donor** (the smoke): both scenarios replayed, the lab's stamina within 0.2 of the streamed value on
+  3200 of 3200 and 3620 of 3668 ticks, through the sprints, the empty gauge, the kicks and the rests. The replay's body
+  sprints when the lab's stamina lets it (`IReplayBody.Step`'s `sprint`).
+- **Not measured:** the view model's `Megasprint_sword` clip, and attacking out of a sprint (the rush attack is
+  #10144's).
 
 ## The orc
 

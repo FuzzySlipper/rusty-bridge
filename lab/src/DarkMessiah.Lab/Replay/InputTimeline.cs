@@ -29,7 +29,7 @@ namespace DarkMessiah.Lab.Replay;
 /// lab's gauge to it, since the donor also fills it on blows the lab doesn't follow.</param>
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
-    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null);
+    bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null, float? Stamina = null);
 
 /// <summary>A move the donor's player began: its first-person clip starting over on the view model.</summary>
 internal sealed record DonorSwing(int Tick, double Time, string Clip);
@@ -227,7 +227,8 @@ internal sealed class InputTimeline
                     sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
-                    f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command));
+                    f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command,
+                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

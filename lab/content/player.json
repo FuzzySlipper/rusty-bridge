@@ -4,7 +4,7 @@
   "radius": 0.3,
   "eyeBelowTop": 0.15,
   "speed": 4.572,
-  "sprintSpeed": 7,
+  "sprintSpeed": 6.86,
   "jumpSpeed": 4.6,
   "gravity": 10.3,
   "maximumStepHeight": 0.3,

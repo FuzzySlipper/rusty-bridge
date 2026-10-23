@@ -1,0 +1,137 @@
+{
+  "description": "Sprint (#10160) with every skill (double_sprint: stamina 12), the level's NPCs removed, running round a small square (turned every second): a sprint from full stamina held 3 s past empty, 4 s rest, a sprint tried on low stamina, a rest back to full, a sprint with a kick in it, a kick standing.",
+  "seconds": 55,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "+forward",
+    "+sprint",
+    "setang 0 90 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 0 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 270 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 180 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 90 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 0 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 270 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 180 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 90 0",
+    {
+      "wait": 1.0
+    },
+    "-sprint",
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 4
+    },
+    "+forward",
+    "+sprint",
+    "setang 0 90 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 0 0",
+    {
+      "wait": 1.0
+    },
+    "-sprint",
+    "-forward",
+    "setpos 0 -2400 0",
+    {
+      "wait": 26.0
+    },
+    "+forward",
+    "+sprint",
+    "setang 0 90 0",
+    {
+      "wait": 1.0
+    },
+    "setang 0 0 0",
+    {
+      "wait": 1.0
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "-sprint",
+    "-forward",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 2
+    }
+  ]
+}

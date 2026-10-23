@@ -309,12 +309,12 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     /// <summary>The input frame the replay body last stepped with (the smoke checks held jump and crouch carry through).</summary>
     internal FpsInputFrame LastReplayInput { get; private set; }
 
-    (Vector3 Feet, bool Jumped, bool Grounded) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds)
+    (Vector3 Feet, bool Jumped, bool Grounded) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds, bool sprint)
     {
         var flat = new Vector2(forward.X, forward.Z);
         if (flat.LengthSquared() > 1e-6f) player.Face(MathF.Atan2(forward.X, -forward.Z), MathF.Asin(Math.Clamp(-forward.Y, -1, 1)));
         bool grounded = player.Motion.Grounded;
-        var frame = new FpsInputFrame(move, jumpHeld || jump, jump, crouchHeld, false, use, use, default, default);
+        var frame = new FpsInputFrame(move, jumpHeld || jump, jump, crouchHeld, sprint, use, use, default, default);
         LastReplayInput = frame;
         player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders());
         if (use) cubes.Use();
@@ -325,9 +325,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     void IReplayBody.Return()
     {
-        // The middle of the arena's floor (its first volume), at rest.
-        var floor = scene.Definition.Volumes[0];
-        var middle = ((LabDefinition.Vector(floor.Min) + LabDefinition.Vector(floor.Max)) / 2) with { Y = LabDefinition.Vector(floor.Max).Y };
+        // lab.json's replayFeet, at rest.
+        var middle = LabDefinition.Vector(scene.Definition.ReplayFeet);
         player.Place(middle + Vector3.UnitY * (player.Tuning.Height / 2 + player.Config.Shape.ContactSkin), player.LookState.YawRadians * 180 / MathF.PI);
     }
 

@@ -316,24 +316,30 @@ var airParry = new PlayerSword(clips) { FastDelay = 0 };
 for (int i = 0; i < 6; i++) airParry.Step(Tick, false, true, false, airborne: true);
 Check(airParry.Move == SwordMove.Ready, "nor in the air (#10144)");
 
-// Stamina: Dark Messiah's numbers, a kick's threshold and cost, sprint's drain and the regeneration.
+// Stamina: Dark Messiah's numbers, a kick's threshold and cost, sprint's drain and the regeneration (#10160: it regains
+// while sprinting, every 9 game ticks, and a kick into the air costs nothing).
 var stamina = new PlayerStamina(StaminaRules.Shipped);
+// The regeneration's interval: the first 15 ms game tick past 0.12 s.
+const float RegenEvery = .135f;
 for (int i = 0; i < 60; i++) stamina.Step(Tick, sprintAsked: true);
-Check(MathF.Abs(stamina.Value - 7) < .01f, FormattableString.Invariant($"sprinting drains 2 a second: 9 → {stamina.Value:0.00}"));
+float sprinted = 60 * Tick;
+Check(MathF.Abs(stamina.Value - (9 - 2 * sprinted + MathF.Floor(sprinted / RegenEvery) * .06f)) < .07f,
+    FormattableString.Invariant($"sprinting drains 2 a second less the regeneration: 9 → {stamina.Value:0.00} in {sprinted:0.00} s (the donor's 1.56 a second)"));
 stamina = new PlayerStamina(StaminaRules.Shipped);
 stamina.Kicked(npc: true);
 stamina.Kicked(npc: false);
-stamina.Kicked(npc: false);
-stamina.Kicked(npc: false);
-Check(stamina.Value == 3 && stamina.MayKick, "a kick on an NPC costs 3, one that lands on none 1; 3 left may still kick");
-stamina.Kicked(npc: false);
+Check(stamina.Value == 6 && stamina.MayKick, "a kick on an NPC costs 3, one into the air nothing");
+stamina.Kicked(npc: true);
+Check(stamina.Value == 3 && stamina.MayKick, "3 left may still kick");
+stamina.Kicked(npc: true);
 Check(!stamina.MayKick, "under 3 it may not");
 for (int i = 0; i < 120; i++) stamina.Step(Tick, sprintAsked: false);
-Check(MathF.Abs(stamina.Value - (2 + 16 * .06f)) < .07f, FormattableString.Invariant($"it regains 0.06 every 0.12 s: {stamina.Value:0.00} after 2 s"));
+Check(MathF.Abs(stamina.Value - MathF.Floor(120 * Tick / RegenEvery) * .06f) < .07f,
+    FormattableString.Invariant($"it regains 0.06 every 0.135 s (9 game ticks): {stamina.Value:0.00} after {120 * Tick:0.00} s"));
 // A sprint starts only with 3 (#10144), and once going runs on below it.
 stamina.Step(Tick, sprintAsked: true);
 Check(!stamina.Sprinting, FormattableString.Invariant($"with {stamina.Value:0.00} a sprint doesn't start"));
-for (int i = 0; i < 60 && stamina.Value < 3; i++) stamina.Step(Tick, sprintAsked: false);
+for (int i = 0; i < 600 && stamina.Value < 3; i++) stamina.Step(Tick, sprintAsked: false);
 stamina.Step(Tick, sprintAsked: true);
 for (int i = 0; i < 20; i++) stamina.Step(Tick, sprintAsked: true);
 Check(stamina.Sprinting && stamina.Value < 3, FormattableString.Invariant($"from 3 it does, and goes on below: {stamina.Value:0.00}"));
@@ -458,6 +464,23 @@ host.Call(engine =>
         void Show(string label, MovementMeasure m) => Console.WriteLine(FormattableString.Invariant(
             $"FIT {label}: steady {MovementMeasure.Median(m.Steady.GetValueOrDefault(run) ?? []):0.0}, accel {MovementMeasure.Median(m.Accelerations.GetValueOrDefault(run) ?? []):0.00} s, stop {MovementMeasure.Median(m.Stops.Select(x => x.Seconds).ToList()):0.00} s, slide {MovementMeasure.Median(m.Stops.Select(x => x.Slide).ToList()):0.0}"));
         Show("player.json", Drive(baseTuning));
+        {
+            // A straight sprint: its steady speed.
+            fitBody.Begin();
+            var sprintSamples = new List<MovementSample>();
+            var sprintRun = new MoveCommand("forward", 1000, "sprint");
+            for (double time = 0; time < 6; time += Tick)
+            {
+                var (feet, _, _) = fitBody.Step(Vector2.UnitY, Vector3.UnitX, false, false, false, false, Tick, sprint: true);
+                sprintSamples.Add(new MovementSample(time, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, 0, sprintRun, false));
+            }
+            fitBody.End();
+            var sm = MovementMeasure.Empty();
+            MovementCalibration.Analyze(sprintSamples, sm);
+            Console.WriteLine(FormattableString.Invariant($"FIT straight sprint: steady {MovementMeasure.Median(sm.Steady.GetValueOrDefault(sprintRun) ?? []):0}"));
+            for (int k = 0; k + 13 < sprintSamples.Count; k += 26)
+                Console.WriteLine(FormattableString.Invariant($"FIT sprint at {sprintSamples[k].Time:0.0} s: {MathF.Sqrt(MathF.Pow(sprintSamples[k + 13].X - sprintSamples[k].X, 2) + MathF.Pow(sprintSamples[k + 13].Y - sprintSamples[k].Y, 2)) / (13 * Tick):0}"));
+        }
         foreach (float acc in new[] { 4.3f, 4.5f, 4.7f }) Show(FormattableString.Invariant($"acceleration {acc}"), Drive(baseTuning with { Acceleration = acc }));
         // Jumps by how long jump is held, against l01_a-v18-jump-hold (34, 36, 39, 39, 41, 41, 41, 41 units).
         foreach (float release in new[] { 2f, 2.2f, 2.4f })
@@ -480,11 +503,13 @@ host.Call(engine =>
             Console.WriteLine(FormattableString.Invariant($"FIT jumpReleaseGravity {release}: held 0.15–1 s rises {string.Join(" ", rises)}"));
         }
         product.Player.Retune(baseTuning);
-        foreach (var name in new[] { "l01_a-v18-jump-hold.rbrec", "l01_a-v18-movement.rbrec" })
+        foreach (var name in new[] { "l01_a-v18-jump-hold.rbrec", "l01_a-v18-movement.rbrec", "l01_a-v18-sprint.rbrec", "l01_a-v18-sprint-double.rbrec" })
         {
             var path = Path.Combine(repo!, "local", "recordings", "experiments", name);
             if (!File.Exists(path)) continue;
-            if (CombatReplay.Run(product.Combat, path, product).Body is not { Donor: { } d, Lab: { } l }) continue;
+            var fitReport = CombatReplay.Run(product.Combat, path, product);
+            Console.WriteLine($"FIT {name} stamina {fitReport.Stamina}");
+            if (fitReport.Body is not { Donor: { } d, Lab: { } l }) continue;
             var dm = MovementMeasure.Empty(); var lm = MovementMeasure.Empty();
             MovementCalibration.Analyze(d, dm); MovementCalibration.Analyze(l, lm);
             Console.WriteLine(FormattableString.Invariant($"FIT {name} donor jumps {string.Join(" ", dm.Jumps.Select(j => $"{j.Rise:0}/{j.Air:0.00}"))}"));
@@ -1742,20 +1767,28 @@ host.Call(engine =>
         donorMove = MovementMeasure.Empty();
         labMove = MovementMeasure.Empty();
         foreach (var path in Directory.Exists(Path.Combine(recordings, "experiments")) ? Directory.GetFiles(Path.Combine(recordings, "experiments"), "*-v18-*.rbrec")
-                     .Where(p => Path.GetFileName(p).Contains("-movement", StringComparison.Ordinal) || Path.GetFileName(p).Contains("-jump-hold", StringComparison.Ordinal)) : [])
-            if (CombatReplay.Run(combat, path, product).Body is { Donor: { } d, Lab: { } l }) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
+                     .Where(p => new[] { "-movement", "-jump-hold", "-sprint" }.Any(n => Path.GetFileName(p).Contains(n, StringComparison.Ordinal))).Order().ToArray() : [])
+        {
+            var moved = CombatReplay.Run(combat, path, product);
+            if (moved.Body is { Donor: { } d, Lab: { } l }) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
+            // The lab's stamina tick by tick against the donor's streamed one, through sprints, an empty gauge, kicks and
+            // regeneration (#10160).
+            if (Path.GetFileName(path).Contains("-sprint", StringComparison.Ordinal))
+                Check(moved.Stamina is { } st && st.Ticks > 1000 && st.Near >= st.Ticks * 95 / 100,
+                    FormattableString.Invariant($"{moved.Name}: the lab's stamina follows the donor's within 0.2 on {moved.Stamina?.Near} of {moved.Stamina?.Ticks} ticks (worst {moved.Stamina?.Worst:0.00})"));
+        }
         // Steady speed by command (30 ticks each at least), within 10%.
         var speeds = donorMove.Steady.Where(x => x.Value.Count >= 30 && labMove.Steady.GetValueOrDefault(x.Key) is { Count: >= 30 })
             .Select(x => (x.Key, Donor: Med(x.Value), Lab: Med(labMove.Steady[x.Key]))).OrderBy(x => x.Key.ToString()).ToList();
         foreach (var (c, d, l) in speeds) Console.WriteLine(FormattableString.Invariant($"  movement {c}: donor {d:0} units/s, lab {l:0}"));
-        // Sprinting is #10160's (the replayed body doesn't sprint yet).
-        speeds = speeds.Where(x => x.Key.Modifier != "sprint").ToList();
         var off = speeds.Where(x => MathF.Abs(x.Lab - x.Donor) > .1f * x.Donor).ToList();
         Check(speeds.Count >= 4 && off.Count == 0,
             $"replayed, the lab's body moves at the donor's speed on each command within 10% ({speeds.Count - off.Count} of {speeds.Count}{(off.Count > 0 ? "; off: " + string.Join(", ", off.Select(x => x.Key)) : "")})");
         float dAccel = Med(donorMove.Accelerations.SelectMany(x => x.Value).ToList()), lAccel = Med(labMove.Accelerations.SelectMany(x => x.Value).ToList());
-        float dStop = Med(donorMove.Stops.Select(x => x.Seconds).ToList()), lStop = Med(labMove.Stops.Select(x => x.Seconds).ToList());
-        float dSlide = Med(donorMove.Stops.Select(x => x.Slide).ToList()), lSlide = Med(labMove.Stops.Select(x => x.Slide).ToList());
+        // Stops from a run (160 to 200 units/s): a sprint's slide is longer.
+        static bool FromRun((float Seconds, float Slide, float From) x) => x.From is >= 160 and <= 200;
+        float dStop = Med(donorMove.Stops.Where(FromRun).Select(x => x.Seconds).ToList()), lStop = Med(labMove.Stops.Where(FromRun).Select(x => x.Seconds).ToList());
+        float dSlide = Med(donorMove.Stops.Where(FromRun).Select(x => x.Slide).ToList()), lSlide = Med(labMove.Stops.Where(FromRun).Select(x => x.Slide).ToList());
         Console.WriteLine(FormattableString.Invariant($"  movement starts: donor {dAccel:0.00} s to 90% ({donorMove.Accelerations.Sum(x => x.Value.Count)}), lab {lAccel:0.00} ({labMove.Accelerations.Sum(x => x.Value.Count)}); stops: donor {dStop:0.00} s, {dSlide:0} units ({donorMove.Stops.Count}), lab {lStop:0.00} s, {lSlide:0} units ({labMove.Stops.Count})"));
         Check(MathF.Abs(lAccel - dAccel) <= .15f && MathF.Abs(lStop - dStop) <= .15f && MathF.Abs(lSlide - dSlide) <= .3f * dSlide,
             FormattableString.Invariant($"it starts and stops as the donor's did: to 90% in {lAccel:0.00} s against {dAccel:0.00}, stopped in {lStop:0.00} s against {dStop:0.00} (within 0.15 s), sliding {lSlide:0} units against {dSlide:0} (within 30%)"));

@@ -22,7 +22,9 @@ internal readonly record struct MoveCommand(string Direction, int Size, string M
 /// One tick of a player's movement, Source units (Z up): where it stood, its command, whether jump went down, and
 /// whether it attacked or kicked (an attack or kick in the air cuts the donor's jump short: those jumps aren't measured).
 /// </summary>
-internal readonly record struct MovementSample(double Time, float X, float Y, float Z, MoveCommand? Command, bool JumpPressed, bool Acting = false);
+/// <param name="Yaw">Where the player looked, degrees (NaN if not known): a steady speed is taken only running straight.</param>
+internal readonly record struct MovementSample(double Time, float X, float Y, float Z, MoveCommand? Command, bool JumpPressed, bool Acting = false,
+    float Yaw = float.NaN);
 
 internal sealed record MovementMeasure(Dictionary<MoveCommand, List<float>> Steady, Dictionary<MoveCommand, List<float>> Accelerations,
     List<(float Seconds, float Slide, float From)> Stops, List<(float Rise, float Air, float Speed, string Held)> Jumps, Dictionary<MoveCommand, List<float>> Gaps)
@@ -71,7 +73,7 @@ internal static class MovementCalibration
                     if (ticks.Count > 0 && time <= ticks[^1].Time) continue;
                     var held = f.Input.CommandButtons | f.Input.Buttons;
                     ticks.Add(new(time, player.OriginX, player.OriginY, player.OriginZ, Command(f.Input), f.Input.Pressed.HasFlag(InputButtons.Jump),
-                        held.HasFlag(InputButtons.Attack) || held.HasFlag(InputButtons.Attack2) || (f.Input.Actions & PlayerActions.Kick) != 0));
+                        held.HasFlag(InputButtons.Attack) || held.HasFlag(InputButtons.Attack2) || (f.Input.Actions & PlayerActions.Kick) != 0, player.Yaw));
                 }
             }
             catch (Exception e) when (e is ArgumentOutOfRangeException or EndOfStreamException) { }
@@ -102,6 +104,14 @@ internal static class MovementCalibration
                 if (speed[i] > Teleport) speed[i] = climb[i] = float.NaN;
             }
             bool Level(int i) => !float.IsNaN(speed[i]) && MathF.Abs(climb[i]) <= 30;
+            // No turn of more than 30° in the last half second (#10160: the sprint scenario turns every second).
+            bool Straight(int i)
+            {
+                if (float.IsNaN(ticks[i].Yaw)) return true;
+                for (int k = i; k >= 0 && ticks[i].Time - ticks[k].Time <= .5; k--)
+                    if (MathF.Abs(((ticks[i].Yaw - ticks[k].Yaw) % 360 + 540) % 360 - 180) > 30) return false;
+                return true;
+            }
             int start = 0;
             for (int i = 1; i <= ticks.Count; i++)
             {
@@ -112,7 +122,7 @@ internal static class MovementCalibration
                 if (command is { } c)
                 {
                     for (int k = start; k < i; k++)
-                        if (ticks[k].Time - ticks[start].Time >= SteadyAfter && Level(k)) Add(steady, c, speed[k]);
+                        if (ticks[k].Time - ticks[start].Time >= SteadyAfter && Level(k) && Straight(k)) Add(steady, c, speed[k]);
                     // From standing: how long to 90% of the speed it settled at.
                     if (start > 0 && Level(start - 1) && speed[start - 1] < 10 && held >= 1.2)
                     {

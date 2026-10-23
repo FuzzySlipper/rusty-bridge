@@ -46,7 +46,8 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     BlowComparison PlayerBlows, BlowComparison OrcBlows, IReadOnlyList<string> NotCompared,
     KickRequests? Kicks = null, BodyReplay? Body = null, IReadOnlyDictionary<string, (int Donor, int Lab, int Together)>? Clips = null,
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
-    IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null)
+    IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
+    (int Near, int Ticks, float Worst)? Stamina = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -119,10 +120,11 @@ internal interface IReplayBody
     /// <param name="jump">Jump went down this tick.</param>
     /// <param name="jumpHeld">Jump is held: the recorded command still has it.</param>
     /// <param name="crouchHeld">Duck is held.</param>
-    (Vector3 Feet, bool Jumped, bool Grounded) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds);
+    /// <param name="sprint">The lab's stamina lets it sprint this tick (the donor's sprint asked, #10160).</param>
+    (Vector3 Feet, bool Jumped, bool Grounded) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds, bool sprint = false);
     /// <summary>Raises the body <paramref name="metres"/> where it stands, at rest: it falls from there.</summary>
     void Lift(float metres);
-    /// <summary>Puts the body at rest in the middle of the lab's arena: a scenario's setpos took the donor back to its start
+    /// <summary>Puts the body at rest on open ground in the lab's arena (<c>lab.json</c> <c>replayFeet</c>): a scenario's setpos took the donor back to its start
     /// (#10159), and the lab's body would otherwise run on into the arena's walls.</summary>
     void Return();
     void End();
@@ -219,11 +221,13 @@ internal static class CombatReplay
         var donorSpeeds = new List<float>();
         var labSpeeds = new List<float>();
         var donorTrace = new List<Calibration.MovementSample>();
+        int staminaTicks = 0, staminaNear = 0;
+        float staminaWorst = 0;
         var labTrace = new List<Calibration.MovementSample>();
         // A lab-space point (metres, Y up) as Source units (Z up), for the movement calibration.
         static Calibration.MovementSample Sample(double time, Vector3 at, ReplayTick t) =>
             new(time, at.X / SourceSpace.MetresPerUnit, at.Z / SourceSpace.MetresPerUnit, at.Y / SourceSpace.MetresPerUnit, t.Command, t.Jump,
-                t.KickHeld || t.Held.HasFlag(InputButtons.Attack) || t.Held.HasFlag(InputButtons.Attack2));
+                t.KickHeld || t.Held.HasFlag(InputButtons.Attack) || t.Held.HasFlag(InputButtons.Attack2), MathF.Atan2(t.Forward.X, t.Forward.Z) * 180 / MathF.PI);
         int jumps = 0, labJumps = 0, uses = 0;
         Vector3? lastDonor = null, lastLab = null;
         bool god = combat.God;
@@ -307,6 +311,14 @@ internal static class CombatReplay
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                // The lab's stamina against the donor's streamed one (Wire v15; #10160).
+                if (t.Stamina is float donorStamina)
+                {
+                    float off = MathF.Abs(combat.Stamina.Value - donorStamina);
+                    staminaTicks++;
+                    if (off <= .2f) staminaNear++;
+                    staminaWorst = MathF.Max(staminaWorst, off);
+                }
                 if (Trace is var (from, to) && t.Tick >= from && t.Tick <= to)
                     Console.WriteLine($"  trace {t.Tick} held {t.Held} grounded {grounded} move {combat.Sword.Move} {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} donor feet y {t.Feet.Y:0.00}");
                 lastMove = combat.Sword.Move;
@@ -328,7 +340,8 @@ internal static class CombatReplay
                         body!.Return();
                         if (t.Feet.Y - was.Y > .1f) body.Lift(t.Feet.Y - was.Y);
                     }
-                    var (feet, jumped, onGround) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds);
+                    var (feet, jumped, onGround) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds,
+                        combat.Stamina.Sprinting);
                     if (t.Move != Vector2.Zero && t.Seconds > 0 && lastDonor is Vector3 d0 && lastLab is Vector3 l0)
                     {
                         donorSpeeds.Add(new Vector2(t.Feet.X - d0.X, t.Feet.Z - d0.Z).Length() / t.Seconds);
@@ -491,7 +504,7 @@ internal static class CombatReplay
             notCompared, kicks, bodyReplay, byClip, excluded,
             timeline.Build is { } b ? $"{b}{(timeline.BuildChanges > 0 ? $"; it changed {timeline.BuildChanges} times later, each played from its tick" : "")}"
                 + (timeline.Unplayable.Count > 0 ? $"; not played: {string.Join(", ", timeline.Unplayable.Select(u => u.What).Distinct())} (not compared)" : "") : null,
-            shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear);
+            shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null);
     }
 
     /// <summary>

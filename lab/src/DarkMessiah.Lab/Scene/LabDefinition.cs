@@ -10,8 +10,11 @@ namespace DarkMessiah.Lab.Scene;
 /// loose cubes, and the pickup tuning. An edit restages the product under <c>rusty dev</c>; the player's feel and the
 /// actions are separate live files (<c>player.json</c>, <c>actions.json</c>).
 /// </summary>
+/// <param name="ReplayFeet">Where a replay puts the lab's body when a scenario's setpos takes the donor back to its start
+/// (#10159, #10160): open ground clear of the pillars and walls for the movement scenarios' runs and sprints.</param>
 internal sealed record LabDefinition(float VoxelSize, float Gravity, float[] SpawnFeet, float SpawnYawDegrees,
-    InteractionTuning Interaction, VolumeDefinition[] Volumes, RampDefinition[] Ramps, BlockDefinition[] Blocks, CubeDefinition[] Cubes)
+    InteractionTuning Interaction, VolumeDefinition[] Volumes, RampDefinition[] Ramps, BlockDefinition[] Blocks, CubeDefinition[] Cubes,
+    float[] ReplayFeet)
 {
     internal const string Path = "lab.json";
 

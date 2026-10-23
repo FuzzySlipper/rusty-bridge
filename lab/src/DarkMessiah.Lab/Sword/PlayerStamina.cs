@@ -9,12 +9,16 @@ namespace DarkMessiah.Lab.Sword;
 /// <item><c>player_basic.qct</c>'s <c>skills</c> block: the maximum (<c>player_stamina_base_max</c>, 9; with the
 /// <c>double_sprint</c> module <c>player_stamina_double_sprint_max</c>, 12, as a v15 recording shows) and the regeneration,
 /// <c>player_stamina_add_value</c> (0.06) every <c>player_stamina_add_interval</c> (0.12 s);</item>
-/// <item><c>scripts/mm_game_settings.txt</c>: a kick costs <c>stamina_kick_npc</c> (3) when it lands on an NPC,
-/// <c>stamina_kick_all</c> (1) otherwise;</item>
+/// <item><c>scripts/mm_game_settings.txt</c>: a kick costs <c>stamina_kick_npc</c> (3) when it lands on an NPC; a kick
+/// into the air costs nothing (#10160, <c>l01_a-v18-sprint</c>: 0 of 4 kicks there cost any). <c>stamina_kick_all</c> (1)
+/// is for a kick on anything else, a prop or the world, which the lab's kick doesn't strike;</item>
 /// <item>server.dll's ConVar defaults, which no content file holds: a kick needs
 /// <c>mm_player_stamina_needed_for_kick</c> (3), and sprinting costs <c>mm_player_stamina_megasprint_cost_per_second</c> (2);</item>
 /// <item>measured (#10144, <c>l01_a-v16-rush-attack</c>): a sprint starts only with <see cref="NeededForSprint"/> (3). Asked
 /// with 2.52 to 2.82 the body ran, and the sprint began the tick stamina reached 3.00; once going it went on below.</item>
+/// <item>measured (#10160, <c>l01_a-v18-sprint</c>, <c>-sprint-double</c>): regeneration runs on while sprinting, so a
+/// sprint spends 1.5 a second (9 to 0 in 5.7 s); at 0 the sprint ends, the body runs and regains as ever, sprint held
+/// or not.</item>
 /// </list>
 /// </summary>
 internal sealed record StaminaRules(float Max, float AddValue, float AddInterval, float NeededForKick, float SprintCostPerSecond, float KickNpc, float KickOther,
@@ -44,14 +48,20 @@ internal sealed record StaminaRules(float Max, float AddValue, float AddInterval
 }
 
 /// <summary>
-/// The player's stamina, as the hand-played fights bear it out (docs/lab.md, "Stamina"): it starts full, sprinting
-/// while moving drains it, otherwise it regains <see cref="StaminaRules.AddValue"/> each
-/// <see cref="StaminaRules.AddInterval"/>; a sprint may start only with <see cref="StaminaRules.NeededForSprint"/>, a kick
-/// only with <see cref="StaminaRules.NeededForKick"/>, which it costs once it has landed or missed.
+/// The player's stamina, as the recordings bear it out (docs/lab.md, "Stamina"): it starts full, sprinting while moving
+/// drains it, and it always regains <see cref="StaminaRules.AddValue"/> each <see cref="StaminaRules.AddInterval"/>; a
+/// sprint may start only with <see cref="StaminaRules.NeededForSprint"/>, a kick only with
+/// <see cref="StaminaRules.NeededForKick"/>, which costs it once it lands on an NPC.
 /// </summary>
 internal sealed class PlayerStamina(StaminaRules rules)
 {
     float regained;
+
+    /// <summary>The game's tick, seconds (Dark Messiah runs at 66.7 a second).</summary>
+    internal const float GameTick = .015f;
+
+    /// <summary>The regeneration's real interval: the first whole game tick past <see cref="StaminaRules.AddInterval"/>.</summary>
+    float Interval => (MathF.Floor(Rules.AddInterval / GameTick + 1e-3f) + 1) * GameTick;
 
     internal StaminaRules Rules { get; private set; } = rules;
 
@@ -78,17 +88,15 @@ internal sealed class PlayerStamina(StaminaRules rules)
     internal void Step(float seconds, bool sprintAsked)
     {
         Sprinting = Admits(sprintAsked);
-        if (Sprinting)
-        {
-            Value = MathF.Max(0, Value - Rules.SprintCostPerSecond * seconds);
-            return;
-        }
-        for (regained += seconds; regained >= Rules.AddInterval; regained -= Rules.AddInterval)
+        if (Sprinting) Value = MathF.Max(0, Value - Rules.SprintCostPerSecond * seconds);
+        // It regains while sprinting too (#10160), once more than AddInterval has passed in the game's 15 ms ticks: every
+        // 9 ticks (0.135 s), 0.44 a second, as the streamed stamina rose (0.45 a second), not every 0.12 s (0.5).
+        for (regained += seconds; regained >= Interval; regained -= Interval)
             Value = MathF.Min(Rules.Max, Value + Rules.AddValue);
     }
 
     /// <summary>A kick was decided: it landed on an NPC, or it didn't.</summary>
-    internal void Kicked(bool npc) => Value = MathF.Max(0, Value - (npc ? Rules.KickNpc : Rules.KickOther));
+    internal void Kicked(bool npc) => Value = MathF.Max(0, Value - (npc ? Rules.KickNpc : 0));
 
     internal void Reset()
     {

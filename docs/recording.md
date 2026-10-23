@@ -175,6 +175,7 @@ perception checks read: their fights would skew the orc's behaviour and defence 
 | `movement-cvars` | sv_cheats | nothing played: the movement ConVars and every `mm_`, `sv_` and `cl_` one printed to the game's `console.log` (#10159) |
 | `movement` | the short sword, the level's NPCs removed | from (0, -2400), facing north then east: a run forward, a strafe, a diagonal, backing off, crouched, with `+speed` and `+walk`, each for 2 s from standing, then let go; standing, running, crouched and backing jumps (#10159) |
 | `jump-hold` | the same | standing jumps, two each with jump held 0.05 to 1 s (#10159) |
+| `sprint`, `sprint-double` | the short sword, the level's NPCs removed; a new game's skills (stamina 9), or every skill (`double_sprint`, 12) | round a small square turned every second: a sprint from full held 3 s past empty, a rest, a sprint tried below 3, a rest to full, a kick in a sprint, a kick standing (#10160) |
 | `backstab` | every skill, the kryss daggers, an unaware orc (`ai_disable 1`) spawned for each try and turned away | approached from behind to 25-100 units, tapped 0.3-1.3 s after; landed at 40, 60 and 80 units (the first round, `backstab-1`, once at 35) |
 | `breakneck` | every skill, the combat staff, the same orcs | approached from behind and in front to 20-30 units, tapped or held: no breakneck in 17 tries over two rounds |
 | `sword-timing` | the short sword, a new game's skills | presses 0.15-0.6 s after a kick, holds through B with a strafe or back/forward from 0.15 or 0.35 s in, taps of 1-4 ticks (#10142) |

@@ -827,6 +827,14 @@ internal sealed class LabCombat : IDisposable
         Message = FormattableString.Invariant($"The orc's {blow.Attack} hits for {asked:0.##}");
     }
 
+    /// <summary>A landing's fall damage (R10159-1): taken from health as a blow's is, unless the player is a god.</summary>
+    internal void Fall(float damage)
+    {
+        if (damage <= 0 || God) return;
+        if (Health.Take(damage)) { deadSeconds = 0; OrcStats = OrcStats with { Deaths = OrcStats.Deaths + 1 }; Message = "You fall"; return; }
+        Message = FormattableString.Invariant($"The fall hurts for {damage:0.#}");
+    }
+
     void Record(SwingTrace trace, bool blow = false)
     {
         recent.Add((trace, now + ShowSeconds));

@@ -36,7 +36,7 @@ internal sealed class PlayerController : IDisposable
     private readonly EntityStore entities;
     private readonly EntityId entity;
     private readonly Camera camera;
-    private CharacterControllerConfig walking, sprinting, crouching;
+    private CharacterControllerConfig walking, sprinting, crouching, slow, backing;
     private ulong commandSequence;
     private bool cut = true;
     private Vector3 lastClear;
@@ -49,7 +49,7 @@ internal sealed class PlayerController : IDisposable
         this.entities = entities;
         this.entity = entity;
         Tuning = tuning;
-        (walking, sprinting, crouching, Input) = Configure(tuning);
+        (walking, sprinting, crouching, slow, backing, Input) = Configure(tuning);
         Place(Vector3.UnitY * (tuning.Height / 2), 0);
         camera = engine.CameraView.CreateCamera(Descriptor());
         try { engine.CameraView.SetActiveCamera(camera); }
@@ -71,6 +71,10 @@ internal sealed class PlayerController : IDisposable
     internal CharacterStepReceipt? LastStep { get; private set; }
     /// <summary>The last step moved with the sprint configuration.</summary>
     internal bool Sprinted { get; private set; }
+    /// <summary>The drop, units, of the fall the last step landed from (0 when it didn't land; R10159-1).</summary>
+    internal float LandedDrop { get; private set; }
+    /// <summary>The health that landing takes (<see cref="FallRules"/>).</summary>
+    internal float FallDamage => FallRules.Damage(LandedDrop);
     internal uint Recoveries { get; private set; }
     internal string LastRecovery { get; private set; } = "none";
     internal BodyEvents Body { get; } = new();
@@ -92,15 +96,31 @@ internal sealed class PlayerController : IDisposable
     /// <param name="movementScale">How much of the movement input moves the body (an action's commitment, a stun).</param>
     /// <param name="impulse">A velocity change applied once this step (a knockback, a lunge).</param>
     internal BodyEvent Step(FpsInputFrame input, bool jumpPressed, float delta, ReadOnlyMemory<CharacterObstacle> obstacles,
-        CharacterSupport support, ReadOnlyMemory<SpatialEntityCollider> bodies, float movementScale = 1, Vector3 impulse = default)
+        CharacterSupport support, ReadOnlyMemory<SpatialEntityCollider> bodies, float movementScale = 1, Vector3 impulse = default, bool walkHeld = false)
     {
         CharacterMotion before = Motion;
         CharacterStepReceipt receipt;
+        LandedDrop = 0;
         Sprinted = input.SprintHeld && !input.CrouchHeld;
+        // Crouched, jump does nothing: the donor's body didn't leave the ground on any of l01_a-v18-movement's three
+        // crouched jumps (R10159-2).
+        if (input.CrouchHeld) jumpPressed = false;
+        // The body leaves the ground jumpDelay after jump goes down, as the donor's did (R10159-2).
+        if (jumpPressed && Tuning.JumpDelay > 0 && before.Grounded && Climbing is null && LadderMove is null)
+        {
+            jumpDelayLeft = Tuning.JumpDelay;
+            jumpPressed = false;
+        }
+        else if (jumpDelayLeft > 0 && (jumpDelayLeft -= delta) <= 1e-4f)
+        {
+            jumpDelayLeft = 0;
+            jumpPressed = before.Grounded;
+        }
         // Getting on or off a ladder (R10163-1): mm_time_to_exit_enter_ladder's second onto or off the rail, eased, the
         // controls held off meanwhile.
         if (LadderMove is { } move)
         {
+            fallTop = null;
             float done = Math.Min(1, (move.Elapsed + delta) / LadderRules.EnterExitSeconds);
             float eased = done * done * (3 - 2 * done);
             var at = Vector3.Lerp(move.From, move.To, eased);
@@ -136,7 +156,8 @@ internal sealed class PlayerController : IDisposable
                 movement = new CharacterMovementRequest(CharacterMovementMode.Climbing, climbIntent, LadderRules.SpeedMetres, 0, 0, bottom, top, 0, 0, LadderRules.Reach);
             }
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,
-                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld ? crouching : input.SprintHeld ? sprinting : walking,
+                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld ? crouching : input.SprintHeld ? sprinting : walkHeld ? slow
+                    : input.Movement.Y < 0 && input.Movement.X == 0 ? backing : walking,
                 new CharacterControllerCommand(movement, Climbing is null ? input.Movement * movementScale : Vector2.Zero, LookState.YawRadians,
                     Climbing is null && jumpPressed && movementScale > 0, input.JumpHeld, input.CrouchHeld, Vector3.Zero, impulse, delta, ++commandSequence)));
         }
@@ -164,13 +185,23 @@ internal sealed class PlayerController : IDisposable
             }
             else if (!climb.ClimbAttached) Climbing = null;
         }
-        // Let go of jump while still rising, the donor's jump falls back sooner (#10159: held 0.15 s it rose 34 units,
-        // held to its peak 41): gravity × jumpReleaseGravity for the rest of the rise.
         var motion = receipt.Motion;
-        if (!motion.Grounded && !input.JumpHeld && motion.ControlledVelocity.Y > 0 && Tuning.JumpReleaseGravity > 1)
-            motion = motion with { ControlledVelocity = motion.ControlledVelocity with
-            { Y = MathF.Max(0, motion.ControlledVelocity.Y - (Tuning.JumpReleaseGravity - 1) * Tuning.Gravity * delta) } };
+        // Rising, gravity is jumpHeldGravity of itself while jump is held and jumpReleaseGravity times it once let go
+        // (R10159-2): the donor's jump rose 26 units held 0.05 s, 33 held 0.15, 41 held 0.3 and 42 held longer, and fell
+        // at 700 units/s².
+        if (!motion.Grounded && motion.ControlledVelocity.Y > 0)
+        {
+            float extra = (input.JumpHeld ? Tuning.JumpHeldGravity - 1 : Tuning.JumpReleaseGravity - 1) * Tuning.Gravity * delta;
+            motion = motion with { ControlledVelocity = motion.ControlledVelocity with { Y = MathF.Max(0, motion.ControlledVelocity.Y - extra) } };
+        }
         entities.Set(entity, EngineComponentTypes.CharacterMotion, motion);
+        // A fall's drop is from the highest the feet were off the ground (a ladder holds none) to where they land.
+        if (motion.Grounded || Climbing is not null)
+        {
+            if (fallTop is float topY && motion.Grounded && !before.Grounded) LandedDrop = FallRules.DropUnits(MathF.Max(0, topY - Feet.Y));
+            fallTop = null;
+        }
+        else fallTop = MathF.Max(fallTop ?? Feet.Y, Feet.Y);
         LastStep = receipt;
         lastClear = receipt.Transform.Translation;
         Vector2 planar = new(receipt.Displacement.X, receipt.Displacement.Z);
@@ -184,14 +215,16 @@ internal sealed class PlayerController : IDisposable
     /// <summary>Takes new tuning: rebuilds and validates both configurations and the look sensitivity. Held input is cleared.</summary>
     internal void Retune(PlayerTuning tuning)
     {
-        (CharacterControllerConfig walk, CharacterControllerConfig sprint, CharacterControllerConfig crouch, FpsInput input) = Configure(tuning);
+        (CharacterControllerConfig walk, CharacterControllerConfig sprint, CharacterControllerConfig crouch, CharacterControllerConfig slowWalk, CharacterControllerConfig back,
+            FpsInput input) = Configure(tuning);
         Tuning = tuning;
-        (walking, sprinting, crouching, Input) = (walk, sprint, crouch, input);
+        (walking, sprinting, crouching, slow, backing, Input) = (walk, sprint, crouch, slowWalk, back, input);
     }
 
     /// <summary>Stands the body at <paramref name="centre"/> (the capsule's centre), at rest, facing a yaw and pitch.</summary>
     internal void Place(Vector3 centre, float yawDegrees, float pitchDegrees = 0)
     {
+        fallTop = null;
         entities.Set(entity, EngineComponentTypes.Transform, new Transform(centre, Quaternion.Identity, Vector3.One));
         entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(centre));
         Climbing = null;
@@ -283,6 +316,10 @@ internal sealed class PlayerController : IDisposable
     /// </summary>
     internal Sword.CameraRig? Camera { get; set; }
 
+    private float jumpDelayLeft;
+    // The highest the feet have been since they left the ground (R10159-1).
+    private float? fallTop;
+
     /// <summary>The arena's ladders (#10163).</summary>
     internal IReadOnlyList<Ladder> Ladders { get; set; } = [];
     /// <summary>The ladder the player is on, or null.</summary>
@@ -373,21 +410,28 @@ internal sealed class PlayerController : IDisposable
             new CameraViewport(0, 0, 1, 1));
     }
 
-    private (CharacterControllerConfig Walking, CharacterControllerConfig Sprinting, CharacterControllerConfig Crouching, FpsInput Input) Configure(PlayerTuning t)
+    private (CharacterControllerConfig Walking, CharacterControllerConfig Sprinting, CharacterControllerConfig Crouching, CharacterControllerConfig Slow,
+        CharacterControllerConfig Backing, FpsInput Input) Configure(PlayerTuning t)
     {
         CharacterControllerConfig baseline = engine.Spatial.DefaultCharacterControllerConfig();
         // The donor's speeds by direction (#10159): back at backSpeed of a full back key, crouched at crouchSpeed.
-        CharacterControllerConfig At(float speed, float back) => baseline with
+        CharacterControllerConfig At(float speed, float back, float? acceleration = null) => baseline with
         {
             Shape = baseline.Shape with { StandingHeight = t.Height, CrouchedHeight = t.CrouchedHeight, Radius = t.Radius },
-            Ground = baseline.Ground with { ForwardSpeed = speed, BackwardSpeed = back, StrafeSpeed = speed, Acceleration = t.Acceleration,
+            Ground = baseline.Ground with { ForwardSpeed = speed, BackwardSpeed = back, StrafeSpeed = speed, Acceleration = acceleration ?? t.Acceleration,
                 Braking = t.Braking, Friction = t.Friction, StopSpeed = t.StopSpeed },
             Air = baseline.Air with { MaximumSpeed = speed, WishSpeedCap = speed },
             Vertical = baseline.Vertical with { Gravity = t.Gravity, JumpSpeed = t.JumpSpeed },
             Jump = baseline.Jump with { BufferSeconds = t.JumpBufferSeconds, CoyoteSeconds = t.CoyoteSeconds },
             Surface = baseline.Surface with { MaximumStepHeight = t.MaximumStepHeight, MaximumSlopeRadians = t.MaximumSlopeDegrees * MathF.PI / 180 }
         };
-        CharacterControllerConfig walk = At(t.Speed, t.BackSpeed), sprint = At(t.SprintSpeed, t.BackSpeed), crouch = At(t.CrouchSpeed, Math.Min(t.BackSpeed, t.CrouchSpeed));
+        CharacterControllerConfig walk = At(t.Speed, t.BackSpeed), sprint = At(t.SprintSpeed, t.BackSpeed), crouch = At(t.CrouchSpeed, Math.Min(t.BackSpeed, t.CrouchSpeed), t.CrouchAcceleration);
+        // The donor's walk key, +speed (ALT; R10159-1): 100 units a second.
+        CharacterControllerConfig slowWalk = At(t.WalkSpeed, Math.Min(t.BackSpeed, t.WalkSpeed));
+        // Backing off alone, at its own acceleration (R10159-2).
+        CharacterControllerConfig back = At(t.Speed, t.BackSpeed, t.BackAcceleration);
+        engine.Spatial.ValidateCharacterControllerConfig(back);
+        engine.Spatial.ValidateCharacterControllerConfig(slowWalk);
         engine.Spatial.ValidateCharacterControllerConfig(walk);
         engine.Spatial.ValidateCharacterControllerConfig(sprint);
         engine.Spatial.ValidateCharacterControllerConfig(crouch);
@@ -396,6 +440,6 @@ internal sealed class PlayerController : IDisposable
             PointerLookConfig = FpsInputConfig.Standard.PointerLookConfig with
             { HorizontalRadiansPerUnit = t.PointerRadiansPerUnit, VerticalRadiansPerUnit = t.PointerRadiansPerUnit }
         });
-        return (walk, sprint, crouch, input);
+        return (walk, sprint, crouch, slowWalk, back, input);
     }
 }

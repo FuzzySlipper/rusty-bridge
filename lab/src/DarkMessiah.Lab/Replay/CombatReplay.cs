@@ -129,7 +129,11 @@ internal interface IReplayBody
     /// <param name="jumpHeld">Jump is held: the recorded command still has it.</param>
     /// <param name="crouchHeld">Duck is held.</param>
     /// <param name="sprint">The lab's stamina lets it sprint this tick (the donor's sprint asked, #10160).</param>
-    (Vector3 Feet, bool Jumped, bool Grounded) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds, bool sprint = false);
+    /// <param name="walk">The donor's walk key, +speed, held (R10159-1).</param>
+    /// <returns>Its feet, whether it left the ground in a jump, whether it stands on the ground, and whether a wall of
+    /// the lab's arena stopped it (R10159-2: those ticks aren't compared).</returns>
+    (Vector3 Feet, bool Jumped, bool Grounded, bool Blocked) Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds,
+        bool sprint = false, bool walk = false);
     /// <summary>Raises the body <paramref name="metres"/> where it stands, at rest: it falls from there.</summary>
     void Lift(float metres);
     /// <summary>Puts the body at rest on open ground in the lab's arena (<c>lab.json</c> <c>replayFeet</c>): a scenario's setpos took the donor back to its start
@@ -276,6 +280,7 @@ internal static class CombatReplay
         var struck = timeline.Struck.ToLookup(s => s.Tick, s => s.Damage);
         combat.Log = log;
         bool grounded = true;
+        double donorJumped = double.NegativeInfinity;
         int switched = 0, rebuilt = 0;
         // The donor's hands taken (its view model empty) and given back with the quick draw (R10148-1).
         var quickDraws = timeline.Swings.Where(s => InputTimeline.Family(s.Clip) == "quick draw").Select(s => s.Tick).ToHashSet();
@@ -332,8 +337,13 @@ internal static class CombatReplay
                 donorHeights.Enqueue(t.Feet.Y);
                 if (donorHeights.Count > 4) donorHeights.Dequeue();
                 bool donorResting = donorHeights.Count == 4 && donorHeights.Max() - donorHeights.Min() < .005f;
+                // Or taking off before the lab's body has (R10159-2): the donor's body leaves the ground 2 to 5 ticks after
+                // jump goes down, the lab's after its jumpDelay, so for 0.15 s after a press its feet rising (over 0.5 cm
+                // a tick) count as in the air.
+                if (t.Jump) donorJumped = t.Time;
+                bool donorTakingOff = t.Time - donorJumped < .15 && droppedBy < -.005f;
                 bool donorFalling = lastLab is Vector3 lf && t.Feet.Y - lf.Y > DonorAbove && droppedBy > .01f
-                    || combat.Sword.Move == SwordMove.Leap && !donorResting;
+                    || combat.Sword.Move == SwordMove.Leap && !donorResting || donorTakingOff;
                 // The orc's blow on the donor's player, by its attack (the followed orc's sequence) and HitPow (the orc's
                 // 8 damage a HitPow of 1).
                 foreach (var damage in struck[t.Tick])
@@ -424,8 +434,8 @@ internal static class CombatReplay
                         body!.Return();
                         if (t.Feet.Y - was.Y > .1f) body.Lift(t.Feet.Y - was.Y);
                     }
-                    var (feet, jumped, onGround) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds,
-                        combat.Stamina.Sprinting);
+                    var (feet, jumped, onGround, blocked) = body!.Step(t.Move, t.Forward, t.Jump, t.Held.HasFlag(InputButtons.Jump), t.Held.HasFlag(InputButtons.Duck), t.Use, t.Seconds,
+                        combat.Stamina.Sprinting, t.Held.HasFlag(InputButtons.BullRush));
                     if (t.Move != Vector2.Zero && t.Seconds > 0 && lastDonor is Vector3 d0 && lastLab is Vector3 l0)
                     {
                         donorSpeeds.Add(new Vector2(t.Feet.X - d0.X, t.Feet.Z - d0.Z).Length() / t.Seconds);
@@ -434,7 +444,7 @@ internal static class CombatReplay
                     lastDonor = t.Feet;
                     lastLab = feet;
                     donorTrace.Add(Sample(t.Time, t.Feet, t));
-                    labTrace.Add(Sample(t.Time, feet, t));
+                    labTrace.Add(Sample(t.Time, feet, t) with { Blocked = blocked, Sprinting = combat.Stamina.Sprinting });
                     jumps += t.Jump ? 1 : 0;
                     uses += t.Use ? 1 : 0;
                     labJumps += jumped ? 1 : 0;

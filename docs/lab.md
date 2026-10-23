@@ -479,23 +479,50 @@ scenarios (docs/recording.md):
 | --- | --- | --- |
 | Run forward, strafe, diagonal | 180 units/s (a diagonal no faster) | `speed` 4.572 m/s (180) |
 | Back (the full back key, a command of 150) | 60 | `backSpeed` 1.524 (60) |
-| Crouched | 50 | `crouchSpeed` 1.29 m/s, which runs at 51 against the controller's friction |
+| Walking (`+speed`, the ALT key: IN_BULLRUSH) | 100 | `walkSpeed` 2.54 m/s (100), on the left ALT key |
+| `+walk` (IN_WALK) | 180: it does nothing | nothing |
+| Crouched | 50, no jump (none of three crouched jumps left the ground) | `crouchSpeed` 1.29 m/s, which runs at 51 against the controller's friction; `crouchAcceleration` 5.6 (fitted to the start); jump does nothing |
 | Charging an attack, guarding | 180, 185: no slower | `attackMovementScale` 1 (was an authored 0.5) |
-| From standing to 90% | 0.48 s | `acceleration` 4.6, fitted: 0.48 s |
+| From standing to 90% | 0.48 s; backing 0.57 s | `acceleration` 4.6, fitted: 0.48 s; `backAcceleration` 5.2 (back alone): 0.57 s |
 | Stopping (from 180 to under 18) | 0.61 s, sliding 42 units | `friction` 4 and `stopSpeed` 1.27 (50 units: `sv_friction`, `sv_stopspeed`), `braking` 0: 0.57 s, 36 units |
-| A jump held to its peak | rises 42 units, 1.07 s in the air as measured | `jumpSpeed` 4.6, `gravity` 10.3 (fitted): 42, 1.07 s |
-| A jump let go early | held 0.05 s 27 units, 0.15 s 34, 0.2 s 36, 0.25 s 39, 0.3 s 41, from 0.4 s 42 | `jumpReleaseGravity` 2: gravity doubles for the rest of the rise once jump is let go (`mm_jump_rework` is on): 26, 33, 36, 38, 40, 42 |
+| Leaving the ground | 2 to 5 ticks after jump goes down | `jumpDelay` 0.075 s |
+| A jump held to its peak | rises 42 units, 1.07 s in the air as measured | `jumpSpeed` 4.8, `gravity` 11.5, rising at `jumpHeldGravity` 0.95 of it while held (fitted on the lab's body, R10159-2) |
+| A jump let go early | held 0.05 s 26 units, 0.15 s 33, 0.3 s 41, longer 42 | `jumpReleaseGravity` 1.6: gravity's multiple for the rest of the rise once jump is let go (`mm_jump_rework` is on) |
+| A fall | none taken from drops under 300 units; above, Source's fall damage ("Falls") | `FallRules` |
 | Sprint | 270 running straight | `sprintSpeed` 6.86 m/s (#10160, "Stamina") |
 
-- **Not measured:** fall damage (none taken in the recordings), the walk key (`movement` holds `+speed` and `+walk`,
-  but the calibration doesn't sort by them yet), and moving after a kick or with the jump attack held, which cut the donor's jump short (`sword-timing2`'s
-  jumps rose 24 to 27 units): those jumps are left out.
-- **Against the recordings** (the smoke): `movement`, `jump-hold`, `sprint` and `sprint-double` replayed through the
-  lab's body, its speed on each command running straight within 10% of the donor's (6 of 6, the sprint's 270
-  included), its start within 0.15 s, its stop from a run within 0.15 s and its slide within 30%, its jumps' rise within
-  10% and their time in the air within 0.1 s. A scenario's `setpos` takes the lab's body back to the middle of its arena
-  (`IReplayBody.Return`). `RB_MOVE=1` prints the donor's measures; `RB_MOVEFIT=1` runs the lab's body through the
-  fitting runs.
+- **Not measured:** moving after a kick or with the jump attack held, which cut the donor's jump short
+  (`sword-timing2`'s jumps rose 24 to 27 units): those jumps are left out.
+- **Against the recordings** (the smoke, R10159-2): case by case, each recording on its own. `MovementCalibration.Compare`
+  pairs the donor's and the lab's body on the same replayed ticks: each steady speed by command within 10%, each start
+  from rest within 0.15 s, each stop from a run within 0.15 s and its slide within 30%, each jump's rise within 10% and
+  time in the air within 0.1 s, and a jump the lab makes where the donor's body didn't leave the ground fails. A case is
+  left out only with its evidence, printed: the lab's body against its arena's wall (the Engine's wall block flag), a
+  scenario's `setpos` in it (the donor's origin faster than 2000 units/s across, 450 up or 800 down), the donor's body
+  held (under half the lab's speed), stopped dead (to under a quarter of 40 units/s or more in 0.03 s), or jumping
+  from a slope (more than 4 units in the 0.2 s before), the lab's body not at rest as a start began, and a sprint
+  either side's stamina didn't admit (the lab's own since the replay began; v14 has no stamina on the Wire). Every
+  compared case agrees on `movement`, `jump-hold`, `sprint`, `sprint-double` and the three v14 arena fights, and the
+  scenarios compare each kind (the run, walk, `+walk`, crouch, back, strafe, diagonal and sprint speeds, starts, stops,
+  slides, rises, times in the air) twice or more. `RB_MOVECASES=a,b` prints every case of the recordings whose names
+  hold a or b (`RB_MOVETRACE=from-to` the paired traces); `RB_MOVE=1` prints the donor's measures; `RB_MOVEFIT=1`,
+  `RB_JUMPFIT`, `RB_MOVEFIT_CROUCH` and `RB_MOVEFIT_RELEASE` run the lab's body through the fitting runs.
+
+### Falls
+
+Fall damage, measured in the `fall` scenario (R10159-1; `l01_a-v18-fall-1` and `-2`, god off, the health set to 80
+before each drop; `RB_FALL=path` prints each fall's drop, landing speed and the health it took):
+
+| Drop (units, the origin's highest to its landing) | 115, 173, 229, 258, 277, 284 | 316 | 344 | 371 | 398 | 429 | 452 | 517 | 575 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Health taken | none | 10 | 17 | 24 | 28 | 35 | 39 | 51 | 61 |
+
+It is the Source SDK's fall damage: the landing speed over 526.5 units/s takes 100 for each 396 more, the landing speed
+being 32 √drop (a free fit gives 8.14 health per √unit from 271 units; the formula's 8.08 from 271; every landing within
+1.3). The drops of 277 and 284 units, which it prices at 1.4 and 3.3, took none, so `FallRules` takes none under 300.
+The lab takes it from the highest the body's feet were off the ground to where it lands (a ladder holds none), unless
+the player is a god; replayed, the health follows the donor's damage records, which carry the falls'. The scenario's
+`setpos` puts the origin higher than asked (209 lands at 239.8), so the drops are the recorded origins'.
 
 ### Stamina
 
@@ -562,7 +589,7 @@ full. `hurtme N` took N.
   `RB_HEALTH=1` prints the donor player's health, maximum and skill levels through every recording; `RB_ITEMS=path`
   when a recording's `item_*` entities appear and go (a drunk potion's goes only when it was the last of its stack).
 - **Not measured:** poison (`poison_recovery`, the cure poison potion; nothing in l01_a poisons), the regeneration
-  ring (the settings' `life_time_regen` 2 is likely its), fall damage, food eaten, and the mana potion (#10165).
+  ring (the settings' `life_time_regen` 2 is likely its), food eaten, and the mana potion (#10165). Falls: "Falls".
 
 ### Ladders
 
@@ -1064,13 +1091,15 @@ ledge stepped off (`jump-attack-hold`, 17494) and a running jump that rose 2 m a
 floor (`jump-attack`, 14395). The lab's body landed long before the donor did, so its sword cut the jump attack short.
 The replay's sword now counts the donor as in the air while it falls from above the lab body's feet (more than
 0.15 m up, dropping over 1 cm a tick), and, holding the jump attack, until the donor's feet are still for 4 ticks.
-Both strikes now begin with the donor's: 8 of 8.
+Both strikes now begin with the donor's: 8 of 8. And for 0.15 s after a jump press, the donor's feet rising count as in the air (R10159-2): its body leaves the
+ground 2 to 5 ticks after the press, the lab's after its `jumpDelay` (5), and a charge begun in between was the lab's on
+the ground (`arena-hand2` at 1898.8 s: the donor's power attack, the lab's fast attack).
 
 A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
 the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
 - **Movement:** commands run at 1000 forward or sideways, about 1400 on a diagonal, and 150 back (the donor's
   `cl_backspeed`). The replay scales each axis by its full key (#10159). In the fights the lab's body walks into its own
-  arena's walls, which the donor's level hasn't, so their speeds are reported, not compared ("The body's movement").
+  arena's walls, which the donor's level hasn't: those cases are left out with that evidence, the rest compared ("The body's movement").
 - **Jumps:** all 12 came through.
 
 **Where they differ:**

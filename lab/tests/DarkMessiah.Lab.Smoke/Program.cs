@@ -586,7 +586,7 @@ host.Call(engine =>
                     {
                         // Turned about each cycle, so the arena's walls don't stop it.
                         var look = cycle % 2 == 0 ? Vector3.UnitX : -Vector3.UnitX;
-                        var (feet, _, _) = fitBody.Step(move, look, false, false, false, false, Tick);
+                        var (feet, _, _, _) = fitBody.Step(move, look, false, false, false, false, Tick);
                         samples.Add(new MovementSample(time, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit,
                             feet.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, move == Vector2.Zero ? null : run, false));
                     }
@@ -605,7 +605,7 @@ host.Call(engine =>
             var sprintRun = new MoveCommand("forward", 1000, "sprint");
             for (double time = 0; time < 6; time += Tick)
             {
-                var (feet, _, _) = fitBody.Step(Vector2.UnitY, Vector3.UnitX, false, false, false, false, Tick, sprint: true);
+                var (feet, _, _, _) = fitBody.Step(Vector2.UnitY, Vector3.UnitX, false, false, false, false, Tick, sprint: true);
                 sprintSamples.Add(new MovementSample(time, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, 0, sprintRun, false));
             }
             fitBody.End();
@@ -616,8 +616,71 @@ host.Call(engine =>
                 Console.WriteLine(FormattableString.Invariant($"FIT sprint at {sprintSamples[k].Time:0.0} s: {MathF.Sqrt(MathF.Pow(sprintSamples[k + 13].X - sprintSamples[k].X, 2) + MathF.Pow(sprintSamples[k + 13].Y - sprintSamples[k].Y, 2)) / (13 * Tick):0}"));
         }
         foreach (float acc in new[] { 4.3f, 4.5f, 4.7f }) Show(FormattableString.Invariant($"acceleration {acc}"), Drive(baseTuning with { Acceleration = acc }));
+        // RB_JUMPFIT=speeds;gravities;helds;releases fits the jump on the lab's own body (R10159-2): each combination's
+        // rise and time in the air by hold, measured as the replay measures them, against l01_a-v18-jump-hold's
+        // (the measure of R10159-2: to the first tick back within 4 units of the take-off).
+        if (Environment.GetEnvironmentVariable("RB_JUMPFIT") is { Length: > 0 } jumpGrid)
+        {
+            float[] Values(string list) => list.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            var axes = jumpGrid.Split(';');
+            var donorJumps = new (float Hold, float Rise, float Air)[] { (.05f, 26.2f, .615f), (.1f, 28.6f, .66f), (.15f, 33.1f, .72f), (.2f, 35.7f, .755f), (.25f, 38.5f, .80f),
+                (.3f, 41.1f, .84f), (.4f, 41.9f, .85f), (.7f, 41.9f, .84f) };
+            foreach (float speed in Values(axes[0])) foreach (float gravity in Values(axes[1])) foreach (float held in Values(axes[2])) foreach (float release in Values(axes[3]))
+            {
+                product.Player.Retune(baseTuning with { JumpSpeed = speed, Gravity = gravity, JumpHeldGravity = held, JumpReleaseGravity = release });
+                float worstRise = 0, worstAir = 0;
+                var row = new List<string>();
+                foreach (var (hold, rise, air) in donorJumps)
+                {
+                    fitBody.Begin();
+                    var samples = new List<MovementSample>();
+                    for (int i = 0; i < 30; i++)
+                    {
+                        var (still, _, _, _) = fitBody.Step(Vector2.Zero, Vector3.UnitX, false, false, false, false, Tick);
+                        samples.Add(new MovementSample((i - 30) * Tick, still.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, still.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit,
+                            still.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, null, false));
+                    }
+                    for (float t = 0; t < 2f; t += Tick)
+                    {
+                        var (feet, _, _, _) = fitBody.Step(Vector2.Zero, Vector3.UnitX, t == 0, t < hold, false, false, Tick);
+                        samples.Add(new MovementSample(t, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit,
+                            feet.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, null, t == 0));
+                    }
+                    fitBody.End();
+                    var fitJumps = MovementCalibration.Find(samples).Jumps;
+                    if (fitJumps.Count == 0) { worstRise = worstAir = 99; row.Add("none"); continue; }
+                    worstRise = MathF.Max(worstRise, MathF.Abs(fitJumps[0].Rise - rise) / rise);
+                    worstAir = MathF.Max(worstAir, MathF.Abs(fitJumps[0].Air - air));
+                    row.Add(FormattableString.Invariant($"{fitJumps[0].Rise:0.0}/{fitJumps[0].Air:0.00}"));
+                }
+                Console.WriteLine(FormattableString.Invariant($"JUMPFIT speed {speed} gravity {gravity} held {held} release {release}: worst rise {worstRise * 100:0}% air {worstAir:0.00} s | {string.Join(" ", row)}"));
+            }
+        }
+        // Crouched: the start to 90% and the steady speed by crouchAcceleration and crouchSpeed (R10159-2: the donor's
+        // 0.59 s and 50 units/s).
+        if (Environment.GetEnvironmentVariable("RB_MOVEFIT_CROUCH") is { Length: > 0 } crouchGrid)
+            foreach (var pair in crouchGrid.Split(';'))
+            {
+                var parts = pair.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                bool backing = parts.Length > 2 && parts[2] > 0;
+                product.Player.Retune(backing ? baseTuning with { BackAcceleration = parts[0] } : baseTuning with { CrouchAcceleration = parts[0], CrouchSpeed = parts[1] });
+                fitBody.Begin();
+                var crouchSamples = new List<MovementSample>();
+                var crouchRun = backing ? new MoveCommand("back", 150, "none") : new MoveCommand("forward", 1000, "crouched");
+                for (double time = 0; time < 3; time += Tick)
+                {
+                    var move = time < .5 ? Vector2.Zero : backing ? -Vector2.UnitY : Vector2.UnitY;
+                    var (feet, _, _, _) = fitBody.Step(move, Vector3.UnitX, false, false, !backing, false, Tick);
+                    crouchSamples.Add(new MovementSample(time, feet.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, feet.Z / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, 0,
+                        move == Vector2.Zero ? null : crouchRun, false));
+                }
+                fitBody.End();
+                var cm = MovementMeasure.Empty();
+                MovementCalibration.Analyze(crouchSamples, cm);
+                Console.WriteLine(FormattableString.Invariant($"FIT crouch acceleration {parts[0]} speed {parts[1]}: steady {MovementMeasure.Median(cm.Steady.GetValueOrDefault(crouchRun) ?? []):0.0}, start {MovementMeasure.Median(cm.Accelerations.GetValueOrDefault(crouchRun) ?? []):0.00} s"));
+            }
         // Jumps by how long jump is held, against l01_a-v18-jump-hold (34, 36, 39, 39, 41, 41, 41, 41 units).
-        foreach (float release in new[] { 2f, 2.2f, 2.4f })
+        foreach (float release in (Environment.GetEnvironmentVariable("RB_MOVEFIT_RELEASE") ?? "2,2.2,2.4").Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)))
         {
             product.Player.Retune(baseTuning with { JumpReleaseGravity = release, JumpSpeed = 4.6f, Gravity = 10.3f });
             var rises = new List<string>();
@@ -628,7 +691,7 @@ host.Call(engine =>
                 float ground = product.Player.Feet.Y, peak = ground;
                 for (float t = 0; t < 1.6f; t += Tick)
                 {
-                    var (feet, _, _) = fitBody.Step(Vector2.Zero, Vector3.UnitX, t == 0, t < hold, false, false, Tick);
+                    var (feet, _, _, _) = fitBody.Step(Vector2.Zero, Vector3.UnitX, t == 0, t < hold, false, false, Tick);
                     peak = MathF.Max(peak, feet.Y);
                 }
                 fitBody.End();
@@ -651,6 +714,49 @@ host.Call(engine =>
             foreach (var (c, v) in dm.Steady.Where(x => x.Value.Count >= 30)) Console.WriteLine(FormattableString.Invariant($"FIT {name} {c}: donor {MovementMeasure.Median(v):0}, lab {MovementMeasure.Median(lm.Steady.GetValueOrDefault(c) ?? []):0}"));
             Console.WriteLine(FormattableString.Invariant($"FIT {name} accel donor {string.Join(" ", dm.Accelerations.SelectMany(x => x.Value).Select(v => $"{v:0.00}"))}; lab {string.Join(" ", lm.Accelerations.SelectMany(x => x.Value).Select(v => $"{v:0.00}"))}"));
             Console.WriteLine(FormattableString.Invariant($"FIT {name} stops donor {string.Join(" ", dm.Stops.Select(v => $"{v.Seconds:0.00}/{v.Slide:0}"))}; lab {string.Join(" ", lm.Stops.Select(v => $"{v.Seconds:0.00}/{v.Slide:0}"))}"));
+        }
+        return;
+    }
+    // RB_MOVECASES=a,b replays the recordings whose names hold a or b and prints their movement cases (R10159-2).
+    if (Environment.GetEnvironmentVariable("RB_MOVECASES") is { Length: > 0 } caseFilter)
+    {
+        var names = caseFilter.Split(',');
+        foreach (var path in Directory.GetFiles(Path.Combine(repo, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories).Order()
+                     .Where(p => names.Any(n => Path.GetFileName(p).Contains(n, StringComparison.Ordinal))))
+        {
+            var moved = CombatReplay.Run(product.Combat, path, product);
+            if (moved.Body is not { Donor: { } d, Lab: { } l }) continue;
+            foreach (var c in MovementCalibration.Compare(moved.Name, d, l)) Console.WriteLine($"CASE {c}");
+            if (Environment.GetEnvironmentVariable("RB_MOVETRACE") is { Length: > 0 } window && window.Split('-') is [var fromText, var toText])
+                for (int i = 0; i < d.Count; i++)
+                    if (d[i].Time >= double.Parse(fromText, System.Globalization.CultureInfo.InvariantCulture) && d[i].Time <= double.Parse(toText, System.Globalization.CultureInfo.InvariantCulture))
+                        Console.WriteLine(FormattableString.Invariant($"MT {d[i].Time:0.000} {d[i].Command} jump {d[i].JumpPressed} donor {d[i].X:0.0},{d[i].Y:0.0},{d[i].Z:0.0} lab {l[i].X:0.0},{l[i].Y:0.0},{l[i].Z:0.0} blocked {l[i].Blocked}"));
+        }
+        return;
+    }
+    // RB_FALL=path prints each fall's drop, landing speed and the health the landing took (R10159-1).
+    if (Environment.GetEnvironmentVariable("RB_FALL") is { Length: > 0 } fallPath)
+    {
+        var tl = InputTimeline.Read(fallPath, [], "");
+        var ft = tl.Ticks;
+        float U(float metres) => metres / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        for (int i = 1; i < ft.Count; i++)
+        {
+            float v = U(ft[i].Feet.Y - ft[i - 1].Feet.Y) / MathF.Max(.015f, (float)(ft[i].Time - ft[i - 1].Time));
+            if (v > -150) continue;
+            int top = i - 1;
+            while (top > 0 && ft[top].Feet.Y >= ft[top - 1].Feet.Y - 1e-4f && ft[i - 1].Time - ft[top].Time < 3 && ft[top].Feet.Y - ft[top - 1].Feet.Y < .5f) top--;
+            int land = i; float fastestFall = 0;
+            while (land + 1 < ft.Count && ft[land + 1].Feet.Y < ft[land].Feet.Y + 1e-4f && ft[land + 1].Time - ft[land].Time < .1)
+            {
+                float w = U(ft[land + 1].Feet.Y - ft[land].Feet.Y) / MathF.Max(.015f, (float)(ft[land + 1].Time - ft[land].Time));
+                fastestFall = MathF.Min(fastestFall, w);
+                if (ft[land + 1].Feet.Y == ft[land].Feet.Y && land + 2 < ft.Count && ft[land + 2].Feet.Y == ft[land].Feet.Y) break;
+                land++;
+            }
+            var took = tl.Hurt.Where(h => h.Tick >= ft[i].Tick && h.Tick <= ft[land].Tick + 30).ToList();
+            Console.WriteLine(FormattableString.Invariant($"FALL {ft[i].Time:0.00} s: from {U(ft[top].Feet.Y):0.0} at {ft[top].Time:0.00} to {U(ft[land].Feet.Y):0.0}, drop {U(ft[top].Feet.Y - ft[land].Feet.Y):0.0} units in {ft[land].Time - ft[top].Time:0.00} s, landing at {-fastestFall:0} units/s, health {ft[top].Health?.Value:0.#} -> {ft[Math.Min(ft.Count - 1, land + 20)].Health?.Value:0.#}, took {string.Join(" ", took.Select(h => $"{h.Taken:0.##}@{h.Tick - ft[land].Tick}"))}"));
+            i = land;
         }
         return;
     }
@@ -927,6 +1033,28 @@ host.Call(engine =>
             FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): got on walking into it ({stepsToMount} steps) in {mountSteps * Tick:0.00} s not climbing, climbed at {upSpeed:0} units/s (the donor's 80), got off onto the loft in {exitSteps * Tick:0.00} s (feet {onLoft.X:0.00}, {onLoft.Y:0.00}); on again backing off its top ({remounted}), down at {downSpeed:0}, off at its foot ({offAtFoot}); a jump lets go ({jumpedOff})"));
     }
     // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
+    // Falls (R10159-1): the donor's landings from l01_a-v18-fall-1 and -2 took none under 300 units and Source's fall
+    // damage above, 10 after 316 units, 24 after 371, 51 after 517 and 61 after 575.
+    {
+        bool wasHeld = combat.Orc.Hold;
+        combat.Orc.Hold = true;
+        float Taken(float dropUnits)
+        {
+            combat.Health.Set(combat.Health.Max);
+            float before = combat.PlayerHealth;
+            var feet = new Vector3(9, dropUnits * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, 13);
+            product.Player.Place(feet + Vector3.UnitY * (product.Player.Tuning.Height / 2 + product.Player.Config.Shape.ContactSkin), 0);
+            for (int i = 0; i < 600 && !(i > 2 && product.Player.Motion.Grounded); i++) Advance(1);
+            return before - combat.PlayerHealth;
+        }
+        var falls = new[] { 250f, 284, 316.4f, 370.6f, 516.5f, 574.9f }.Select(d => (Drop: d, Taken: Taken(d), Donor: FallRules.Damage(d))).ToList();
+        combat.Health.Set(combat.Health.Max);
+        combat.Orc.Hold = wasHeld;
+        // The lab's player has 50 health (the donor's 80 in the scenario): the last drop takes all of it.
+        float[] recorded = [.. new float[] { 0, 0, 10, 24, 51, 61 }.Select(x => MathF.Min(x, combat.Health.Max))];
+        Check(falls.Zip(recorded).All(x => MathF.Abs(x.First.Taken - x.Second) <= 2.5f),
+            FormattableString.Invariant($"a fall takes the donor's health from 300 units: {string.Join(", ", falls.Zip(recorded).Select(x => $"{x.First.Drop:0} units {x.First.Taken:0.#} (the donor's {x.Second})"))}"));
+    }
     {
         var head = combat.FirstPerson.Head;
         float DipAt(float scale)
@@ -2043,9 +2171,16 @@ host.Call(engine =>
     // Replay: recordings of Wire v12 and later carry the player's input; it drives the lab's sword against the
     // donor orc the player faced, and the report compares both sides' moves and blows.
     combat.Orc.Hold = true;
-    // The body's movement over every v14 replay (#10159): the donor's and the lab's, on the same commands.
-    var donorMove = MovementMeasure.Empty();
-    var labMove = MovementMeasure.Empty();
+    // The body's movement, case by case (#10159, R10159-2): each steady speed, start, stop, slide and jump of the donor's
+    // against the lab's body on the same ticks, compared unless the recording shows why the lab's body couldn't follow
+    // (its arena's wall, a setpos, the donor held by its level, a slope; MovementCalibration.Compare).
+    void MovementCases(ReplayReport report, IReadOnlyList<MovementCase> cases)
+    {
+        foreach (var c in cases.Where(c => !c.Agrees)) Console.WriteLine($"  movement {c}");
+        var compared = cases.Where(c => c.Compared).ToList();
+        Check(compared.Count > 0 && compared.All(c => c.Agrees),
+            $"{report.Name}: each movement case the lab's body could follow agrees with the donor's ({compared.Count(c => c.Agrees)} of {compared.Count}; {cases.Count - compared.Count} not compared, each for its reason)");
+    }
     foreach (var path in found.Where(p => RecordingVersion(p) >= 12))
     {
         var report = CombatReplay.Run(combat, path, product);
@@ -2054,10 +2189,8 @@ host.Call(engine =>
         {
             Check(kicks.Requests >= kicks.DonorBegan && kicks.Requests >= kicks.LabBegan && kicks.Requests > 0,
                 $"{report.Name}: kicks are the recorded requests ({kicks})");
-            Check(moved.MoveTicks == 0 || moved.LabSpeed > .5f * moved.DonorSpeed && moved.LabSpeed < 2f * moved.DonorSpeed,
-                $"{report.Name}: the recorded movement moves the lab's body ({moved})");
-            Check(moved.JumpPresses == 0 || moved.LabJumps > 0, $"{report.Name}: a recorded jump makes the lab's body jump");
-            if (moved.Donor is { } d && moved.Lab is { } l) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
+            Console.WriteLine($"  {moved}");
+            if (moved.Donor is { } d && moved.Lab is { } l) MovementCases(report, MovementCalibration.Compare(report.Name, d, l));
         }
         // Two swings while the player's body animation runs on (review R10122-3): every blow is accounted for.
         if (Path.GetFileName(path) == "l01_a-v12-arena-bot.rbrec")
@@ -2106,18 +2239,18 @@ host.Call(engine =>
         Check(!combat.Orc.Following && combat.Log is null, $"{report.Name}: the lab's own fight comes back after the replay");
     }
     {
-        static float Med(IReadOnlyList<float>? v) => v is null ? float.NaN : MovementMeasure.Median(v);
-        // The fights' replays move the lab's body about its own arena, into walls the donor's level hasn't: reported.
-        foreach (var (c, v) in donorMove.Steady.Where(x => x.Value.Count >= 30).OrderBy(x => x.Key.ToString()))
-            Console.WriteLine(FormattableString.Invariant($"  fights' movement {c}: donor {Med(v):0} units/s, lab {Med(labMove.Steady.GetValueOrDefault(c)):0}"));
-        // The calibration's own: the movement and jump-hold scenarios (#10159), replayed in the open.
-        donorMove = MovementMeasure.Empty();
-        labMove = MovementMeasure.Empty();
+        // The calibration's own: the movement, jump-hold and sprint scenarios (#10159), replayed in the open.
+        var scenarioCases = new List<MovementCase>();
         foreach (var path in Directory.Exists(Path.Combine(recordings, "experiments")) ? Directory.GetFiles(Path.Combine(recordings, "experiments"), "*-v18-*.rbrec")
                      .Where(p => new[] { "-movement", "-jump-hold", "-sprint" }.Any(n => Path.GetFileName(p).Contains(n, StringComparison.Ordinal))).Order().ToArray() : [])
         {
             var moved = CombatReplay.Run(combat, path, product);
-            if (moved.Body is { Donor: { } d, Lab: { } l }) { MovementCalibration.Analyze(d, donorMove); MovementCalibration.Analyze(l, labMove); }
+            if (moved.Body is { Donor: { } d, Lab: { } l })
+            {
+                var cases = MovementCalibration.Compare(moved.Name, d, l);
+                MovementCases(moved, cases);
+                scenarioCases.AddRange(cases);
+            }
             // The lab's stamina tick by tick against the donor's streamed one, through sprints, an empty gauge, kicks and
             // regeneration (#10160).
             if (Path.GetFileName(path).Contains("-sprint", StringComparison.Ordinal))
@@ -2132,25 +2265,18 @@ host.Call(engine =>
             Check(healthReplay.Health is { } hr && hr.Ticks > 5000 && hr.Near >= hr.Ticks * 99 / 100 && hr.MaxAgree == hr.Ticks,
                 FormattableString.Invariant($"{healthReplay.Name}: the lab's health follows the donor's within {CombatReplay.HealthTolerance} on {healthReplay.Health?.Near} of {healthReplay.Health?.Ticks} ticks, its maximum on {healthReplay.Health?.MaxAgree}"));
         }
-        // Steady speed by command (30 ticks each at least), within 10%.
-        var speeds = donorMove.Steady.Where(x => x.Value.Count >= 30 && labMove.Steady.GetValueOrDefault(x.Key) is { Count: >= 30 })
-            .Select(x => (x.Key, Donor: Med(x.Value), Lab: Med(labMove.Steady[x.Key]))).OrderBy(x => x.Key.ToString()).ToList();
-        foreach (var (c, d, l) in speeds) Console.WriteLine(FormattableString.Invariant($"  movement {c}: donor {d:0} units/s, lab {l:0}"));
-        var off = speeds.Where(x => MathF.Abs(x.Lab - x.Donor) > .1f * x.Donor).ToList();
-        Check(speeds.Count >= 4 && off.Count == 0,
-            $"replayed, the lab's body moves at the donor's speed on each command within 10% ({speeds.Count - off.Count} of {speeds.Count}{(off.Count > 0 ? "; off: " + string.Join(", ", off.Select(x => x.Key)) : "")})");
-        float dAccel = Med(donorMove.Accelerations.SelectMany(x => x.Value).ToList()), lAccel = Med(labMove.Accelerations.SelectMany(x => x.Value).ToList());
-        // Stops from a run (160 to 200 units/s): a sprint's slide is longer.
-        static bool FromRun((float Seconds, float Slide, float From) x) => x.From is >= 160 and <= 200;
-        float dStop = Med(donorMove.Stops.Where(FromRun).Select(x => x.Seconds).ToList()), lStop = Med(labMove.Stops.Where(FromRun).Select(x => x.Seconds).ToList());
-        float dSlide = Med(donorMove.Stops.Where(FromRun).Select(x => x.Slide).ToList()), lSlide = Med(labMove.Stops.Where(FromRun).Select(x => x.Slide).ToList());
-        Console.WriteLine(FormattableString.Invariant($"  movement starts: donor {dAccel:0.00} s to 90% ({donorMove.Accelerations.Sum(x => x.Value.Count)}), lab {lAccel:0.00} ({labMove.Accelerations.Sum(x => x.Value.Count)}); stops: donor {dStop:0.00} s, {dSlide:0} units ({donorMove.Stops.Count}), lab {lStop:0.00} s, {lSlide:0} units ({labMove.Stops.Count})"));
-        Check(MathF.Abs(lAccel - dAccel) <= .15f && MathF.Abs(lStop - dStop) <= .15f && MathF.Abs(lSlide - dSlide) <= .3f * dSlide,
-            FormattableString.Invariant($"it starts and stops as the donor's did: to 90% in {lAccel:0.00} s against {dAccel:0.00}, stopped in {lStop:0.00} s against {dStop:0.00} (within 0.15 s), sliding {lSlide:0} units against {dSlide:0} (within 30%)"));
-        float dRise = Med(donorMove.Jumps.Select(x => x.Rise).ToList()), lRise = Med(labMove.Jumps.Select(x => x.Rise).ToList());
-        float dAir = Med(donorMove.Jumps.Select(x => x.Air).ToList()), lAir = Med(labMove.Jumps.Select(x => x.Air).ToList());
-        Check(donorMove.Jumps.Count >= 5 && MathF.Abs(lRise - dRise) <= .1f * dRise && MathF.Abs(lAir - dAir) <= .1f,
-            FormattableString.Invariant($"its jumps rise and land as the donor's: {lRise:0.0} units against {dRise:0.0} (within 10%), {lAir:0.00} s in the air against {dAir:0.00} (within 0.1 s; {donorMove.Jumps.Count} and {labMove.Jumps.Count} jumps)"));
+        // And they cover each: the run, walk (+speed), crouch, backing, strafe, diagonal and sprint's speeds, a start from
+        // rest each way, stops and slides from a run, and jumps' rise and time in the air, two compared cases at least.
+        if (scenarioCases.Count > 0)
+        {
+            var covered = new[] { ("speed", "forward 1000"), ("speed", "forward 1000 speed"), ("speed", "forward 1000 walk"), ("speed", "forward 1000 crouched"), ("speed", "back 150"),
+                    ("speed", "strafe 1000"), ("speed", "diagonal 1400"), ("speed", "forward 1000 sprint"), ("start", "back 150"), ("start", "forward 1000 crouched"),
+                    ("start", "forward 1000 speed"), ("stop", "from a run"), ("slide", "from a run"), ("rise", "none"), ("air", "none") }
+                .Select(k => (Case: $"{k.Item1} {k.Item2}", Count: scenarioCases.Count(c => c.Compared && c.Kind == k.Item1 && c.Label == k.Item2))).ToList();
+            Check(covered.All(k => k.Count >= 2),
+                $"the movement scenarios compare every kind of movement twice or more ({string.Join(", ", covered.Select(k => $"{k.Case} {k.Count}"))})");
+        }
+        else Console.WriteLine("skip the movement scenarios: no local/recordings/experiments/l01_a-v18-movement.rbrec");
     }
 
     // A v15 recording replays with the donor player's build (#10140): l01_a-v15-stats starts with the combat skill's

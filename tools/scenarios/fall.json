@@ -1,0 +1,113 @@
+{
+  "description": "Fall damage (#10159, R10159-1): god off, notarget, every skill (80 health), the level's NPCs removed; before each fall the health is set to 80 (ent_fire !player sethealth), then setpos lifts the player 225, 240, 275, 325, 350, 375, 450 and 500 units above the ground at (0, -2400) and it falls (l01_a-v18-fall-1 took 100 to 400 the same way, with potions that weren't drunk: health was full). The Wire's player health and damage records show what each landing took.",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 209",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 224",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 259",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 309",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 334",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 359",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 434",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    },
+    "ent_fire !player sethealth 80",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 484",
+    "setang 0 90 0",
+    {
+      "wait": 3.5
+    }
+  ]
+}

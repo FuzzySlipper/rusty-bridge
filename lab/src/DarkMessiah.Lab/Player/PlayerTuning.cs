@@ -18,15 +18,29 @@ namespace DarkMessiah.Lab.Player;
 /// <param name="CrouchSpeed">Moving crouched, m/s: 1.29 runs at the donor's 50 units a second (51) against the controller's friction.</param>
 /// <param name="Acceleration">The Engine controller's ground acceleration, braking, friction and stop speed (m/s², 1/s and
 /// m/s), fitted so the lab's start and stop take the donor's time and slide (#10159).</param>
-/// <param name="JumpReleaseGravity">Gravity's multiple once jump is let go while rising (1: none): the donor's jump rose 34
-/// units held 0.15 s and 41 held to its peak (l01_a-v18-jump-hold; Arkane's mm_jump_rework).</param>
+/// <param name="JumpReleaseGravity">Gravity's multiple once jump is let go while rising (1: none; Arkane's mm_jump_rework):
+/// 1.43, with <see cref="JumpHeldGravity"/> fitted to l01_a-v18-jump-hold (R10159-2).</param>
+/// <param name="WalkSpeed">Walking with the walk key held (the donor's +speed, ALT), m/s: its 100 units a second
+/// (R10159-1, l01_a-v18-movement; +walk, IN_WALK, changes nothing: 180).</param>
+/// <param name="CrouchAcceleration">The controller's ground acceleration crouched, fitted so a crouched start takes the
+/// donor's 0.59 s to 90% (R10159-2): at the running acceleration the slow crouched wish speed barely beats friction, and
+/// the lab's body took 1.38 s.</param>
+/// <param name="BackAcceleration">The controller's ground acceleration backing off (the back key alone, at its 60 units
+/// a second), fitted so a start backing off takes the donor's 0.57 s to 90% (R10159-2; the running acceleration took
+/// 0.79).</param>
+/// <param name="JumpHeldGravity">Gravity's fraction while rising with jump held (R10159-2). With <c>jumpSpeed</c> 4.8
+/// m/s, <c>gravity</c> 11.5 m/s², <c>jumpReleaseGravity</c> 1.6 and <c>jumpDelay</c>, fitted on the lab's own body
+/// (<c>RB_JUMPFIT</c>) to <c>l01_a-v18-jump-hold</c>'s rise and time in the air by hold (26 units held 0.05 s, 33 held
+/// 0.15, 41 held 0.3, 42 longer; 0.62 to 0.84 s): 0.95, every hold within 4% and 0.06 s.</param>
+/// <param name="JumpDelay">How long after jump goes down the body leaves the ground, seconds (R10159-2): the donor's rose
+/// two or three game ticks after the press (l01_a-v18-movement's standing jumps), so its time in the air ran longer.</param>
 /// <param name="LandingDip">A comfort scale on the landing's head dip (<c>jump_out_*</c>, #10161): 1 as the donor's (7.9° at its
 /// peak), 0 none. Presentation only.</param>
 internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Radius, float EyeBelowTop,
     float Speed, float SprintSpeed, float JumpSpeed, float Gravity, float MaximumStepHeight, float MaximumSlopeDegrees,
     float JumpBufferSeconds, float CoyoteSeconds, float PointerRadiansPerUnit, float FieldOfViewDegrees, float FarPlane,
     float HeadBobMetres, float HeadBobStrideMetres, float BackSpeed, float CrouchSpeed, float Acceleration, float Braking, float Friction, float StopSpeed,
-    float JumpReleaseGravity, float LandingDip)
+    float JumpReleaseGravity, float LandingDip, float WalkSpeed, float CrouchAcceleration, float BackAcceleration, float JumpDelay, float JumpHeldGravity)
 {
     internal const string Path = "player.json";
 
@@ -47,6 +61,7 @@ internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Ra
         Authored.AtLeast(Path, "friction", t.Friction, 0);
         Authored.AtLeast(Path, "stopSpeed", t.StopSpeed, 0);
         Authored.AtLeast(Path, "jumpReleaseGravity", t.JumpReleaseGravity, 1);
+        Authored.Within(Path, "jumpHeldGravity", t.JumpHeldGravity, .1f, 1);
         Authored.Positive(Path, "jumpSpeed", t.JumpSpeed);
         Authored.Positive(Path, "gravity", t.Gravity);
         Authored.AtLeast(Path, "maximumStepHeight", t.MaximumStepHeight, 0);
@@ -59,6 +74,10 @@ internal sealed record PlayerTuning(float Height, float CrouchedHeight, float Ra
         Authored.AtLeast(Path, "headBobMetres", t.HeadBobMetres, 0);
         Authored.Positive(Path, "headBobStrideMetres", t.HeadBobStrideMetres);
         Authored.Within(Path, "landingDip", t.LandingDip, 0, 1);
+        Authored.Within(Path, "walkSpeed", t.WalkSpeed, .1f, t.Speed);
+        Authored.Positive(Path, "crouchAcceleration", t.CrouchAcceleration);
+        Authored.Positive(Path, "backAcceleration", t.BackAcceleration);
+        Authored.Within(Path, "jumpDelay", t.JumpDelay, 0, .2f);
         return t;
     }
 }

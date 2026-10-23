@@ -134,7 +134,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             // The body sprints only as stamina admits it, as the sword does: not from below 3, and not once it's spent.
             bool sprintAsked = frame.SprintHeld && !frame.CrouchHeld && frame.Movement != Vector2.Zero;
             var body = frame with { SprintHeld = combat.Stamina.Admits(sprintAsked) };
-            player.Step(body, jumpPending, delta, scene.Obstacles(held).Concat(OrcObstacles()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale);
+            player.Step(body, jumpPending, delta, scene.Obstacles(held).Concat(OrcObstacles()).ToArray(), scene.Support(player.Motion, held), bodies, combat.MovementScale,
+                walkHeld: physical.Held(KeyboardControl.AltLeft));
+            combat.Fall(player.FallDamage);
             jumpPending = false;
             cubes.Interaction.Update();
             if (usePending) cubes.Use();
@@ -321,18 +323,20 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     /// <summary>The input frame the replay body last stepped with (the smoke checks held jump and crouch carry through).</summary>
     internal FpsInputFrame LastReplayInput { get; private set; }
 
-    (Vector3 Feet, bool Jumped, bool Grounded) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds, bool sprint)
+    (Vector3 Feet, bool Jumped, bool Grounded, bool Blocked) IReplayBody.Step(Vector2 move, Vector3 forward, bool jump, bool jumpHeld, bool crouchHeld, bool use, float seconds,
+        bool sprint, bool walk)
     {
         var flat = new Vector2(forward.X, forward.Z);
         if (flat.LengthSquared() > 1e-6f) player.Face(MathF.Atan2(forward.X, -forward.Z), MathF.Asin(Math.Clamp(-forward.Y, -1, 1)));
         bool grounded = player.Motion.Grounded;
         var frame = new FpsInputFrame(move, jumpHeld || jump, jump, crouchHeld, sprint, use, use, default, default);
         LastReplayInput = frame;
-        player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders());
+        player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders(), walkHeld: walk);
         if (use) cubes.Use();
         cubes.Interaction.Update();
         scene.Step(seconds, cubes.PrepareStep());
-        return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded);
+        return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded,
+            player.LastStep is { } stepped && stepped.BlockFlags.HasFlag(CharacterBlockFlags.Wall));
     }
 
     void IReplayBody.Return()

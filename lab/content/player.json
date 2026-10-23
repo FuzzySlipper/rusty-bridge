@@ -5,8 +5,8 @@
   "eyeBelowTop": 0.15,
   "speed": 4.572,
   "sprintSpeed": 6.86,
-  "jumpSpeed": 4.6,
-  "gravity": 10.3,
+  "jumpSpeed": 4.8,
+  "gravity": 11.5,
   "maximumStepHeight": 0.3,
   "maximumSlopeDegrees": 45,
   "jumpBufferSeconds": 0.12,
@@ -22,6 +22,11 @@
   "braking": 0,
   "friction": 4,
   "stopSpeed": 1.27,
-  "jumpReleaseGravity": 2,
-  "landingDip": 1
+  "jumpReleaseGravity": 1.6,
+  "landingDip": 1,
+  "walkSpeed": 2.54,
+  "crouchAcceleration": 5.6,
+  "backAcceleration": 5.2,
+  "jumpDelay": 0.075,
+  "jumpHeldGravity": 0.95
 }

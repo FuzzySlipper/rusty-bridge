@@ -940,6 +940,23 @@ With `-condebug -console -noshaderapi -rbhidden -novid +map l01_a`:
 - **Still needed:** the console session on den-win11, because Steam launches the game there.
 - **Stopping:** killing a hidden donor with `Stop-Process` doesn't put the desktop back if the tap hadn't yet. `ChangeDisplaySettings(NULL, 0)` from the console desktop does.
 
+## Mantling and ladders (#10163)
+
+**Mantling** isn't on the Wire nor reproduced. server.dll registers its ConVars at 0x2254F9A0 on
+(`mm_player_active_mantling`, object 0x2282C1E0; `mm_player_mantling_min_ground` 0x2282C228;
+`mm_player_step_min_mantling_min` 0x2282C270). The movement code tests a mantle from 0x223F2707: with
+`mm_player_active_mantling` set, the player not in states 0x150 to 0x16x (+0x20F8) and +0x1ECC clear, IN_JUMP held
+(`mv+0x24 & 2`) and a step height (`mv+0x64`) between two ConVars (0x2282C168, 0x2282C288), it traces a hull (mask
+0x201400B, 0x223ED130). The defaults: `mm_player_step_mantling` 85, `_step_min_mantling_min` 35 and `_max` 70,
+`mm_player_time_mantling` 0.2, `mm_player_mantling_perc_stop` 0.8, `mm_player_max_poly_cos_mantling` 0.7. #10329
+reads the rest.
+
+**Ladders** put nothing on the Wire beyond the player's origin; l01_a has none. Their ConVar defaults, read from the
+registrations (the default string pushed before each name): `mm_player_ladder_speed` 80, `mm_player_ladder_offset` 9,
+`mm_dist_to_exit_ladder` 5, `mm_time_to_exit_enter_ladder` 1, `mm_angle_to_exit_ladder` 0, `mm_ladder_friction_pitch`
+60, `mm_min_ladder_move` 0.1, `mm_player_ladder_tolerance_error` 0.001, `sv_autoladderdismount` 1,
+`sv_ladderautomountdot` 0.4 (`mm_player_ladder_delta_yaw` 45 is the client's).
+
 ## Known gaps
 
 - Slow motion is streamed as the game's requests and its flag, not as

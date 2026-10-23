@@ -97,12 +97,29 @@ internal sealed class PlayerController : IDisposable
         CharacterMotion before = Motion;
         CharacterStepReceipt receipt;
         Sprinted = input.SprintHeld && !input.CrouchHeld;
+        // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it; jump lets go.
+        if (Climbing is null && input.Movement.Y > 0 && !jumpPressed) Climbing = LadderInReach();
+        // Or from its top: at the edge, facing the ladder's way, backing off steps onto the rail's top (the exit's reverse).
+        else if (Climbing is null && input.Movement.Y < 0 && !jumpPressed && LadderBehind() is var (fromTop, railTop))
+        {
+            Climbing = fromTop;
+            entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = railTop });
+        }
+        else if (Climbing is not null && jumpPressed) Climbing = null;
+        float climbIntent = 0;
         try
         {
+            var movement = default(CharacterMovementRequest);
+            if (Climbing is { } ladder)
+            {
+                var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+                climbIntent = LadderRules.Intent(input.Movement.Y * movementScale, LookState.PitchRadians * 180 / MathF.PI);
+                movement = new CharacterMovementRequest(CharacterMovementMode.Climbing, climbIntent, LadderRules.SpeedMetres, 0, 0, bottom, top, 0, 0, LadderRules.Reach);
+            }
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,
                 ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld ? crouching : input.SprintHeld ? sprinting : walking,
-                new CharacterControllerCommand(input.Movement * movementScale, LookState.YawRadians, jumpPressed && movementScale > 0,
-                    input.JumpHeld, input.CrouchHeld, Vector3.Zero, impulse, delta, ++commandSequence)));
+                new CharacterControllerCommand(movement, Climbing is null ? input.Movement * movementScale : Vector2.Zero, LookState.YawRadians,
+                    Climbing is null && jumpPressed && movementScale > 0, input.JumpHeld, input.CrouchHeld, Vector3.Zero, impulse, delta, ++commandSequence)));
         }
         catch (EngineCallException refusal) when (PlayerRecovery.IsPenetration(refusal))
         {
@@ -110,6 +127,21 @@ internal sealed class PlayerController : IDisposable
             return BodyEvent.None;
         }
         entities.Set(entity, EngineComponentTypes.Transform, receipt.Transform);
+        // Off the ladder: at its top climbing on, onto what it leads to (sv_autoladderdismount, mm_dist_to_exit_ladder
+        // past the top); at its foot climbing down; or when the body is no longer on the rail.
+        if (Climbing is { } held)
+        {
+            var climb = receipt.Movement;
+            if (climb.ClimbAtTop && climbIntent > 0)
+            {
+                Climbing = null;
+                var facing = Vector3.Normalize(held.Facing with { Y = 0 });
+                var onTop = receipt.Transform.Translation + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres);
+                entities.Set(entity, EngineComponentTypes.Transform, receipt.Transform with { Translation = onTop });
+                receipt = receipt with { Transform = receipt.Transform with { Translation = onTop } };
+            }
+            else if (climb.ClimbAtBottom && climbIntent < 0 || !climb.ClimbAttached) Climbing = null;
+        }
         // Let go of jump while still rising, the donor's jump falls back sooner (#10159: held 0.15 s it rose 34 units,
         // held to its peak 41): gravity × jumpReleaseGravity for the rest of the rise.
         var motion = receipt.Motion;
@@ -226,6 +258,49 @@ internal sealed class PlayerController : IDisposable
     /// the camera is published, a step or not (R10161-3).
     /// </summary>
     internal Sword.CameraRig? Camera { get; set; }
+
+    /// <summary>The arena's ladders (#10163).</summary>
+    internal IReadOnlyList<Ladder> Ladders { get; set; } = [];
+    /// <summary>The ladder the player is on, or null.</summary>
+    internal Ladder? Climbing { get; private set; }
+
+    /// <summary>A ladder whose rail is within reach, its top above the body and its foot below, the look toward it.</summary>
+    private Ladder? LadderInReach()
+    {
+        var look = Forward with { Y = 0 };
+        if (look.LengthSquared() < 1e-6f) return null;
+        look = Vector3.Normalize(look);
+        foreach (var ladder in Ladders)
+        {
+            var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+            var away = (Position - bottom) with { Y = 0 };
+            if (away.Length() <= LadderRules.Reach && Position.Y >= bottom.Y - .1f && Position.Y < top.Y
+                && Vector3.Dot(look, Vector3.Normalize(ladder.Facing with { Y = 0 })) >= LadderRules.MountDot)
+                return ladder;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A ladder whose top the body stands at, facing the ladder's way, within reach of where its exit leaves the body:
+    /// the ladder and the rail's top to step onto.
+    /// </summary>
+    private (Ladder Ladder, Vector3 RailTop)? LadderBehind()
+    {
+        var look = Forward with { Y = 0 };
+        if (look.LengthSquared() < 1e-6f) return null;
+        look = Vector3.Normalize(look);
+        foreach (var ladder in Ladders)
+        {
+            var (_, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+            var facing = Vector3.Normalize(ladder.Facing with { Y = 0 });
+            var exit = top + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres);
+            if (((Position - exit) with { Y = 0 }).Length() <= LadderRules.Reach + .3f && MathF.Abs(Position.Y - top.Y) < .15f
+                && Vector3.Dot(look, facing) >= LadderRules.MountDot)
+                return (ladder, top with { Y = top.Y - .03f });
+        }
+        return null;
+    }
 
     /// <summary>The lean (Z and X, as the donor's <c>config.cfg</c> binds them): presentation, as in the donor's client.</summary>
     internal PlayerLean Lean { get; } = new();

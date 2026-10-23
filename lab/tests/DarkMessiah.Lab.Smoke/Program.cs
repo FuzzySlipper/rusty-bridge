@@ -866,6 +866,48 @@ host.Call(engine =>
         }
         Check(leans >= 6 && leanNear >= leaning * 9 / 10, $"l01_a-v18-lean: {leans} leans driven from their recorded starts and releases, the lab's roll within 1° of the donor's on {leanNear} of {leaning} leaning ticks");
     }
+    // Ladders (#10163): the loft's, on the Engine's climb rail at the donor's 80 units/s; mounted walking into it,
+    // stepped off at the top onto the loft, mounted again from the top backing off, down to its foot, and let go by a jump.
+    {
+        var p = product.Player;
+        var climber = (IReplayBody)product;
+        var ladderStart = p.Position;
+        float ladderYaw = p.LookState.YawRadians * 180 / MathF.PI, ladderPitch = p.LookState.PitchRadians * 180 / MathF.PI;
+        float half = p.Tuning.Height / 2 + p.Config.Shape.ContactSkin;
+        var east = Vector3.UnitX;
+        p.Place(new Vector3(19, half, 21), 90);
+        int stepsToMount = 0;
+        for (; stepsToMount < 90 && p.Climbing is null; stepsToMount++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        bool mounted = p.Climbing is not null;
+        for (int i = 0; i < 6; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        float y0 = p.Feet.Y;
+        for (int i = 0; i < 30; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        float upSpeed = (p.Feet.Y - y0) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        int climbSteps = 0;
+        for (; climbSteps < 240 && p.Climbing is not null; climbSteps++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        for (int i = 0; i < 30; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        var onLoft = p.Feet;
+        bool offAtTop = p.Climbing is null && onLoft.X > 20.2f && MathF.Abs(onLoft.Y - 2.5f) < .1f && p.Motion.Grounded;
+        // Back off the top, facing on: onto the rail, then down at the same speed to its foot.
+        for (int i = 0; i < 30 && p.Climbing is null; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        bool remounted = p.Climbing is not null;
+        for (int i = 0; i < 10; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        float y1 = p.Feet.Y;
+        for (int i = 0; i < 30; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        float downSpeed = (y1 - p.Feet.Y) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        for (int i = 0; i < 240 && p.Climbing is not null; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        for (int i = 0; i < 20; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        bool offAtFoot = p.Climbing is null && p.Feet.Y < .05f && p.Motion.Grounded;
+        // Mounted again, a jump lets go.
+        for (int i = 0; i < 90 && p.Climbing is null; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        for (int i = 0; i < 20; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
+        bool jumpedOff = p.Climbing is null;
+        for (int i = 0; i < 90; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        p.Place(ladderStart, ladderYaw, ladderPitch);
+        Check(mounted && MathF.Abs(upSpeed - 80) < 4 && offAtTop && remounted && MathF.Abs(downSpeed - 80) < 4 && offAtFoot && jumpedOff,
+            FormattableString.Invariant($"the loft's ladder: mounted walking into it ({stepsToMount} steps), climbed at {upSpeed:0} units/s (the donor's 80), stepped off onto the loft (feet {onLoft.X:0.00}, {onLoft.Y:0.00}); mounted backing off its top ({remounted}), down at {downSpeed:0}, off at its foot ({offAtFoot}); a jump lets go ({jumpedOff})"));
+    }
     // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     {
         var head = combat.FirstPerson.Head;

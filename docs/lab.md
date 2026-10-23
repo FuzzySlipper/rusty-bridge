@@ -40,6 +40,7 @@ rusty dev
 | E / left button | Pick up a crate / throw it (fptester's cubes) |
 | G | God: the orc's blows still count but take no health |
 | Z / X, hold | Lean left / right (#10161) |
+| Walk into a ladder | Climb it (the loft's); back off its top to climb down; Space lets go (#10163) |
 | 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162) |
 | P / O | Hold the world / step it one frame |
 | R / M / F3 | Reset / menu / developer shell |
@@ -558,6 +559,27 @@ full. `hurtme N` took N.
   when a recording's `item_*` entities appear and go (a drunk potion's goes only when it was the last of its stack).
 - **Not measured:** poison (`poison_recovery`, the cure poison potion; nothing in l01_a poisons), the regeneration
   ring (the settings' `life_time_regen` 2 is likely its), fall damage, food eaten, and the mana potion (#10165).
+
+### Ladders
+
+`PlayerLadder.cs` (#10163): the arena's ladders (`lab.json`'s `ladders`: a foot against a face, a top, the way a
+climber faces it; the loft in the north-east corner has one) are climbed on the Engine's climb rail
+(`CharacterMovementMode.Climbing`), a vertical line the body's radius plus `mm_player_ladder_offset` (9 units) out
+from the face, with server.dll's ConVar defaults (read from their registrations; l01_a has no ladder, so none is
+recorded):
+- **Mounting:** walking into it, within 0.35 m of the rail and looking toward it (`sv_ladderautomountdot` 0.4); or
+  from its top, backing off the edge facing the ladder's way.
+- **Climbing:** `mm_player_ladder_speed`, 80 units/s, up with forward and down with back. Forward climbs down
+  looking more than 60° down (`mm_ladder_friction_pitch` taken so; not measured).
+- **Getting off:** at the top, onto what it leads to, `mm_dist_to_exit_ladder` (5 units) past it
+  (`sv_autoladderdismount` 1); at its foot climbing down; a jump lets go.
+- **Not played:** `mm_time_to_exit_enter_ladder` (1 s) and the body's `Player_ladder_*` clips: the lab mounts and
+  gets off at once. Not measured against the donor.
+- **The smoke:** mounted in 7 steps walking into it, 80 units/s up and down, off onto the loft at the top, mounted
+  again from the top, off at the foot, a jump letting go.
+
+Mantling is #10329 (its trigger in server.dll's movement code, 0x223F2707, not yet reproduced) and climbing ropes
+#10330.
 
 ### The camera
 

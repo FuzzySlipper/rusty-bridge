@@ -1,0 +1,224 @@
+{
+  "description": "Mantling (#10163), second pass: at the 32-unit step at (-492, -1292) facing 90, the 37-unit step at (-1084, -2476) facing 270, and the lean scenario's wall (from (-312, -2021) facing 180): forward with jump held from the start 2 s; forward 1 s to the face, then jump held 1.5 s; forward 1 s, then two jump taps 0.5 s apart. The level's NPCs removed.",
+  "seconds": 75,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos -492 -1292 302",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -492 -1292 302",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -492 -1292 302",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -1084 -2476 -10",
+    "setang 0 270 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -1084 -2476 -10",
+    "setang 0 270 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -1084 -2476 -10",
+    "setang 0 270 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -312 -2021 -3",
+    "setang 0 180 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -312 -2021 -3",
+    "setang 0 180 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -312 -2021 -3",
+    "setang 0 180 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 0.4
+    },
+    "+jump",
+    {
+      "wait": 0.1
+    },
+    "-jump",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    }
+  ]
+}

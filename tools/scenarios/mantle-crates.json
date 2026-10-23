@@ -1,0 +1,137 @@
+{
+  "description": "Mantling (#10163), third pass: l01_a's heavier crates (cratea_medium3 57.6 units high at (-1080, 1380), cratea_new 75 at (496, 980) and (500, 1140)), from 70 units west facing east: forward with jump held from the start 2 s; forward 0.6 s, then jump held 1.5 s. The level's NPCs removed.",
+  "seconds": 45,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    {
+      "wait": 0.5
+    }
+  ],
+  "play": [
+    "setpos -1150 1380 412.2",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos -1150 1380 412.2",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 0.6
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos 426 980 711.5",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos 426 980 711.5",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 0.6
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos 430 1140 711.5",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    "+jump",
+    {
+      "wait": 2
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos 430 1140 711.5",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 0.6
+    },
+    "+jump",
+    {
+      "wait": 1.5
+    },
+    "-jump",
+    "-forward",
+    {
+      "wait": 1
+    }
+  ]
+}

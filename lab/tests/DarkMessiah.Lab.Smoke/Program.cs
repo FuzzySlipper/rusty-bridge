@@ -1199,7 +1199,7 @@ host.Call(engine =>
         var mateFar = Squad("l05_a", 400, 0, 600, false);
         var behind = Squad("l05_a", 0, 0, 300, true);
         // The squad-mate is fought as the first orc is (R10154-3): a swing and a kick at it, the first held 20 m off.
-        (float Mate, float First, string Victim) HitMate(bool kick)
+        (float Mate, float First, string Victim, int Hits) HitMate(bool kick, bool replaying = false)
         {
             var spawnAt = new Vector3(saved.Orc.Spawn[0], saved.Orc.Spawn[1], saved.Orc.Spawn[2]);
             var mateAt = spawnAt + side * 300 * mpu;
@@ -1213,18 +1213,26 @@ host.Call(engine =>
             var feet = mateAt + face * 45 * mpu;
             var look = Vector3.Normalize((mateAt - feet) with { Y = 0 });
             float mate = combat.Mate.Health, first = combat.Orc.Health;
+            int hits = combat.Player.Hits;
+            // Replaying, the followed orc is the recording's, here absent (as a replay's tick without one).
+            var absent = new OrcPose("", new Vector3(0, -1000, 0), Vector3.UnitZ, 0, "combatidle", 0, 1, null, 0, true);
             ulong t = 0;
             for (int i = 0; i < 120; i++)
             {
                 combat.Mate.PlaceAt(mateAt);
-                combat.Step(Tick, t++, !kick && i < 3, false, kick && i < 3, feet + Vector3.UnitY * 1.6f, look, feet);
+                combat.Step(Tick, t++, !kick && i < 3, false, kick && i < 3, feet + Vector3.UnitY * 1.6f, look, feet, replaying ? absent : null);
             }
+            if (replaying) combat.Orc.StopFollowing();
             combat.God = wasGod;
             foreach (var o in new[] { combat.Orc, combat.Mate }) { o.Hold = false; o.Defending.Forced = null; }
-            return (mate - combat.Mate.Health, first - combat.Orc.Health, combat.Victim == combat.Mate ? "the mate" : "the first orc");
+            return (mate - combat.Mate.Health, first - combat.Orc.Health, combat.Victim == combat.Mate ? "the mate" : "the first orc", combat.Player.Hits - hits);
         }
         var swungAt = HitMate(false);
         var kickedAt = HitMate(true);
+        var swungReplaying = HitMate(false, true);
+        var kickedReplaying = HitMate(true, true);
+        Check(swungReplaying.Mate == 0 && kickedReplaying.Mate == 0 && swungReplaying.Hits == 0 && kickedReplaying.Hits == 0,
+            FormattableString.Invariant($"replaying, the live squad-mate in reach takes no blow (R10154-4): a swing and a kick at it with the recorded orc absent take {swungReplaying.Mate:0.##} and {kickedReplaying.Mate:0.##}, landing {swungReplaying.Hits + kickedReplaying.Hits} hits"));
         Check(swungAt.Mate > 0 && swungAt.First == 0 && kickedAt.Mate > 0 && kickedAt.First == 0 && swungAt.Victim == "the mate",
             FormattableString.Invariant($"the player's blows land on the squad-mate they reach (R10154-3): a fast attack takes {swungAt.Mate:0.##} and a kick {kickedAt.Mate:0.##} from it, none from the first orc 20 m off ({swungAt.First:0.##}, {kickedAt.First:0.##})"));
         combat.Retune(saved);

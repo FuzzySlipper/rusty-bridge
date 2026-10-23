@@ -285,7 +285,9 @@ internal sealed class LabCombat : IDisposable
     internal Orc? Mate { get; private set; }
 
     /// <summary>The orcs in the fight: the first, and its squad-mate if there is one.</summary>
-    IEnumerable<Orc> Orcs => Mate is { } mate ? [Orc, mate] : [Orc];
+    // A replay strikes only the orc it follows (R10154-4): the live squad-mate stands aside, even where the recorded orc
+    // is absent, so the comparison doesn't hang on the lab's squad.
+    IEnumerable<Orc> Orcs => Mate is { } mate && !Orc.Following ? [Orc, mate] : [Orc];
 
     // The orc the player's blow being decided lands on (R10154-3): the one its sweep met first, the nearest a kick or the
     // Whirlwind reaches, the one whose back the backstab readied on. The first orc in a replay.

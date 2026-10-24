@@ -1120,8 +1120,8 @@ host.Call(engine =>
             FormattableString.Invariant($"a fall takes the donor's health from 300 units: {string.Join(", ", falls.Zip(recorded).Select(x => $"{x.First.Drop:0} units {x.First.Taken:0.#} (the donor's {x.Second})"))}"));
     }
     // Telekinesis (#10164): a grip costs its mass class's mana (the jug 4, a 40 kg crate 15), the 300 kg crate is refused,
-    // and so is a grip the mana doesn't cover; held where the donor holds (54 units from the eye, small), thrown at its
-    // 1447 units/s, and a thrown 40 kg crate takes the settings' 15 from the orc it meets.
+    // and so is a grip the mana doesn't cover; the barrel (80 kg) only drops when thrown; held where the donor holds (54 units from the eye, small), thrown at its
+    // 1447 units/s, and a thrown jug takes the donor's 16 from the orc it meets (its impact and rebound, 8 each).
     {
         var tkP = product.Player;
         var tkTk = product.Cubes;
@@ -1143,6 +1143,12 @@ host.Call(engine =>
             // The interaction's focus settles on what's in view over a few updates.
             Advance(10);
         }
+        // The arena's bodies are l01_a's props (R10164-2): drawn as their models, their masses their .phy's, one of each
+        // class: the jugs small, the crates and barrel big, the big crate huge.
+        var tkProps = tkScene.Cubes.Select(c => (c.Definition.Model, c.Puppet?.Model.DonorPath, c.Mass, Class: tkRules.Class(c.Mass))).ToList();
+        Check(tkProps.Count >= 5 && tkProps.All(x => x.Model is not null && x.DonorPath == x.Model && x.Mass == product.Donor.Mass(x.Model!))
+                && new[] { DarkMessiah.Lab.Magic.MassClass.Small, DarkMessiah.Lab.Magic.MassClass.Big, DarkMessiah.Lab.Magic.MassClass.Huge }.All(k => tkProps.Any(x => x.Class == k)),
+            FormattableString.Invariant($"the arena's bodies are l01_a's props, drawn as their models with their .phy masses: {string.Join(", ", tkProps.Select(x => $"{Path.GetFileNameWithoutExtension(x.Model)} {x.Mass:0.##} kg ({x.Class})"))}"));
         combat.Mana.Fill();
         var tkJug = tkCube("jug / 4kg");
         tkFace(tkJug);
@@ -1165,8 +1171,24 @@ host.Call(engine =>
         tkBefore = combat.Mana.Value;
         tkTk.Use();
         float tkCrateCost = tkBefore - combat.Mana.Value;
-        bool tkCrateHeld = tkTk.Held?.Definition.Mass == 40;
+        bool tkCrateHeld = tkTk.Held?.Mass == 40;
         tkTk.Use();
+        // The barrel (80 kg): gripped for 15, held, and the throw only drops it (R10164-1).
+        var tkBarrel = tkCube("barrel / 80kg");
+        combat.Mana.Fill();
+        tkFace(tkBarrel, 2);
+        tkTk.Use();
+        bool tkBarrelHeld = tkTk.Held == tkBarrel;
+        tkP.Face(tkP.LookState.YawRadians, 0);
+        Advance(90);
+        uint tkDropsBefore = tkTk.Drops;
+        tkTk.Throw();
+        Advance(2);
+        var tkBarrelAfter = tkAt(tkBarrel);
+        Advance(2);
+        var tkBarrelStep = (tkAt(tkBarrel) - tkBarrelAfter) / (2 * Tick);
+        float tkBarrelSpeed = tkUnits(new Vector2(tkBarrelStep.X, tkBarrelStep.Z).Length());
+        bool tkBarrelDropped = tkBarrelHeld && tkTk.Drops == tkDropsBefore + 1 && tkBarrelSpeed < 100;
         var tkBig = tkCube("big crate / 300kg");
         tkFace(tkBig, 2);
         tkBefore = combat.Mana.Value;
@@ -1177,32 +1199,40 @@ host.Call(engine =>
         tkFace(tkOther);
         tkTk.Use();
         bool tkPoorRefused = tkTk.Held is null && combat.Mana.Value == 10 && tkTk.Refusals == 2;
-        // at the orc: it stands 3 m north of the crate, held; the crate is thrown straight at its body.
+        // At the orc, the donor's telekinesis-throw way (R10164-3): the arena's second jug (its open middle) gripped and
+        // held level, the orc 3.5 m ahead, held still; the jug thrown straight at its body and followed for 1.5 s, every
+        // part it newly touches hit (the donor's jug took two of 8 in its one impact).
         combat.Mana.Fill();
         combat.Orc.Hold = true;
-        tkFace(tkOther);
+        var tkThrownJug = tkScene.Cubes.Last(tkC => tkC.Definition.Label == "jug / 4kg");
+        tkFace(tkThrownJug);
         tkTk.Use();
+        bool tkRegripped = tkTk.Held == tkThrownJug;
+        tkP.Face(tkP.LookState.YawRadians, 0);
         Advance(40);
-        var tkOrcFeet = new Vector3(tkAt(tkOther).X, 0, tkAt(tkOther).Z + 3);
+        var tkLevel = tkP.Forward with { Y = 0 };
+        var tkOrcFeet = (tkP.Eye + Vector3.Normalize(tkLevel) * 3.5f) with { Y = 0 };
         combat.Orc.PlaceAt(tkOrcFeet);
-        var tkAim = Vector3.Normalize(tkOrcFeet + Vector3.UnitY * .9f - tkP.Eye);
+        for (int i = 0; i < 20; i++) { combat.Orc.PlaceAt(tkOrcFeet); Advance(1); }
+        var tkAim = Vector3.Normalize(tkOrcFeet + Vector3.UnitY * 1.1f - tkP.Eye);
         tkP.Face(MathF.Atan2(tkAim.X, -tkAim.Z), MathF.Asin(Math.Clamp(tkAim.Y, -1, 1)));
         Advance(20);
         float tkOrcBefore = combat.Orc.Health;
         tkTk.Throw();
-        for (int i = 0; i < 90 && tkTk.Hits == 0; i++) Advance(1);
+        // Frozen where it stands, as the donor's was (ai_disable): put back each step.
+        for (int i = 0; i < 90; i++) { combat.Orc.PlaceAt(tkOrcFeet); Advance(1); }
         float tkOrcTaken = tkOrcBefore - combat.Orc.Health;
         uint tkHits = tkTk.Hits;
         combat.Orc.Hold = tkWasHeld;
         ((IReplayBody)product).Begin();
         Check(tkJugHeld && tkJugCost == tkRules.SmallCost && MathF.Abs(tkHeld - tkRules.HoldSmallUnits) <= tkRules.HoldSmallUnits * .25f && MathF.Abs(tkThrown - tkRules.ThrowUnits) <= tkRules.ThrowUnits * .1f
-            && tkCrateHeld && tkCrateCost == tkRules.BigCost && tkHugeRefused && tkPoorRefused && tkHits == 1 && tkOrcTaken == tkRules.MediumDamage,
-            FormattableString.Invariant($"telekinesis: the jug gripped for {tkJugCost:0} mana (the donor's {tkRules.SmallCost:0}), held {tkHeld:0} units from the eye ({tkRules.HoldSmallUnits:0}), thrown at {tkThrown:0} units/s ({tkRules.ThrowUnits:0}); a 40 kg crate for {tkCrateCost:0} ({tkRules.BigCost:0}); the 300 kg crate refused ({tkHugeRefused}), and a crate with 10 mana ({tkPoorRefused}); a thrown crate takes {tkOrcTaken:0.#} from the orc (the settings' {tkRules.MediumDamage:0}; {tkHits} hit)"));
+            && tkCrateHeld && tkCrateCost == tkRules.BigCost && tkHugeRefused && tkPoorRefused && tkRegripped && tkBarrelDropped && tkHits == 2 && tkOrcTaken == 2 * tkRules.SmallDamage,
+            FormattableString.Invariant($"telekinesis: the jug gripped for {tkJugCost:0} mana (the donor's {tkRules.SmallCost:0}), held {tkHeld:0} units from the eye ({tkRules.HoldSmallUnits:0}), thrown at {tkThrown:0} units/s ({tkRules.ThrowUnits:0}); a 40 kg crate for {tkCrateCost:0} ({tkRules.BigCost:0}); the 300 kg crate refused ({tkHugeRefused}), and a crate with 10 mana ({tkPoorRefused}); the barrel (80 kg) only dropped by the throw, {tkBarrelSpeed:0} units/s across ({tkBarrelDropped}); a thrown jug takes {tkOrcTaken:0.#} from the orc in {tkHits} hits (the donor's jug 16 in two of the settings' {tkRules.SmallDamage:0})"));
         // And against the donor (l01_a-v18-telekinesis-mass and -throw): every grip cost its body's class (its model's
         // .phy mass), a press that gripped nothing spent nothing, bodies under 50 kg left at the throw speed (the median
         // within 10%), and each hit of a thrown small body took the settings' 8 from the orc.
-        var tkRecordings = new[] { "mass", "throw" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", $"l01_a-v18-telekinesis-{n}.rbrec")).Where(File.Exists).ToList();
-        if (tkRecordings.Count == 2)
+        var tkRecordings = new[] { "mass", "throw", "heavy", "barrel" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", $"l01_a-v18-telekinesis-{n}.rbrec")).Where(File.Exists).ToList();
+        if (tkRecordings.Count == 4)
         {
             var tkGrabs = tkRecordings.SelectMany(TelekinesisCalibration.Measure).ToList();
             foreach (var grab in tkGrabs) Console.WriteLine($"  telekinesis {grab}");
@@ -1210,12 +1240,18 @@ host.Call(engine =>
             int tkCostAgree = tkKnown.Count(x => x.Grab.ManaCost == tkRules.Cost(x.Kg));
             bool tkNothingFree = tkGrabs.Where(g => g.Model is null).All(g => g.ManaCost == 0);
             var tkSpeeds = tkKnown.Where(x => x.Grab.Thrown && x.Kg < 50 && x.Grab.ThrowSpeed > 100).Select(x => x.Grab.ThrowSpeed).ToList();
+            // Past the lab's limit, the barrels: the throw left them falling, not flying (R10164-1).
+            var tkHeavy = tkKnown.Where(x => x.Grab.Thrown && !tkRules.Throws(x.Kg)).Select(x => x.Grab.ThrowSpeed).ToList();
             float tkSpeed = tkSpeeds.Count > 0 ? MovementMeasure.Median(tkSpeeds) : 0;
             var tkSmallHits = tkKnown.Where(x => x.Grab.Thrown && tkRules.Impact(x.Kg) == DarkMessiah.Lab.Magic.ImpactClass.Small)
                 .SelectMany(x => x.Grab.Hits).Where(h => h.Taken > 0).ToList();
+            // And each throw's whole loss against the lab's at its speed: an impact and its rebound (R10164-3).
+            var tkThrowLoss = tkKnown.Where(x => x.Grab.Thrown && x.Grab.Hits.Any(h => h.Taken > 0))
+                .Select(x => (Donor: x.Grab.Hits.Sum(h => h.Taken), Lab: tkRules.Damage(x.Kg, x.Grab.ThrowSpeed) + tkRules.Damage(x.Kg, x.Grab.ThrowSpeed * tkRules.Restitution))).ToList();
             Check(tkKnown.Count >= 15 && tkCostAgree == tkKnown.Count && tkNothingFree && tkSpeeds.Count >= 6 && MathF.Abs(tkSpeed - tkRules.ThrowUnits) <= .1f * tkRules.ThrowUnits
-                    && tkSmallHits.Count >= 4 && tkSmallHits.All(h => h.Taken == tkRules.SmallDamage),
-                FormattableString.Invariant($"the donor's telekinesis: {tkCostAgree} of {tkKnown.Count} grips cost their class's mana, presses that gripped nothing spent none ({tkNothingFree}), bodies under 50 kg thrown at {tkSpeed:0} units/s (median of {tkSpeeds.Count}; the lab's {tkRules.ThrowUnits:0}), small bodies' hits on the orc took {string.Join(", ", tkSmallHits.Select(h => h.Taken.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} (the settings' {tkRules.SmallDamage:0})"));
+                    && tkSmallHits.Count >= 4 && tkSmallHits.All(h => h.Taken == tkRules.SmallDamage) && tkThrowLoss.Count >= 2 && tkThrowLoss.All(t => t.Donor == t.Lab)
+                    && tkHeavy.Count >= 5 && MovementMeasure.Median(tkHeavy) < 100,
+                FormattableString.Invariant($"the donor's telekinesis: {tkCostAgree} of {tkKnown.Count} grips cost their class's mana, presses that gripped nothing spent none ({tkNothingFree}), bodies under 50 kg thrown at {tkSpeed:0} units/s (median of {tkSpeeds.Count}; the lab's {tkRules.ThrowUnits:0}), barrels past {tkRules.ThrownKg:0} kg left at {string.Join(", ", tkHeavy.Select(v => v.ToString("0", System.Globalization.CultureInfo.InvariantCulture)))} (the lab drops them), small bodies' hits on the orc took {string.Join(", ", tkSmallHits.Select(h => h.Taken.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} (the settings' {tkRules.SmallDamage:0}), each throw {string.Join(", ", tkThrowLoss.Select(t => $"{t.Donor:0} (the lab's {t.Lab:0})"))}"));
         }
         else Console.WriteLine("skip the donor's telekinesis: no local/recordings/experiments/l01_a-v18-telekinesis-mass.rbrec and -throw.rbrec");
     }

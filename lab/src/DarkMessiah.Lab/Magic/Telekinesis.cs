@@ -23,11 +23,15 @@ internal enum ImpactClass { Small, Medium, Big }
 /// (54) or <see cref="HoldBigUnits"/> (74) from the eye (the medians of its origin's distance: the jug, bread and logs 33
 /// to 55, the stool, crate and barrels 64 to 77; the table, held by its foot, 98), and how fast it's thrown,
 /// <see cref="ThrowUnits"/> (1447 units/s: the median of the stools' 1461 and 1475, a log's 1433 and the 40 kg crate's
-/// 1159; a barrel, still rising 1.1 s after the grip, left at 365).
+/// 1159), up to <see cref="ThrownKg"/>: the 80 kg barrels, lifted 32 to 67 units and held up to 6 s with mana full,
+/// weren't thrown, falling from the hold at 0 to 57 units/s (6 of 7; one left at 365), the 40 kg stool beside them
+/// thrown at 1464; the limit lies between, the lab's in the middle (R10164-1). And how it rebounds off an NPC it meets,
+/// <see cref="Restitution"/> (0.42: the second contact of each of the jug's and log's impacts on the orc came at 37% and
+/// 47% of the first's force, and hurt as the first did).
 /// </summary>
 internal sealed record TelekinesisRules(float SmallMass, float BigMass, float SmallCost, float BigCost, float HugeCost, float ReachUnits,
     float DamageSpeed, float MediumWeight, float BigWeight, float SmallDamage, float MediumDamage, float BigDamage,
-    float HoldSmallUnits = 54, float HoldBigUnits = 74, float ThrowUnits = 1447)
+    float HoldSmallUnits = 54, float HoldBigUnits = 74, float ThrowUnits = 1447, float Restitution = .42f, float ThrownKg = 60)
 {
     internal const string Spell = "air_1";
 
@@ -54,6 +58,9 @@ internal sealed record TelekinesisRules(float SmallMass, float BigMass, float Sm
 
     internal float ReachMetres => ReachUnits * SourceSpace.MetresPerUnit;
     internal float ThrowMetres => ThrowUnits * SourceSpace.MetresPerUnit;
+
+    /// <summary>Whether a throw launches a body of <paramref name="kg"/>; a heavier one only drops from the hold.</summary>
+    internal bool Throws(float kg) => kg <= ThrownKg;
 
     /// <summary>How far from the eye a gripped body of <paramref name="kg"/> is held, metres.</summary>
     internal float HoldMetres(float kg) => (Class(kg) == MassClass.Small ? HoldSmallUnits : HoldBigUnits) * SourceSpace.MetresPerUnit;

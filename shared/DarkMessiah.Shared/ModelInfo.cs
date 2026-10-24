@@ -86,6 +86,15 @@ public sealed class ModelInfo
     public IReadOnlyDictionary<string, ModelClip> Clips { get; }
     /// <summary>Its collision solid's mass, kg (the .phy's, #10164); null for a character or an older import.</summary>
     public float? Mass { get; init; }
+    /// <summary>
+    /// The joint its collision hangs on, at rest in the model's frame (its glTF node's translation and rotation, a root
+    /// joint's: #10164, R10164-2): a prop's <c>static_prop</c> is the identity, the jug's turned. Identity when none.
+    /// </summary>
+    public Transform CollisionJoint { get; init; } = new(Vector3.Zero, Quaternion.Identity, Vector3.One);
+
+    /// <summary>The collision's bounds in its joint's frame (metres); null without a collision model.</summary>
+    public (Vector3 Min, Vector3 Max)? CollisionBounds => Collision.Count == 0 ? null
+        : (Collision.SelectMany(h => h.Points).Aggregate(new Vector3(float.MaxValue), Vector3.Min), Collision.SelectMany(h => h.Points).Aggregate(new Vector3(float.MinValue), Vector3.Max));
 
     /// <summary>The length of a GLB's header and JSON chunk, from its first 20 bytes; 0 when it isn't a GLB.</summary>
     public static int HeaderLength(ReadOnlySpan<byte> first20) =>
@@ -101,7 +110,16 @@ public sealed class ModelInfo
         return new ModelInfo(ReadAttachments(extras), ReadHitboxes(extras), ReadCollision(extras), ReadClips(json))
         {
             Mass = extras?["collision"]?["mass"]?.GetValue<float>(),
+            CollisionJoint = JointRest(json, extras?["collision"]?["joint"]?.GetValue<string>()),
         };
+    }
+
+    static Transform JointRest(JsonNode? json, string? joint)
+    {
+        var node = (json?["nodes"]?.AsArray() ?? []).FirstOrDefault(n => n?["name"]?.GetValue<string>() == joint);
+        var t = node?["translation"] is JsonArray tr ? new Vector3(tr[0]!.GetValue<float>(), tr[1]!.GetValue<float>(), tr[2]!.GetValue<float>()) : Vector3.Zero;
+        var r = node?["rotation"] is JsonArray ro ? new Quaternion(ro[0]!.GetValue<float>(), ro[1]!.GetValue<float>(), ro[2]!.GetValue<float>(), ro[3]!.GetValue<float>()) : Quaternion.Identity;
+        return new Transform(t, r, Vector3.One);
     }
 
     static List<(string Name, ModelAttachment Attachment)> ReadAttachments(JsonNode? extras)

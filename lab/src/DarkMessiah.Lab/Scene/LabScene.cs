@@ -1,4 +1,6 @@
 using System.Numerics;
+using DarkMessiah.Lab.Donor;
+using DarkMessiah.Lab.Sword;
 using Rusty.Engine;
 using Rusty.Engine.Entities;
 
@@ -11,13 +13,14 @@ internal sealed class LabScene : IDisposable
     private readonly List<Material> materials = [];
     private readonly List<MeshResource> meshes = [];
     private readonly List<Appearance> appearances = [];
+    private readonly List<Puppet> puppets = [];
     private readonly List<AppearanceFact> fixtures = [];
     private readonly VoxelScenePresentation voxels;
     private readonly EntityDynamicsAdapter dynamics;
     private readonly DynamicsEntityBinding[] bindings;
     private readonly EntityTriggerProjection colliderProjection;
 
-    internal LabScene(IEngineContext engine, LabDefinition definition)
+    internal LabScene(IEngineContext engine, LabDefinition definition, DonorContent? donor = null)
     {
         this.engine = engine;
         Definition = definition;
@@ -38,18 +41,42 @@ internal sealed class LabScene : IDisposable
         foreach (CubeDefinition cube in definition.Cubes)
         {
             EntityId entity = Entities.Create();
-            Transform spawn = new(LabDefinition.Vector(cube.Center), Quaternion.Identity, Vector3.One);
-            DynamicsBodyProperties properties = new(cube.Mass, new DynamicsMassPolicy(DynamicsMassPolicyKind.DeriveFromShapeAndMass, default),
+            // A donor prop (R10164-2): its box is its collision's, in its joint's frame, and the body turns as that joint;
+            // its mass is its .phy's. The model is drawn back from the body through them (ModelFromBody).
+            Puppet? puppet = null;
+            Vector3 half = new(cube.Size / 2);
+            float mass = cube.Mass;
+            Quaternion turn = Quaternion.Identity;
+            Matrix4x4 modelFromBody = Matrix4x4.Identity;
+            if (cube.Model is { } model)
+            {
+                if (donor is null) throw new InvalidOperationException($"{LabDefinition.Path}: cube {cube.Label} names {model}, and the lab has no donor content to draw it.");
+                var prop = donor.Model(model);
+                if (prop.Info.CollisionBounds is not var (min, max)) throw new InvalidDataException($"{LabDefinition.Path}: {model} has no collision model to give its body.");
+                half = (max - min) / 2;
+                mass = prop.Info.Mass ?? cube.Mass;
+                var joint = prop.Info.CollisionJoint;
+                turn = joint.Rotation;
+                // Model ← joint ← the box's centre in the joint's frame ← the body.
+                var jointInModel = Matrix4x4.CreateFromQuaternion(joint.Rotation) * Matrix4x4.CreateTranslation(joint.Translation);
+                var bodyInJoint = Matrix4x4.CreateTranslation((min + max) / 2);
+                // The body turns as the joint does (its box is square to the joint), so the model stands unturned at spawn.
+                Matrix4x4.Invert(bodyInJoint * jointInModel, out modelFromBody);
+                puppet = new Puppet(engine, prop, entity.Value);
+                puppets.Add(puppet);
+            }
+            Transform spawn = new(LabDefinition.Vector(cube.Center), turn, Vector3.One);
+            DynamicsBodyProperties properties = new(mass, new DynamicsMassPolicy(DynamicsMassPolicyKind.DeriveFromShapeAndMass, default),
                 Vector3.Zero, Vector3.Zero, default, .12f, .25f, 1, .6f, .12f, uint.MaxValue, uint.MaxValue, true, false, true);
             DynamicsBody body = engine.Dynamics.CreateCuboidBody(new DynamicsCreateCuboidBodyRequest(World,
-                new DynamicsCuboidBodyConfig(spawn, new Vector3(cube.Size / 2), properties)));
-            Appearance appearance = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, LabDefinition.Color(cube.Color)));
-            appearances.Add(appearance);
-            Cubes.Add(new LabCube(entity, cube, body, appearance, spawn));
+                new DynamicsCuboidBodyConfig(spawn, half, properties)));
+            Appearance appearance = puppet?.Appearance ?? engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false,
+                LabDefinition.Color(cube.Color ?? [.6f, .45f, .3f])));
+            if (puppet is null) appearances.Add(appearance);
+            Cubes.Add(new LabCube(entity, cube, body, appearance, spawn) { Mass = mass, Half = half, Puppet = puppet, ModelFromBody = modelFromBody });
             Entities.Set(entity, EngineComponentTypes.Transform, spawn);
             Entities.Set(entity, EngineComponentTypes.DynamicsMotion, new DynamicsMotion(Vector3.Zero, Vector3.Zero, false));
-            Entities.Set(entity, EngineComponentTypes.SpatialCollider, new SpatialCollider(new Vector3(-cube.Size / 2),
-                new Vector3(cube.Size / 2), uint.MaxValue, uint.MaxValue, true, false, false));
+            Entities.Set(entity, EngineComponentTypes.SpatialCollider, new SpatialCollider(-half, half, uint.MaxValue, uint.MaxValue, true, false, false));
         }
         bindings = Cubes.Select(cube => new DynamicsEntityBinding(cube.Entity, cube.Body)).ToArray();
         dynamics = new EntityDynamicsAdapter(Entities, engine.Dynamics, World);
@@ -74,8 +101,7 @@ internal sealed class LabScene : IDisposable
     internal CharacterObstacle[] Obstacles(ulong? ignored = null) => Cubes.Where(cube => cube.Entity.Value != ignored).Select(cube =>
     {
         DynamicsMotion motion = Motion(cube);
-        return new CharacterObstacle(cube.Entity.Value, Pose(cube), new Vector3(-cube.Definition.Size / 2),
-            new Vector3(cube.Definition.Size / 2), true, motion.LinearVelocity, motion.AngularVelocity);
+        return new CharacterObstacle(cube.Entity.Value, Pose(cube), -cube.Half, cube.Half, true, motion.LinearVelocity, motion.AngularVelocity);
     }).ToArray();
 
     /// <summary>The cube the body stands on, at its current pose, so the Engine carries the body with it.</summary>
@@ -97,8 +123,8 @@ internal sealed class LabScene : IDisposable
     {
         List<AppearanceFact> facts = new(fixtures);
         facts.AddRange(others);
-        facts.AddRange(Cubes.Select(cube => new AppearanceFact(cube.Entity.Value, false, 0,
-            Pose(cube) with { Scale = new Vector3(cube.Definition.Size) }, cube.Appearance, true, RenderLayer.Scene)));
+        facts.AddRange(Cubes.Select(cube => cube.Puppet is { } puppet ? puppet.Fact(cube.ModelAt(Pose(cube)))
+            : new AppearanceFact(cube.Entity.Value, false, 0, Pose(cube) with { Scale = 2 * cube.Half }, cube.Appearance, true, RenderLayer.Scene)));
         engine.Graphics.PublishSnapshot(facts.ToArray());
     }
 
@@ -116,6 +142,7 @@ internal sealed class LabScene : IDisposable
     {
         engine.Graphics.PublishSnapshot([]);
         foreach (LabCube cube in Cubes) cube.Body.Dispose();
+        foreach (Puppet puppet in puppets) puppet.Dispose();
         World.Dispose();
         voxels.Dispose();
         foreach (Appearance appearance in appearances) appearance.Dispose();
@@ -207,4 +234,24 @@ internal sealed class LabScene : IDisposable
     }
 }
 
-internal sealed record LabCube(EntityId Entity, CubeDefinition Definition, DynamicsBody Body, Appearance Appearance, Transform Spawn);
+internal sealed record LabCube(EntityId Entity, CubeDefinition Definition, DynamicsBody Body, Appearance Appearance, Transform Spawn)
+{
+    /// <summary>Its mass, kg: authored, or a donor prop's <c>.phy</c> mass (R10164-2).</summary>
+    internal float Mass { get; init; } = Definition.Mass;
+    /// <summary>Its box's half extents, metres.</summary>
+    internal Vector3 Half { get; init; } = new(Definition.Size / 2);
+    /// <summary>Its size, the box's longest side.</summary>
+    internal float Size => 2 * MathF.Max(Half.X, MathF.Max(Half.Y, Half.Z));
+    /// <summary>A donor prop's drawn model, or null for a coloured cube.</summary>
+    internal Puppet? Puppet { get; init; }
+    /// <summary>Where a donor prop's model stands for its body's pose: the body's frame to the model's.</summary>
+    internal Matrix4x4 ModelFromBody { get; init; } = Matrix4x4.Identity;
+
+    /// <summary>The model's placement for the body at <paramref name="pose"/>.</summary>
+    internal Transform ModelAt(Transform pose)
+    {
+        var world = ModelFromBody * Matrix4x4.CreateFromQuaternion(pose.Rotation) * Matrix4x4.CreateTranslation(pose.Translation);
+        Matrix4x4.Decompose(world, out _, out var rotation, out var translation);
+        return new Transform(translation, rotation, Vector3.One);
+    }
+}

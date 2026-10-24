@@ -140,7 +140,7 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
             new("spawn", OverlayPlace.World, LabDefinition.Vector(scene.Definition.SpawnFeet)) { Radius = 2, Framing = "top" },
         ];
         if (combat.LastBlow?.Point is Vector3 blow) targets.Add(new("last-blow", OverlayPlace.World, blow) { Radius = 1, Framing = "side" });
-        if (cubes.Held is { } held) targets.Add(new("held-cube", OverlayPlace.Model(held.Entity.Value), Vector3.Zero) { Radius = held.Definition.Size + .5f, Framing = "front" });
+        if (cubes.Held is { } held) targets.Add(new("held-cube", OverlayPlace.Model(held.Entity.Value), Vector3.Zero) { Radius = held.Size + .5f, Framing = "front" });
         return targets;
     }
 

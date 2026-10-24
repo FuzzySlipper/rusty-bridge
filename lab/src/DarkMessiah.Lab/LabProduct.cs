@@ -56,7 +56,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     {
         engine = context.Engine;
         donor = DonorContent.Open(engine);
-        scene = new LabScene(engine, LabDefinition.Load(engine));
+        scene = new LabScene(engine, LabDefinition.Load(engine), donor);
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         player.Ladders = scene.Definition.Ladders.Select(LabScene.Ladder).ToArray();
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
@@ -165,8 +165,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             kickPending = attackPending = blockPending = false;
             // The first person draws from above the eye, turned by the head (#10161).
             player.Camera = combat.FirstPerson.View;
-            scene.Step(delta, cubes.PrepareStep());
-            cubes.AfterStep(delta);
+            scene.Step(delta, cubes.PrepareStep(delta));
         }
         time.SetSlow(combat.TimeScale);
         // Facts identify the first admitted step; the published state is at the end boundary.
@@ -305,7 +304,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 orc.State.ToString(), orc.Clip, orc.Cycle, orc.Health, Vec(orc.Feet), Vector3.Distance(orc.Feet with { Y = 0 }, player.Feet with { Y = 0 }),
                 combat.OrcStats.Blows, combat.OrcStats.Reached, combat.OrcStats.Parried, combat.OrcStats.Broken, combat.OrcStats.Dealt, combat.OrcStats.Deaths,
                 blow, donor.Source, combat.Health.Max, combat.Belt.Describe()),
-            scene.Cubes.Select(cube => new LabCubeFacts(cube.Entity.Value, cube.Definition.Label, cube.Definition.Size, cube.Definition.Mass,
+            scene.Cubes.Select(cube => new LabCubeFacts(cube.Entity.Value, cube.Definition.Label, cube.Size, cube.Mass,
                 Vec(scene.Pose(cube).Translation), Vec(scene.Motion(cube).LinearVelocity), scene.Motion(cube).Sleeping, cube == cubes.Held)).ToArray(),
             cubes.TargetLabel, cubes.Held is null && combat.Message.Length > 0 ? combat.Message : cubes.Message,
             cubes.Held?.Entity.Value, cubes.Pickups, cubes.Throws, cubes.Drops, false, diagnostics.Readout(), notice);
@@ -358,10 +357,12 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         bool grounded = player.Motion.Grounded;
         var frame = new FpsInputFrame(move, jumpHeld || jump, jump, crouchHeld, sprint, use, use, default, default);
         LastReplayInput = frame;
-        player.Step(frame, jump, seconds, scene.Obstacles(null).ToArray(), scene.Support(player.Motion, null), scene.Colliders(), walkHeld: walk);
+        // The arena's loose props aren't the donor's level: the replayed body passes them (#10164), meeting only the
+        // arena's walls, so where they stand doesn't change the movement compared.
+        player.Step(frame, jump, seconds, ReadOnlyMemory<CharacterObstacle>.Empty, default, scene.Colliders(), walkHeld: walk);
         if (use) cubes.Use();
         cubes.Interaction.Update();
-        scene.Step(seconds, cubes.PrepareStep());
+        scene.Step(seconds, cubes.PrepareStep(seconds));
         return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded,
             player.LastStep is { } stepped && stepped.BlockFlags.HasFlag(CharacterBlockFlags.Wall));
     }

@@ -20,8 +20,11 @@ namespace DarkMessiah.Lab.Calibration;
 internal sealed record TelekinesisGrab(double Time, double Held, string? Model, float ManaBefore, float ManaCost, float GripSeconds, float HoldDistance,
     bool Thrown, float ThrowSpeed, float HeldSpeed, IReadOnlyList<(string Victim, float Damage, float Taken)> Hits)
 {
+    /// <summary>How high it rose above where it lay, at most, before the throw (units): off the floor, or dragged along it.</summary>
+    internal float Rose { get; init; } = float.NaN;
+
     public override string ToString() => FormattableString.Invariant(
-        $"{Time:0.00} s held {Held:0.00} s: {Model ?? "nothing gripped"}, mana {ManaBefore:0.0} - {ManaCost:0.0}, risen in {GripSeconds:0.00} s, held {HoldDistance:0} units from the eye, {(Thrown ? "thrown" : "let go")} at {ThrowSpeed:0} units/s (held moving {HeldSpeed:0}){(Hits.Count > 0 ? "; hits " + string.Join(", ", Hits.Select(h => $"{h.Victim} {h.Damage:0.##} ({h.Taken:0.##} taken)")) : "")}");
+        $"{Time:0.00} s held {Held:0.00} s: {Model ?? "nothing gripped"}, mana {ManaBefore:0.0} - {ManaCost:0.0}, risen in {GripSeconds:0.00} s ({Rose:0} units up), held {HoldDistance:0} units from the eye, {(Thrown ? "thrown" : "let go")} at {ThrowSpeed:0} units/s (held moving {HeldSpeed:0}){(Hits.Count > 0 ? "; hits " + string.Join(", ", Hits.Select(h => $"{h.Victim} {h.Damage:0.##} ({h.Taken:0.##} taken)")) : "")}");
 }
 
 /// <summary>Reads telekinesis from a recording: each grab's mana, rise, hold and throw (#10164; docs/lab.md, "Telekinesis").</summary>
@@ -126,12 +129,13 @@ internal static class TelekinesisCalibration
                     float rise = tracks[key].Where(p => p.Time > press && p.Time <= thrownAt).Select(p => p.At.Z - a.Z).DefaultIfEmpty(0).Max();
                     if (rise > most) (gripped, most) = (key, rise);
                 }
-            float hold = float.NaN, thrown = 0, heldSpeed = 0, risen = float.NaN;
+            float hold = float.NaN, thrown = 0, heldSpeed = 0, risen = float.NaN, rose = float.NaN;
             var hits = new List<(string, float, float)>();
             if (gripped is { } g)
             {
                 var track = tracks[g];
                 var start = At(g, press)!.Value;
+                rose = track.Where(p => p.Time > press && p.Time <= thrownAt).Select(p => p.At.Z - start.Z).DefaultIfEmpty(0).Max();
                 if (track.FirstOrDefault(p => p.Time > press && p.At.Z - start.Z > 2) is { Time: > 0 } up) risen = (float)(up.Time - press);
                 var near = frames.Skip(i).TakeWhile(x => x.Time <= thrownAt).Where(x => x.Time >= thrownAt - .5)
                     .Select(x => At(g, x.Time) is Vector3 p ? Vector3.Distance(p, x.Eye) : float.NaN).Where(float.IsFinite).ToList();
@@ -150,7 +154,7 @@ internal static class TelekinesisCalibration
                     if (time >= thrownAt - .05 && time <= thrownAt + 3 && d.Inflictor == g.Item1 && victim.StartsWith("npc_", StringComparison.Ordinal))
                         hits.Add((victim, d.Damage, d.HealthBefore - d.HealthAfter));
             }
-            grabs.Add(new TelekinesisGrab(press, let - press, gripped is { } m ? names[m] : null, frames[i - 1].Mana, cost, risen, hold, throwAt >= 0, thrown, heldSpeed, hits));
+            grabs.Add(new TelekinesisGrab(press, let - press, gripped is { } m ? names[m] : null, frames[i - 1].Mana, cost, risen, hold, throwAt >= 0, thrown, heldSpeed, hits) { Rose = rose });
             if (throwAt >= 0)
             {
                 // The throw's own press, held, isn't another grab.

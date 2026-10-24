@@ -367,22 +367,36 @@ internal sealed class LabCombat : IDisposable
     internal TelekinesisRules Telekinesis { get; }
 
     /// <summary>
-    /// A body thrown by telekinesis, of <paramref name="kg"/>, at <paramref name="at"/> moving <paramref name="velocity"/>
-    /// (m/s): when it's inside the orc's body and fast enough (<see cref="TelekinesisRules.Damage"/>), the orc takes its
-    /// class's damage, once a throw (the caller stops asking). True when it hit.
+    /// One step of a body thrown by telekinesis (R10164-3), of <paramref name="kg"/> and <paramref name="radius"/>, from
+    /// <paramref name="from"/> to <paramref name="to"/> moving <paramref name="velocity"/> (m/s), against the orc's hit
+    /// boxes. An impact (it meets the body, not touching it the step before: <paramref name="touching"/>, kept by the
+    /// caller) takes the class's damage when the body is fast enough (<see cref="TelekinesisRules.Damage"/>), and again
+    /// for its rebound when that's still fast enough (<see cref="TelekinesisRules.Restitution"/>): the donor's jug and
+    /// log each took two hits an impact, the second at 37% and 47% of the first's force. A body still touching takes none
+    /// again; one that bounced off and comes back is a new impact. The hits, and whether it met the body (the caller
+    /// bounces it off).
     /// </summary>
-    internal bool Thrown(float kg, Vector3 at, Vector3 velocity, float radius)
+    internal (int Hits, bool Met) Thrown(float kg, Vector3 from, Vector3 to, Vector3 velocity, float radius, ref bool touching)
     {
-        if (!Orc.Alive || Orc.Following) return false;
-        var (centre, half) = Orc.Hull;
-        var nearest = Vector3.Clamp(at, centre - half, centre + half);
-        if (Vector3.Distance(nearest, at) > radius) return false;
-        float damage = Telekinesis.Damage(kg, velocity.Length() / SourceSpace.MetresPerUnit);
-        if (damage <= 0) return false;
-        Orc.Damage(damage);
-        Message = FormattableString.Invariant($"The thrown body hits the orc for {damage:0.#}");
-        return true;
+        if (!Orc.Alive || Orc.Following) { touching = false; return (0, false); }
+        var targets = Orc.Targets();
+        bool met = targets.Count > 0 && sweep.Sweep(from, to, radius, targets).Any(c => c.Target == 0 && !c.Hull);
+        int hits = 0;
+        if (met && !touching)
+        {
+            float speed = velocity.Length() / SourceSpace.MetresPerUnit;
+            foreach (float at in new[] { speed, speed * Telekinesis.Restitution })
+                if (Telekinesis.Damage(kg, at) is float damage and > 0 && Orc.Alive)
+                {
+                    Orc.Damage(damage);
+                    hits++;
+                }
+            if (hits > 0) Message = FormattableString.Invariant($"The thrown body hits the orc ×{hits}");
+        }
+        touching = met;
+        return (hits, met);
     }
+
     /// <summary>What the belt holds, used by its keys (#10162).</summary>
     internal PlayerBelt Belt { get; } = new();
     internal float PlayerHealth => Health.Value;

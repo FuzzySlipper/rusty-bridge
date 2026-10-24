@@ -499,7 +499,7 @@ scenarios (docs/recording.md):
   time in the air within 0.1 s, and a jump the lab makes where the donor's body didn't leave the ground fails. A case is
   left out only with its evidence, printed: the lab's body against its arena's wall (the Engine's wall block flag), a
   scenario's `setpos` in it (the donor's origin faster than 2000 units/s across, 450 up or 800 down), the donor's body
-  held (under half the lab's speed), stopped dead (to under a quarter of 40 units/s or more in 0.03 s), or jumping
+  held (under half the lab's speed: a steady speed's ticks each, so a sprint cut short by l01_a's walls keeps the rest), stopped dead (to under a quarter of 40 units/s or more in 0.03 s), or jumping
   from a slope (more than 4 units in the 0.2 s before), the lab's body not at rest as a start's movement began (before its first key: a diagonal's second key and sprint
   come a tick or two after; R10159-3), and a sprint
   either side's stamina didn't admit (the lab's own since the replay began; v14 has no stamina on the Wire). Every
@@ -633,29 +633,33 @@ full. `hurtme N` took N.
 
 ### Telekinesis
 
-`Magic/Telekinesis.cs` and `Interaction/CubeInteraction.cs` (#10164; `l01_a-v18-telekinesis-mass` and `-throw`, docs/recording.md):
+`Magic/Telekinesis.cs` and `Interaction/CubeInteraction.cs` (#10164; `l01_a-v18-telekinesis-mass`, `-throw`, `-heavy` and
+`-barrel`, docs/recording.md):
 
 | | The donor | The lab |
 | --- | --- | --- |
-| Gripping | attack held grips the body in view within `PlayerTelekinesisDist` (850 units); a small one (under `Small_Object_Mass`, 20 kg: the jug, bread, logs) rose in 0.27 s, a big one (the stool, table, crates) in 0.36, the barrels in 0.7 to 1.4 | E grips the arena body in view within 850 units, its tether reeling it to the hold |
-| Its mana | small 4 (`ManaCost_Small_Object`), big 15 (`ManaCost_Big_Object`, to `Big_Object_Mass` 120 kg), as it grips: 19 of 19 grips | the same, from `spells.txt`; refused, nothing spent, when the mana doesn't cover it |
+| The bodies | l01_a's props | l01_a's props (R10164-2): `lab.json`'s `cubes` name their models (the crates `crated_new`, 40 kg, and `cratea_new`, 300; the barrel `barrel01`, 80; two jugs `jug01`, 4), drawn as themselves, their boxes their collision's (turned as its joint), their masses their `.phy`'s |
+| Gripping | attack held grips the body in view within `PlayerTelekinesisDist` (850 units); a small one (under `Small_Object_Mass`, 20 kg: the jug, bread, logs) rose in 0.27 s, a big one (the stool, table, crates) in 0.36, the barrels in 0.7 to 1.4, 32 to 67 units | E grips the arena body in view within 850 units, its tether reeling it to the hold |
+| Its mana | small 4 (`ManaCost_Small_Object`), big 15 (`ManaCost_Big_Object`, to `Big_Object_Mass` 120 kg), as it grips: 25 of 25 grips | the same, from `spells.txt`; refused, nothing spent, when the mana doesn't cover it |
 | Huge bodies | the 300 kg crates: nothing gripped, no mana spent (`ManaCost_Huge_Object` 9999; the skill's text: adrenaline lifts "massive objects") | refused |
 | The hold | its origin a median 54 units from the eye, small, 74 big (the table, held by its foot, 98) | 54 and 74 units ahead of the eye |
 | Letting go | the body stays where it was held | E drops it |
-| The throw | pressed again after letting go: up to 40 kg leaves at 1444 units/s (median of 9: 1432 to 1475, the 40 kg crate 1159); the barrels (80 kg) left at 37 to 365 | the mouse throws it at 1447 units/s |
-| Its damage | the game settings: from `PhysicsSpeedToDamageNPCs` (70 units/s), `Physics{Small,Medium,Big}DamagesTelekinesis` (8, 15, 50) by `PhysicsWeightToDamageNPCs*` (medium from 10 kg, big from 50); the frozen orc took 8 from each hit of the thrown jug and log (each hit twice) | a thrown body inside the orc's body, fast enough, takes its class's, once a throw |
+| The throw | pressed again after letting go: up to 40 kg leaves at 1444 units/s (median of 11: 1432 to 1475, the 40 kg crate 1159); the 80 kg barrels, held up to 6 s with mana full, aren't thrown: they fall from the hold at 0 to 57 units/s (6 of 7; one left at 365), the stool beside them thrown at 1464 | the mouse throws it at 1447 units/s up to 60 kg (between the 40 thrown and the 80 not; R10164-1); heavier, the throw only drops it |
+| Its damage | the game settings: from `PhysicsSpeedToDamageNPCs` (70 units/s), `Physics{Small,Medium,Big}DamagesTelekinesis` (8, 15, 50) by `PhysicsWeightToDamageNPCs*` (medium from 10 kg, big from 50); the frozen orc took two hits of 8 from each of the thrown jug and log, the second contact of each impact at 37% and 47% of the first's force (its rebound) | each impact on the orc's body (swept against its hit boxes, not touching it the step before) takes the class's damage, and again for its rebound while that's fast enough (restitution 0.42, from the forces); the body bounces off at that restitution (R10164-3); one that comes back is a new impact |
 
 - **The donor's controls:** the spell in hand (`Deploy_Spell_AIR_1`), attack held grips; let go, it stays held; pressed
-  again, it's thrown. The lab has no spell in hand yet (#10165), so it keeps E and the mouse.
-- **Not measured:** a thrown medium or big body's damage (the hall's orc died before the stool reached it, and the
-  barrels left too slowly to hurt), the barrels' throw (80 kg, past `PlayerThrowMassClamp` 100?), what a body swung
+  again, it's thrown. The lab has no telekinesis in hand yet, so it keeps E and the mouse.
+- **Not measured:** a thrown medium or big body's damage (the hall's orc died before the stool reached it, and a
+  barrel isn't thrown), where between 40 and 80 kg the throw stops, the barrel that once left at 365, what a body swung
   while held does (a held table swung into the orc took the settings' 5, `PhysicsMediumDamages`, not telekinesis'), how
   the rise depends on mass, adrenaline's NPC and huge grips (`ManaCost_Small_NPC` 15, `fearfactor`) and
   `mm_telekinesis_coeff_damage` (0).
-- **The smoke:** in the arena the jug grips for 4, held 54 units off, thrown at 1432 units/s; a 40 kg crate for 15; the
-  300 kg crate refused, and a crate with 10 mana; a thrown crate takes the settings' 15 from the orc. Against the
-  recordings: every grip's cost by its model's `.phy` mass (dm-import writes it, docs/import.md), no mana for a press that
-  gripped nothing, the throw speed's median within 10%, every small hit 8. `RB_TK=path` prints each grab
+- **The smoke:** the arena's bodies are l01_a's props with their `.phy` masses, one of each class; the jug grips for 4,
+  held 54 units off, thrown at 1432 units/s; a 40 kg crate for 15; the barrel for 15, and the throw only drops it; the
+  300 kg crate refused, and a crate with 10 mana; a jug thrown at the orc, frozen in place, takes 16 in two hits, as the
+  donor's did. Against the recordings: every grip's cost by its model's `.phy` mass (dm-import writes it,
+  docs/import.md), no mana for a press that gripped nothing, the throw speed's median within 10%, the barrels' under 100
+  units/s, every small hit 8 and each throw's whole loss the lab's at its speed. `RB_TK=path` prints each grab
   (`RB_TKTRACE=1`, `RB_TKHITS=1`, `RB_TKMODEL=part:from-to`, `RB_TKNPCS=1` add traces).
 
 ### Ladders
@@ -1170,7 +1174,8 @@ the ground (`arena-hand2` at 1898.8 s: the donor's power attack, the lab's fast 
 A scenario's `setpos` teleports the donor; where it raises the donor (the drops from 200 units), the replay raises
 the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
 - **Movement:** commands run at 1000 forward or sideways, about 1400 on a diagonal, and 150 back (the donor's
-  `cl_backspeed`). The replay scales each axis by its full key (#10159). In the fights the lab's body walks into its own
+  `cl_backspeed`). The replay scales each axis by its full key (#10159). The replayed body passes the arena's loose props
+  (they aren't the donor's level, #10164). In the fights the lab's body walks into its own
   arena's walls, which the donor's level hasn't: those cases are left out with that evidence, the rest compared ("The body's movement").
 - **Jumps:** all 12 came through.
 
@@ -1191,11 +1196,13 @@ the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
 
 ## The arena
 
-`content/lab.json` holds the arena: native blockout, 24 m square with 4 m walls, two pillars, a low wall and three crates.
+`content/lab.json` holds the arena: native blockout, 24 m square with 4 m walls, two pillars, a low wall, a loft with
+its ladder, and l01_a's props: two crates, a barrel, two jugs and a big crate.
 
 **Why blockout:** the l01_a gate courtyard is about this size, and blockout is quick to change.
 - **The imported level:** it would need its BSP collision imported as well; today the import has only its drawable faces. That's a later step.
-- **The crates:** fptester's loose cubes, kept as props to kick and throw.
+- **The props:** l01_a's own models (#10164, R10164-2), a cube entry's `model`: drawn as themselves, their boxes their
+  collision's, their masses their `.phy`'s; an entry without one is a coloured cube of its `size` and `mass`.
 
 ## How it's built
 

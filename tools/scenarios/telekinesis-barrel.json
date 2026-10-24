@@ -1,0 +1,216 @@
+{
+  "description": "Barrels by telekinesis (#10164, R10164-1): every skill, god, notarget, the level's NPCs removed, twelve mana potions on the belt; before each grab three belt slots drunk twice (mana full) and telekinesis deployed again. In l01_a's lower room: its stool (40 kg) as a control, then each barrel (80 kg), gripped and held 6 s (whether it rises off the floor), turned south into the room 5 degrees up, let go and pressed again (the throw). Marked in the console with echo rb_tk.",
+  "seconds": 120,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_tk stool 40 kg",
+    "setpos -1260.7 1391.1 411.8",
+    "setang 37.1 270.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 6
+    },
+    "setang -5 270.0 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk barrel 80 kg",
+    "setpos -1236.9 1576.3 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 6
+    },
+    "setang -5 270.0 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk barrel 80 kg",
+    "setpos -1277.7 1581.2 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 6
+    },
+    "setang -5 270.0 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk barrel 80 kg again",
+    "setpos -1236.9 1576.3 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 6
+    },
+    "setang -5 270.0 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    }
+  ]
+}

@@ -42,7 +42,11 @@ internal sealed record InteractionTuning(float HoldSlack, float HoldReelSpeed);
 internal sealed record VolumeDefinition(string Label, float[] Min, float[] Max, uint Material);
 internal sealed record RampDefinition(string Label, float[] Origin, float Width, float Length, float AngleDegrees, float[] Color);
 internal sealed record BlockDefinition(string Label, float[] Center, float[] Size);
-internal sealed record CubeDefinition(string Label, float[] Center, float Size, float Mass, float[] Color);
+/// <summary>
+/// A loose body: a coloured cube of <c>size</c> and <c>mass</c>, or a donor prop (#10164, R10164-2): <c>model</c>, an
+/// l01_a model the import has, drawn as itself, its box its collision's and its mass its <c>.phy</c>'s.
+/// </summary>
+internal sealed record CubeDefinition(string Label, float[] Center, float Size = 0, float Mass = 0, float[]? Color = null, string? Model = null);
 internal sealed record LadderDefinition(string Label, float[] Foot, float Top, float[] Facing);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.

@@ -807,11 +807,17 @@ internal sealed class Orc : IDisposable
         return targets;
     }
 
+    // The body was in the last publish.
+    bool published = true;
+
     /// <summary>The body and its items to draw; the items hang where the body's attachments put them.</summary>
     internal IEnumerable<AppearanceFact> Facts()
     {
         Present();
-        if (!Alive && downSeconds > .5f) return [];
+        if (!Alive && downSeconds > .5f) { published = false; return []; }
+        // Back after a death it wasn't drawn through (a reset, a respawn): the body first, its pose sampled once it's in
+        // the published scene again, and the items from the next publish.
+        if (!published) { published = true; return [body.Fact(Placement)]; }
         // Ragdolled, its items hang where its bodies drew it (#10216).
         var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
         var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);

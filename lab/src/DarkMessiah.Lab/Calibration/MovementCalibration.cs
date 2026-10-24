@@ -249,14 +249,19 @@ internal static class MovementCalibration
             var ticks = run.ToList();
             if (ticks.Count < SteadyTicks) continue;
             double time = donor[run.Key.Run].Time;
-            var pairs = ticks.Where(x => !blocked[x.Tick] && labSteady.ContainsKey(x.Tick)).Select(x => (Donor: x.Speed, Lab: labSteady[x.Tick])).ToList();
+            // Each tick both ran free: not the lab's body against its arena's wall, nor the donor's held by its level (under
+            // half the lab's speed on that tick: a sprint's end against l01_a's walls, #10164).
+            var pairs = ticks.Where(x => !blocked[x.Tick] && labSteady.ContainsKey(x.Tick) && x.Speed >= labSteady[x.Tick] / 2)
+                .Select(x => (Donor: x.Speed, Lab: labSteady[x.Tick])).ToList();
             float donorSpeed = MovementMeasure.Median(ticks.Select(x => x.Speed).ToList());
             string label = run.Key.Command.ToString();
             if (pairs.Count < SteadyTicks)
             {
                 int stopped = ticks.Count(x => blocked[x.Tick]);
+                int held = ticks.Count(x => !blocked[x.Tick] && labSteady.TryGetValue(x.Tick, out float lab) && x.Speed < lab / 2);
                 cases.Add(new(recording, "speed", label, time, donorSpeed, pairs.Count > 0 ? MovementMeasure.Median(pairs.Select(p => p.Lab).ToList()) : null, .1f, true,
-                    stopped > 0 ? $"the lab's body met its arena's wall on {stopped} of {ticks.Count} steady ticks" : null));
+                    stopped > 0 ? $"the lab's body met its arena's wall on {stopped} of {ticks.Count} steady ticks"
+                    : held > 0 ? $"the donor's body was held (an obstacle or its level) on {held} of {ticks.Count} steady ticks" : null));
                 continue;
             }
             float dMed = MovementMeasure.Median(pairs.Select(p => p.Donor).ToList()), lMed = MovementMeasure.Median(pairs.Select(p => p.Lab).ToList());

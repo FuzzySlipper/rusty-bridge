@@ -1,0 +1,210 @@
+{
+  "description": "Heavy telekinesis throws (#10164, R10164-1): every skill, god, notarget, the level's NPCs removed, twelve mana potions on the belt (two slots drunk and telekinesis deployed again before each grab). An orc in l01_a's lower room, its health set to 200 and its AI then frozen with ai_disable, takes the room's two barrels (80 kg), each held 5 s (they rose 0.7 to 1.4 s after the grip) before the view turns at the orc, attack is let go and pressed again (the throw), then its stool and table (40 kg), held 3 s. Marked in the console with echo rb_tk.",
+  "seconds": 150,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_tk orc in the lower room",
+    "setpos -1250 1340 412",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword sethealth 200",
+    {
+      "wait": 1
+    },
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "echo rb_tk throw barrel 80 kg",
+    "setpos -1236.9 1576.3 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 5.0
+    },
+    "setang 7.6 265.2 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk throw barrel 80 kg",
+    "setpos -1277.7 1581.2 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 5.0
+    },
+    "setang 7.3 279.8 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk throw stool 40 kg",
+    "setpos -1320.7 1331.1 411.8",
+    "setang 37.1 0.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 3
+    },
+    "setang 10.5 51.5 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "echo rb_tk throw table 40 kg",
+    "setpos -1130.3 1343.7 411.8",
+    "setang 25.8 180.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 3
+    },
+    "setang 8.4 147.5 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 4
+    }
+  ]
+}

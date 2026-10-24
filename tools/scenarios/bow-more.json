@@ -1,0 +1,458 @@
+{
+  "description": "More of the bow (#10168): every skill, god, notarget, the level's NPCs removed, the classic bow. Zoom: drawn 2.5 s then attack2 held 3 s, and attack2 before attack. A head shot (view 0.6 degrees up from 200 units) at a frozen orc. An orc whose health is set to 500 five seconds after its spawn, notarget off, shot five times with 2.2 s draws from 600 units as it comes. The long, sniper and explosive bows, each shot into the world from (0, -2700) and at a frozen orc from 200 units. The rope bow (weapon_arxcrossbowrope) shot at six angles from (0, -2500). Marked in the console with echo rb_bow.",
+  "seconds": 183,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow zoom: drawn 2.5 s then attack2 held 3 s",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "+attack2",
+    {
+      "wait": 3
+    },
+    "-attack2",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow zoom: attack2 then attack",
+    "+attack2",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 3
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "-attack2",
+    {
+      "wait": 3
+    },
+    "echo rb_bow head shot, frozen orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang -0.6 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow head",
+    "+attack",
+    {
+      "wait": 0.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_bow aware orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 5
+    },
+    "ent_fire npc_orc_sword sethealth 500",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2900 -12",
+    "setang 1.5 90 0",
+    "notarget",
+    {
+      "wait": 1
+    },
+    "echo rb_bow aware orc (1)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow aware orc (2)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow aware orc (3)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow aware orc (4)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow aware orc (5)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.3
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_long",
+    "give weapon_mm_bow_long",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_bow_long",
+    {
+      "wait": 2.5
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_long into the world",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_long at a frozen orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_bow weapon_mm_bow_sniper",
+    "give weapon_mm_bow_sniper",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_bow_sniper",
+    {
+      "wait": 2.5
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_sniper into the world",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_sniper at a frozen orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_bow weapon_mm_bow_explosive",
+    "give weapon_mm_bow_explosive",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_bow_explosive",
+    {
+      "wait": 2.5
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_explosive into the world",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow weapon_mm_bow_explosive at a frozen orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_bow rope arrows",
+    "ent_remove_all npc_orc_sword",
+    "give weapon_arxcrossbowrope",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbowrope",
+    {
+      "wait": 2.5
+    },
+    "setpos 0 -2500 -12",
+    "setang -30 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -30 yaw 90",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setang -60 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -60 yaw 90",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setang -20 0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -20 yaw 0",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setang -20 180 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -20 yaw 180",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setang -45 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -45 yaw 270",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setang -80 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at pitch -80 yaw 90",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 3
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "description": "Explosive and rope arrows (#10168): every skill, god, notarget, the level's NPCs removed. The explosive bow at a frozen orc's chest from 200 units (its arrow casts fire_1 where it lands). The rope bow at l01_a's wood: the l01_wood_02 wall at x 745 (from (300, -2745), twice) and the wooden overhang near (245, -2964, 308) (twice), 6 s after each. Marked with echo rb_bow.",
+  "seconds": 72,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_bow explosive bow at a frozen orc",
+    "give weapon_mm_bow_explosive",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_bow_explosive",
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 4
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow explosive at the orc's chest",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arxcrossbowrope",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbowrope",
+    {
+      "wait": 2.5
+    },
+    "setpos 300 -2745 -12",
+    "setang -2.5 0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at the wooden wall at x 745, z 80",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    },
+    "setpos 300 -2745 -12",
+    "setang -6 0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at the wooden wall, z 110",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    },
+    "setpos 245 -2700 -12",
+    "setang -42 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at the wooden overhang at (245, -2964, 308)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    },
+    "setpos 300 -2750 -12",
+    "setang -50 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow at the overhang, steeper",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    }
+  ]
+}

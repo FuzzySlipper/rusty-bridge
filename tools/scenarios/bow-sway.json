@@ -1,0 +1,119 @@
+{
+  "description": "The bow's sway without stability (#10168): a new game's skills, god, notarget, the classic bow, no NPC; from (0, -2700) looking 2.3 degrees down, shots released 2.05 to 4.6 s into the draw (the camera's sway peaks near 2.6 and 3.6 s, returns near 2.1 and 3.1). Marked with echo rb_bow.",
+  "seconds": 60,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow no stability, released after 2.05 s",
+    "+attack",
+    {
+      "wait": 2.05
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 2.45 s",
+    "+attack",
+    {
+      "wait": 2.45
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 2.65 s",
+    "+attack",
+    {
+      "wait": 2.65
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 3.0 s",
+    "+attack",
+    {
+      "wait": 3.0
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 3.55 s",
+    "+attack",
+    {
+      "wait": 3.55
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 3.65 s",
+    "+attack",
+    {
+      "wait": 3.65
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 4.6 s",
+    "+attack",
+    {
+      "wait": 4.6
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_bow no stability, released after 2.1 s",
+    "+attack",
+    {
+      "wait": 2.1
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    }
+  ]
+}

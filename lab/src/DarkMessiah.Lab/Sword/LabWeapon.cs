@@ -5,7 +5,7 @@ namespace DarkMessiah.Lab.Sword;
 
 /// <summary>
 /// The move sets <c>first_basic</c> has for a melee weapon in the main hand (docs/lab.md, "Weapons"): the swords and
-/// the club share <c>sword_noshield</c>'s, the daggers and the staffs have their own. The bow's isn't played.
+/// the club share <c>sword_noshield</c>'s, the daggers and the staffs have their own. The bow is the belt's, played apart (<see cref="Ranged.LabBow"/>).
 /// </summary>
 internal enum WeaponClass { Sword, Daggers, Staff }
 

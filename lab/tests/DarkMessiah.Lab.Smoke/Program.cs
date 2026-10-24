@@ -1332,6 +1332,247 @@ host.Call(engine =>
         }
         else Console.WriteLine("skip the donor's fireballs: no local/recordings/experiments/l01_a-v18-fireball.rbrec");
     }
+    // The bow (#10168; docs/lab.md, "The bow"): belt slot 5 puts the classic bow in hand. A press draws it after 0.12 s, the
+    // draw plays its 2 s and the arrow leaves 0.03 s into the shot, along the view raised 2.8°, at 2100 units/s falling
+    // 600/s²; it strikes the held orc's hit boxes for (strength + WDmg) × the shoot clip's HitPow 1.5 × the hit group, ×3
+    // while the orc is unaware. Parry puts a drawn arrow down; with bow_reload a press after the shot nocks the next at once;
+    // +zoom held while drawn narrows the view in 0.38 s. Against l01_a-v18-bow*: the donor's input through the lab's bow
+    // releases each arrow when the donor's did, each flight is the rules', each arrow asks the combat model's damage, and the
+    // zoom's and the camera's sway are the donor's.
+    {
+        float bmpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        // Archery to its level, and strength 3 with it (extra_damage needs archery or combat).
+        BuildFile Archer(int projectile) => file with { Skills = new Dictionary<string, int>(file.Skills) { ["projectile"] = projectile, ["extra_damage"] = projectile > 0 ? 3 : 0 } };
+        // The bow in hand: its belt key toggles it.
+        void BowInHand() { if (combat.Bow is null) combat.UseBelt(4); }
+        combat.Rebuild(Archer(3));
+        bool bowWasHeld = combat.Orc.Hold;
+        combat.Orc.Hold = true;
+        BowInHand();
+        var bowHeld = combat.Bow;
+        var bowEye = new Vector3(12, 1.6f, 6);
+        var bowOrc = new Vector3(12, 0, 6 + 200 * bmpu);
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(bowOrc);
+        Vector3 BowToward(Vector3 at) => Vector3.Normalize(at - bowEye);
+        // One shot: attack held for the given steps (one a tap), parry from a step on, then run until the arrow stops or 5 s.
+        (float Left, float Speed, float Pitch, float Asked, int? Group, int Shots) BowShot(Vector3 aim, int held, int parryFrom = int.MaxValue, bool zoom = false)
+        {
+            float left = float.NaN, speed = 0, pitch = float.NaN;
+            int shots = combat.Archery.Shot;
+            combat.Orc.Spawn();
+            combat.Orc.PlaceAt(bowOrc);
+            var before = combat.LastArrow;
+            for (int i = 0; i < 360; i++)
+            {
+                combat.Step(Tick, step++, i < held, i >= parryFrom, false, bowEye, BowToward(aim), bowEye - Vector3.UnitY * 1.6f, zoomHeld: zoom);
+                if (combat.ArrowsInFlight.FirstOrDefault() is { } arrow)
+                {
+                    if (float.IsNaN(left))
+                    {
+                        left = (i + 1) * Tick;
+                        pitch = MathF.Asin(Vector3.Normalize(arrow.Launched).Y) * 180 / MathF.PI;
+                        speed = new Vector2(arrow.Launched.X, arrow.Launched.Z).Length() / MathF.Cos(pitch * MathF.PI / 180) / bmpu;
+                    }
+                }
+                else if (!float.IsNaN(left) || i > held + 300) break;
+            }
+            for (int i = 0; i < 240 && combat.Bow?.State != DarkMessiah.Lab.Ranged.BowState.Rest; i++)
+                combat.Step(Tick, step++, false, false, false, bowEye, BowToward(aim), bowEye - Vector3.UnitY * 1.6f);
+            var hit = combat.LastArrow != before ? combat.LastArrow : null;
+            return (left, speed, pitch, hit?.Asked ?? 0, hit?.Group, combat.Archery.Shot - shots);
+        }
+        var chest = bowOrc + Vector3.UnitY * 1.1f;
+        float viewPitch = MathF.Asin(BowToward(chest).Y) * 180 / MathF.PI;
+        var tap = BowShot(chest, 1);
+        var hold = BowShot(chest, (int)(3 / Tick));
+        var bowParried = BowShot(chest, (int)(3 / Tick), parryFrom: (int)(2.5f / Tick));
+        var bowExpected = tap.Group is int tg ? combat.PlayerAsks(new DarkMessiah.Combat.Party("player", "", [DarkMessiah.Lab.Ranged.BowRules.Shoot], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel),
+            combat.Orc.Party(), tg, false, combat.Orc.Health, weapon: DarkMessiah.Lab.Ranged.BowRules.Classic) : float.NaN;
+        var bowRules = combat.Bow!.Rules;
+        float drawSeconds = combat.FirstPerson.ClipSeconds(DarkMessiah.Lab.Ranged.BowRules.Draw);
+        // The donor's tap (l01_a-v18-bow, 157.85 s) left 2.19 s after the press.
+        Check(bowHeld is not null && MathF.Abs(tap.Left - 2.19f) <= 2 * Tick && MathF.Abs(hold.Left - 3 - bowRules.LeaveDelay) <= 2 * Tick
+                && MathF.Abs(tap.Speed - bowRules.SpeedUnits) <= .01f * bowRules.SpeedUnits && MathF.Abs(tap.Pitch - viewPitch - bowRules.Raise(viewPitch)) <= .1f
+                && tap.Group is not null && tap.Asked > 0 && MathF.Abs(tap.Asked - bowExpected) < .01f && bowParried.Shots == 0,
+            FormattableString.Invariant($"the bow: in hand from belt slot 5 ({bowHeld is not null}); a tap's arrow left {tap.Left:0.00} s after it (the donor's 2.19: the delay {bowRules.DrawDelay:0.00}, the {drawSeconds:0.00} s draw, a tick and a step, and {bowRules.LeaveDelay:0.00}), one held 3 s at {hold.Left:0.00}; it flew at {tap.Speed:0} units/s, {tap.Pitch - viewPitch:0.0}° above the view, and struck hit group {tap.Group} for {tap.Asked:0.##} (the model's {bowExpected:0.##}); bowParried after 2.5 s, {bowParried.Shots} shot"));
+        // Zoom: held from 2.2 s into the draw, until 1 s after.
+        float zoomFull = float.NaN, zoomGone = float.NaN;
+        combat.Orc.Spawn();
+        for (int i = 0; i < 420; i++)
+        {
+            bool zoomKey = i >= (int)(2.3f / Tick) && i < (int)(4.5f / Tick);
+            combat.Step(Tick, step++, i < (int)(4 / Tick), false, false, bowEye, BowToward(chest + Vector3.UnitY), bowEye - Vector3.UnitY * 1.6f, zoomHeld: zoomKey);
+            if (float.IsNaN(zoomFull) && combat.Zoom >= 1) zoomFull = (i + 1) * Tick - 2.3f;
+            if (!float.IsNaN(zoomFull) && float.IsNaN(zoomGone) && combat.Zoom <= 0) zoomGone = (i + 1) * Tick - 4.5f;
+        }
+        int restZoomSteps = 0;
+        for (int i = 0; i < 60; i++) { combat.Step(Tick, step++, false, false, false, bowEye, Vector3.UnitZ, bowEye - Vector3.UnitY * 1.6f, zoomHeld: true); if (combat.Zoom > 0) restZoomSteps++; }
+        Check(MathF.Abs(zoomFull - DarkMessiah.Lab.Ranged.BowRules.ZoomIn) <= 1.5f * Tick && MathF.Abs(zoomGone - DarkMessiah.Lab.Ranged.BowRules.ZoomOut) <= 1.5f * Tick && restZoomSteps == 0,
+            FormattableString.Invariant($"the bow's zoom (bow_zoom): drawn, +zoom narrowed the view in {zoomFull:0.00} s and it widened in {zoomGone:0.00} s once let go; at rest, {restZoomSteps} steps zoomed"));
+        // The reload: with bow_reload attack held after a shot nocks at once (the fast reload); without, the bow lowers and
+        // draws again. Each arrow let go once drawn; recorded shot to shot: 1.29 s with the skill, past 2.9 without.
+        (string? Second, float Apart) TwoShots(int projectile)
+        {
+            combat.Rebuild(Archer(projectile));
+            BowInHand();
+            var seen = new List<string>();
+            var lefts = new List<float>();
+            int shots = combat.Archery.Shot;
+            for (int i = 0; i < 900 && lefts.Count < 2; i++)
+            {
+                bool drawn = combat.Bow?.State == DarkMessiah.Lab.Ranged.BowState.Drawn;
+                combat.Step(Tick, step++, !drawn, false, false, bowEye, BowToward(chest + Vector3.UnitY * 3), bowEye - Vector3.UnitY * 1.6f);
+                if (combat.Bow is { } b && (seen.Count == 0 || seen[^1] != b.Clip.Clip)) seen.Add(b.Clip.Clip);
+                if (combat.Archery.Shot > shots + lefts.Count) lefts.Add(i * Tick);
+            }
+            for (int i = 0; i < 300 && combat.Bow?.State != DarkMessiah.Lab.Ranged.BowState.Rest; i++) combat.Step(Tick, step++, false, false, false, bowEye, Vector3.UnitZ, bowEye - Vector3.UnitY * 1.6f);
+            return (seen.FirstOrDefault(c => c is DarkMessiah.Lab.Ranged.BowRules.FastReload or DarkMessiah.Lab.Ranged.BowRules.Out), lefts.Count == 2 ? lefts[1] - lefts[0] : float.NaN);
+        }
+        var bowFast = TwoShots(3);
+        var bowSlow = TwoShots(0);
+        Check(bowFast.Second == DarkMessiah.Lab.Ranged.BowRules.FastReload && bowSlow.Second == DarkMessiah.Lab.Ranged.BowRules.Out && MathF.Abs(bowFast.Apart - 1.29f) <= .05f && bowSlow.Apart > 2.9f,
+            FormattableString.Invariant($"bow_reload: with it the bow nocks again in {bowFast.Second} and shoots {bowFast.Apart:0.00} s apart (the donor's 1.29); without, it lowers ({bowSlow.Second}) and shoots {bowSlow.Apart:0.00} s apart"));
+        // The donor's bow.
+        var bowRecordings = Directory.Exists(Path.Combine(repo!, "local", "recordings", "experiments"))
+            ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings", "experiments"), "l01_a-v18-bow*.rbrec").Order().ToList() : [];
+        if (bowRecordings.Count > 0)
+        {
+            var orcParty = combat.Orc.Party();
+            int timed = 0, leftShots = 0, flown = 0, flownWell = 0, tracked = 0, asked = 0, askedRight = 0;
+            float worstLeft = 0, worstTrack = 0;
+            var wrong = new List<string>();
+            var recorded = new Dictionary<string, BowRecording>();
+            foreach (var path in bowRecordings)
+            {
+                var rec = BowCalibration.Measure(path);
+                recorded[Path.GetFileNameWithoutExtension(path)] = rec;
+                foreach (var shot in rec.Shots) Console.WriteLine($"  {Path.GetFileNameWithoutExtension(path)} arrow {shot}");
+                // The donor's attack and parry through the lab's bow, at the recording's ticks: each arrow leaves when the donor's did.
+                var labBow = new DarkMessiah.Lab.Ranged.LabBow(new DarkMessiah.Lab.Ranged.BowRules(DarkMessiah.Lab.Ranged.BowRules.Classic, 9999), combat.FirstPerson.ClipSeconds);
+                var labLefts = new List<double>();
+                bool fastReload = rec.Modules.Contains("bow_reload");
+                for (int i = 0; i < rec.Input.Count; i++)
+                {
+                    double dt = i > 0 ? rec.Input[i].Time - rec.Input[i - 1].Time : rec.TickSeconds;
+                    if (labBow.Step((float)dt, rec.Input[i].Attack, rec.Input[i].Parry, fastReload)) labLefts.Add(rec.Input[i].Time);
+                }
+                leftShots += rec.Shots.Count;
+                // RB_BOWTRACE=name prints the recording's donor and lab release times.
+                if (Environment.GetEnvironmentVariable("RB_BOWTRACE") == Path.GetFileNameWithoutExtension(path))
+                    Console.WriteLine($"  donor {string.Join(" ", rec.Shots.Select(x => x.Left.ToString("0.000")))}\n  lab   {string.Join(" ", labLefts.Select(x => x.ToString("0.000")))}\n  clips {string.Join(" ", rec.Clips.Select(c => $"{c.Time:0.000}:{c.Clip.Replace("layer_bow", "")}"))}");
+                foreach (var shot in rec.Shots)
+                {
+                    double bowNear = labLefts.Count > 0 ? labLefts.Min(l => Math.Abs(l - shot.Left)) : double.PositiveInfinity;
+                    worstLeft = MathF.Max(worstLeft, (float)bowNear);
+                    if (bowNear <= 2.5 * rec.TickSeconds) timed++;
+                    else wrong.Add(FormattableString.Invariant($"{Path.GetFileNameWithoutExtension(path)} {shot.Left:0.00} s (lab {bowNear:0.00} off)"));
+                }
+                if (labLefts.Count != rec.Shots.Count) wrong.Add($"{Path.GetFileNameWithoutExtension(path)}: the lab shot {labLefts.Count}, the donor {rec.Shots.Count}");
+                foreach (var shot in rec.Shots.Where(s => !float.IsNaN(s.Pitch)))
+                {
+                    flown++;
+                    if (MathF.Abs(shot.Pitch - (-shot.ViewPitch + bowRules.Raise(-shot.ViewPitch))) <= .4f && MathF.Abs(shot.Speed - bowRules.SpeedUnits) <= .015f * bowRules.SpeedUnits
+                        && MathF.Abs(shot.Gravity - bowRules.GravityUnits) <= .05f * bowRules.GravityUnits) flownWell++;
+                    else wrong.Add($"{Path.GetFileNameWithoutExtension(path)} flight {shot}, {shot.Flight.Count} samples");
+                    // The lab's arrow from the donor's start, along its heading and the view: where it is at each donor sample until its first bounce.
+                    if (shot.Free < 6) continue;
+                    var heading = new Vector2(shot.Flight[2].At.X - shot.Flight[0].At.X, shot.Flight[2].At.Y - shot.Flight[0].At.Y);
+                    if (heading.LengthSquared() < 1) continue;
+                    heading = Vector2.Normalize(heading);
+                    float vp = -shot.ViewPitch * MathF.PI / 180;
+                    var look = RustyBridge.Wire.Donor.SourceSpace.Direction(new Vector3(heading.X * MathF.Cos(vp), heading.Y * MathF.Cos(vp), MathF.Sin(vp)));
+                    var arrow = new DarkMessiah.Lab.Ranged.LabArrow(RustyBridge.Wire.Donor.SourceSpace.Position(shot.Flight[0].At), bowRules.Launch(look));
+                    double at = 0;
+                    // Within 3 units and a hundredth of the way flown, over its free flight.
+                    float worst = 0;
+                    for (int k = 1; k < shot.Free; k++)
+                    {
+                        while (at < shot.Flight[k].After - 1e-6) { arrow.Step((float)rec.TickSeconds, bowRules, (_, _) => null); at += rec.TickSeconds; }
+                        float off = Vector3.Distance(arrow.Position, RustyBridge.Wire.Donor.SourceSpace.Position(shot.Flight[k].At)) / bmpu;
+                        worst = MathF.Max(worst, off / (3 + .01f * Vector3.Distance(shot.Flight[k].At, shot.Flight[0].At)));
+                    }
+                    tracked++;
+                    if (worst > 1) wrong.Add(FormattableString.Invariant($"{Path.GetFileNameWithoutExtension(path)} track {shot.Left:0.00} s: {worst:0.0} of the tolerance off"));
+                    worstTrack = MathF.Max(worstTrack, worst);
+                }
+                foreach (var shot in rec.Shots.Where(s => s.Hit is not null && s.Bow.Length > 0))
+                {
+                    var h = shot.Hit!.Value;
+                    asked++;
+                    // Into the world, the donor's ask is the base: as on an aware orc's body untraced.
+                    var alert = h.Alert is int level ? (level, h.NpcState) : (99, 3);
+                    float lab = combat.PlayerAsks(new DarkMessiah.Combat.Party("player", "", [DarkMessiah.Lab.Ranged.BowRules.Shoot], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel),
+                        orcParty, h.Group, false, 100, combat.Model.Data.PlayerStrength(shot.ExtraDamage), weapon: shot.Bow, alert: alert);
+                    if (MathF.Abs(lab - h.Asked) < .01f) askedRight++;
+                    else wrong.Add(FormattableString.Invariant($"{Path.GetFileNameWithoutExtension(path)} {shot.Left:0.00} s: donor {h.Asked:0.##}, lab {lab:0.##}"));
+                }
+            }
+            foreach (var w in wrong.Take(30)) Console.WriteLine($"  bow: {w}");
+            // Two releases were later than the rules: a draw pressed as the player landed from a drop waited out the landing
+            // (jump_out_bow, 0.12 s), and one waited on a restart of the bow's rest clip (0.06 s; docs/lab.md, "The bow").
+            Check(leftShots >= 40 && timed >= leftShots * 95 / 100 && worstLeft <= .13f && flown >= 30 && flownWell == flown && tracked >= 25 && worstTrack <= 1 && asked >= 30 && askedRight == asked,
+                FormattableString.Invariant($"the donor's bow: through the lab's bow its input released {timed} of {leftShots} arrows within 2.5 ticks of the donor's (worst {worstLeft:0.000} s); {flownWell} of {flown} flights left {bowRules.RaiseDegrees:0.0}° above the view (less from {DarkMessiah.Lab.Ranged.BowRules.CompensationStart:0}° up) at {bowRules.SpeedUnits:0} units/s falling {bowRules.GravityUnits:0}/s² (within 0.4°, 1.5%, 5%), and the lab's arrow from each of {tracked} starts kept within {worstTrack:0.00} of 3 units and 1% of its way of it over its free flight; {askedRight} of {asked} arrows asked the combat model's damage (four bows, strength 0 and 6, unaware orcs and the world)"));
+            // The zoom: the camera's field of view narrowed to the rules' and back, in their times.
+            if (recorded.GetValueOrDefault("l01_a-v18-bow-zoom") is { } zoomRec && zoomRec.Fov.Count > 4)
+            {
+                var fovs = zoomRec.Fov.ToList();
+                // Its field of view is across, at the 1280×720 the scenarios run: the zoomed one, high.
+                float wide = fovs.Max(f => f.Degrees), narrow = fovs.Min(f => f.Degrees);
+                float zoomedHigh = 2 * MathF.Atan(MathF.Tan(narrow * MathF.PI / 360) * 720 / 1280) * 180 / MathF.PI;
+                int firstNarrowing = fovs.FindIndex(f => f.Degrees < wide - .5f);
+                double began = fovs[firstNarrowing - 1].Time, full = fovs.First(f => f.Time > began && f.Degrees <= narrow + .5f).Time;
+                int widening = fovs.FindIndex(firstNarrowing, f => f.Time > full && f.Degrees > narrow + .5f);
+                // Widening began a frame (two ticks) before the first wider sample.
+                double back = fovs.First(f => f.Time > fovs[widening].Time && f.Degrees >= wide - .5f).Time, unzoom = fovs[widening].Time - 2 * zoomRec.TickSeconds;
+                Check(MathF.Abs(zoomedHigh - DarkMessiah.Lab.Ranged.BowRules.ZoomedDegrees) <= .3f && Math.Abs(full - began - DarkMessiah.Lab.Ranged.BowRules.ZoomIn) <= .05 && Math.Abs(back - unzoom - DarkMessiah.Lab.Ranged.BowRules.ZoomOut) <= .05,
+                    FormattableString.Invariant($"the donor's zoom: {wide:0.0}° to {narrow:0.0}° across, {zoomedHigh:0.0}° high (the lab's {DarkMessiah.Lab.Ranged.BowRules.ZoomedDegrees:0.0}), in {full - began:0.00} s, back in {back - unzoom:0.00} s"));
+            }
+            // The sway: the camera's pitch off the view through a 6 s hold, against the lab's head with and without stability.
+            float SwayOff(BowRecording rec, int projectile)
+            {
+                var holds = new List<List<(double Time, float Offset)>>();
+                foreach (var c in rec.Camera)
+                {
+                    if (holds.Count == 0 || c.Time - holds[^1][^1].Time > .1) holds.Add([]);
+                    holds[^1].Add(c);
+                }
+                var longest = holds.OrderByDescending(h => h[^1].Time - h[0].Time).First();
+                combat.Rebuild(Archer(projectile));
+                BowInHand();
+                for (int i = 0; i < 300 && combat.Bow?.State != DarkMessiah.Lab.Ranged.BowState.Rest; i++) combat.Step(Tick, step++, false, false, false, bowEye, Vector3.UnitZ, bowEye - Vector3.UnitY * 1.6f);
+                var lab = new List<float>();
+                for (int i = 0; i < (int)(6 / Tick); i++)
+                {
+                    combat.Step(Tick, step++, true, false, false, bowEye, Vector3.UnitZ, bowEye - Vector3.UnitY * 1.6f);
+                    lab.Add(combat.FirstPerson.Head.Turn.Pitch);
+                }
+                for (int i = 0; i < 240 && combat.Bow?.State != DarkMessiah.Lab.Ranged.BowState.Rest; i++) combat.Step(Tick, step++, false, false, false, bowEye, Vector3.UnitZ, bowEye - Vector3.UnitY * 1.6f);
+                double sum = 0;
+                int n = 0;
+                foreach (var (time, offset) in longest)
+                {
+                    int k = (int)Math.Round((time - longest[0].Time) / Tick);
+                    if (k < 0 || k >= lab.Count) continue;
+                    sum += (offset - lab[k]) * (offset - lab[k]);
+                    n++;
+                }
+                if (Environment.GetEnvironmentVariable("RB_SWAYTRACE") == "1")
+                    Console.WriteLine($"  sway {projectile}: " + string.Join(" ", longest.Where((_, i) => i % 6 == 0).Select(c => { int k = (int)Math.Round((c.Time - longest[0].Time) / Tick); return FormattableString.Invariant($"{c.Time - longest[0].Time:0.00}:{c.Offset:0.0}/{(k < lab.Count ? lab[k] : float.NaN):0.0}"); })));
+                return n > 0 ? (float)Math.Sqrt(sum / n) : float.NaN;
+            }
+            if (recorded.GetValueOrDefault("l01_a-v18-bow") is { } steadyRec && recorded.GetValueOrDefault("l01_a-v18-bow-basic") is { } unsteadyRec)
+            {
+                float steadyOff = SwayOff(steadyRec, 3), unsteadyOff = SwayOff(unsteadyRec, 0), crossed = SwayOff(unsteadyRec, 3);
+                Check(steadyOff <= .6f && unsteadyOff <= .6f && crossed > 1,
+                    FormattableString.Invariant($"the donor's sway through a 6 s hold: the lab's head is {steadyOff:0.00}° (RMS) off its camera with stability and {unsteadyOff:0.00}° without; without stability against the lab's steady head, {crossed:0.00}°"));
+            }
+        }
+        else Console.WriteLine("skip the donor's bow: no local/recordings/experiments/l01_a-v18-bow*.rbrec");
+        combat.Rebuild(file);
+        combat.Orc.Hold = bowWasHeld;
+        ((IReplayBody)product).Begin();
+    }
     // RB_MAGICONLY=1 stops the smoke after the telekinesis and fireball checks.
     if (Environment.GetEnvironmentVariable("RB_MAGICONLY") == "1") Environment.Exit(0);
     // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.

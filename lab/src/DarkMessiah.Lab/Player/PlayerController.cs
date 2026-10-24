@@ -400,6 +400,13 @@ internal sealed class PlayerController : IDisposable
         return eye + out_ * Math.Clamp(((float)hit.Distance - back) / length, 0, 1);
     }
 
+    /// <summary>The bow's zoom (#10168): how far, 0 to 1, the view has narrowed toward its field of view, degrees high.</summary>
+    internal (float Fraction, float Degrees) Zoom { get; set; }
+
+    // From the tuning's view toward the zoom's, on the tangent of the half angle.
+    float FieldOfView => Zoom.Fraction <= 0 ? Tuning.FieldOfViewDegrees : 2 * MathF.Atan(float.Lerp(MathF.Tan(Tuning.FieldOfViewDegrees * MathF.PI / 360),
+        MathF.Tan(Zoom.Degrees * MathF.PI / 360), Zoom.Fraction)) * 180 / MathF.PI;
+
     internal CameraDescriptor Descriptor()
     {
         Vector3 bob = Vector3.UnitY * (Tuning.HeadBobMetres * bobScale * MathF.Sin(bobPhase));
@@ -407,11 +414,11 @@ internal sealed class PlayerController : IDisposable
         if (Camera is { } rig && rig.At(eye, Forward) is var (at, forward, up))
             return new(new CameraPose(Clear(eye, at), LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
                 CameraBasisMode.Explicit, new CameraBasis(forward, Vector3.Normalize(Vector3.Cross(forward, up)), up),
-                new CameraProjection(CameraProjectionKind.Perspective, Tuning.FieldOfViewDegrees, 0, NearPlane, Tuning.FarPlane),
+                new CameraProjection(CameraProjectionKind.Perspective, FieldOfView, 0, NearPlane, Tuning.FarPlane),
                 new CameraViewport(0, 0, 1, 1));
         return new(new CameraPose(eye, LookState.PitchRadians * 180 / Math.PI, LookState.YawRadians * 180 / Math.PI),
             CameraBasisMode.Derived, default,
-            new CameraProjection(CameraProjectionKind.Perspective, Tuning.FieldOfViewDegrees, 0, NearPlane, Tuning.FarPlane),
+            new CameraProjection(CameraProjectionKind.Perspective, FieldOfView, 0, NearPlane, Tuning.FarPlane),
             new CameraViewport(0, 0, 1, 1));
     }
 

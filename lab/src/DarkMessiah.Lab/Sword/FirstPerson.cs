@@ -160,16 +160,19 @@ internal sealed class FirstPerson : IDisposable
     /// moved to that side, the view rolled.</param>
     internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward, bool airborne = false, Vector3 velocity = default, float lean = 0)
     {
-        // A spell in hand (#10165): its ready loop, and the cast over it while one forms; the sword away.
-        var idle = arms.Model.Clip(Spell is { } spell ? spell.Ready : move.Clips.Idle.Clip);
+        // A spell in hand (#10165): its ready loop, and the cast over it while one forms; the sword away. The bow (#10168):
+        // its rest, and its draw, shot and reload over it.
+        var idle = arms.Model.Clip(Spell is { } spell ? spell.Ready : Bow is not null ? Ranged.BowRules.Rest : move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
-        if (Spell is { Cast: { } cast } casting) arms.Play(idle.Name, idleCycle, (cast, casting.Cycle, 1));
+        if (Bow is { } bow) { if (bow.Clip == Ranged.BowRules.Rest) arms.Play(idle.Name, idleCycle); else arms.Play(idle.Name, idleCycle, (bow.Clip, bow.Cycle, 1)); }
+        else if (Spell is { Cast: { } cast } casting) arms.Play(idle.Name, idleCycle, (cast, casting.Cycle, 1));
         else if (Spell is not null || move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
         // The head turns the view (#10161); the arms stand at the eye, turned with it, and the camera above it.
         if (move.Move == SwordMove.Away && lastMove != SwordMove.Away) head.Grabbed();
         lastMove = move.Move;
-        head.Step(seconds, move.Move == SwordMove.Ready ? null : (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle), airborne, velocity);
+        if (Bow is { } held) head.Step(seconds, held.Head is { } h ? (h.Clip, h.Cycle) : null, airborne, velocity, held.Head?.Weight ?? 1);
+        else head.Step(seconds, move.Move == SwordMove.Ready ? null : (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle), airborne, velocity);
         var look = Vector3.Normalize(forward);
         var right = Vector3.Normalize(Vector3.Cross(look, Vector3.UnitY));
         var up = Vector3.Cross(right, look);
@@ -189,6 +192,14 @@ internal sealed class FirstPerson : IDisposable
         Sword = Rig.Attached(arms.Model, pose, main) ?? Arms;
         OffHand = offHand is not null && other is not null ? Rig.Attached(arms.Model, pose, other) ?? Arms : null;
         ShieldAt = shield is not null ? Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms : null;
+        if (Bow is { } drawn)
+        {
+            bowPuppet = Loaded(drawn.Model);
+            arrowPuppet = Loaded(ArrowModel);
+            BowAt = Rig.Attached(arms.Model, pose, "LeftHand_Bow") ?? Arms;
+            ArrowAt = drawn.Nocked ? Rig.Attached(arms.Model, pose, "RightHand_Arrows") ?? Arms : null;
+        }
+        else BowAt = ArrowAt = null;
         var swordPose = Rig.Rest(engine, sword.Instance, Sword);
         Tip = sword.Model.Joints.TryGetValue(blade.Joint, out int j) ? Vector3.Transform(blade.Tip, swordPose[j].World.Rotation) + swordPose[j].World.Translation : Sword.Translation;
     }
@@ -217,6 +228,19 @@ internal sealed class FirstPerson : IDisposable
     /// </summary>
     internal (string Ready, string? Cast, float Cycle)? Spell { get; set; }
 
+    /// <summary>
+    /// The bow in hand, for the arms (#10168): its model, the arms' clip at its cycle, whether an arrow is nocked, and
+    /// the head's clip (the draw's dip or the sway) at its cycle and weight; null for the weapon.
+    /// </summary>
+    internal (string Model, string Clip, float Cycle, bool Nocked, (string Clip, float Cycle, float Weight)? Head)? Bow { get; set; }
+
+    /// <summary>The arrow drawn nocked: the classic arrow, every bow's.</summary>
+    internal const string ArrowModel = "models/items/weapons/arrows/arrow_classic.mdl";
+    Puppet? bowPuppet, arrowPuppet;
+    /// <summary>The bow and the nocked arrow, as last posed; null without them.</summary>
+    internal Transform? BowAt { get; private set; }
+    internal Transform? ArrowAt { get; private set; }
+
     /// <summary>A clip's length in seconds on the arms (0 when the model lacks it).</summary>
     internal float ClipSeconds(string clip) => arms.Model.Clip(clip).Seconds;
 
@@ -224,6 +248,12 @@ internal sealed class FirstPerson : IDisposable
     {
         yield return arms.Fact(Arms);
         if (Spell is not null) yield break;
+        if (Bow is not null)
+        {
+            if (bowPuppet is not null && BowAt is { } bowAt) yield return bowPuppet.Fact(bowAt);
+            if (arrowPuppet is not null && ArrowAt is { } arrowAt) yield return arrowPuppet.Fact(arrowAt);
+            yield break;
+        }
         yield return sword.Fact(Sword);
         if (offHand is not null && OffHand is { } left) yield return offHand.Fact(left);
         if (shield is not null && ShieldAt is { } arm) yield return shield.Fact(arm);

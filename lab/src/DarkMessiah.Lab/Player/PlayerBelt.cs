@@ -37,20 +37,26 @@ internal sealed class PlayerBelt
     internal const int Slots = 9;
     readonly (BeltItem Item, int Count)?[] slots = new (BeltItem, int)?[Slots];
     readonly string?[] spells = new string?[Slots];
+    readonly string?[] bows = new string?[Slots];
 
     internal (BeltItem Item, int Count)? this[int slot] => slots[slot];
 
     /// <summary>The spell slot <paramref name="slot"/> holds (its key puts it in hand), or null (#10165).</summary>
     internal string? SpellAt(int slot) => slot is >= 0 and < Slots ? spells[slot] : null;
 
+    /// <summary>The bow slot <paramref name="slot"/> holds (its key puts it in hand), or null (#10168).</summary>
+    internal string? BowAt(int slot) => slot is >= 0 and < Slots ? bows[slot] : null;
+
     /// <summary>The build's belt, full again.</summary>
     internal void Fill(DonorContent donor, IReadOnlyList<BeltSlot> belt)
     {
         Array.Clear(slots);
         Array.Clear(spells);
+        Array.Clear(bows);
         for (int i = 0; i < Math.Min(Slots, belt.Count); i++)
         {
             spells[i] = belt[i].Spell;
+            bows[i] = belt[i].Bow;
             slots[i] = belt[i].Item is { } item && belt[i].Count > 0 ? (BeltItem.Of(donor, item), belt[i].Count) : null;
         }
     }
@@ -67,5 +73,5 @@ internal sealed class PlayerBelt
 
     /// <summary>What it holds, for the HUD: "1 life_potion ×2 · 3 full_life_potion".</summary>
     internal string Describe() => string.Join(" · ", slots.Select((s, i) => s is { } held ? $"{i + 1} {held.Item.Name}{(held.Count > 1 ? $" ×{held.Count}" : "")}"
-        : spells[i] is { } spell ? $"{i + 1} {spell}" : null).OfType<string>());
+        : spells[i] is { } spell ? $"{i + 1} {spell}" : bows[i] is { } bow ? $"{i + 1} {Path.GetFileNameWithoutExtension(bow)}" : null).OfType<string>());
 }

@@ -1,0 +1,99 @@
+{
+  "description": "The bow's zoom (#10168): every skill (bow_zoom, Eagle Eye: '+zoom while using a bow'), god, notarget, the classic bow, no NPC. Drawn 2.5 s then +zoom held 3 s and released zoomed; +zoom tapped while drawn and again after; +zoom with the bow at rest. Marked with echo rb_bow.",
+  "seconds": 41,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "setpos 0 -2700 -12",
+    "setang 2.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow zoom: drawn 2.5 s, +zoom held 3 s, released zoomed",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "+zoom",
+    {
+      "wait": 3
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    "-zoom",
+    {
+      "wait": 3
+    },
+    "echo rb_bow zoom: +zoom tapped while drawn",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "+zoom",
+    {
+      "wait": 0.1
+    },
+    "-zoom",
+    {
+      "wait": 3
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    "+zoom",
+    {
+      "wait": 0.1
+    },
+    "-zoom",
+    {
+      "wait": 3
+    },
+    "echo rb_bow zoom: +zoom with the bow at rest",
+    "+zoom",
+    {
+      "wait": 3
+    },
+    "-zoom",
+    {
+      "wait": 3
+    }
+  ]
+}

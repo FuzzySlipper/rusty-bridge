@@ -78,7 +78,8 @@ internal static class ReactionCalibration
             try
             {
                 using var stream = File.OpenRead(path);
-                foreach (var f in RecordingReader.Frames(stream))
+                var arrows = new Arrows();
+                foreach (var f in arrows.Frames(stream))
                 {
                     for (int p = pending.Count - 1; p >= 0; p--)
                     {
@@ -104,7 +105,8 @@ internal static class ReactionCalibration
                     }
                     foreach (var d in f.Damage)
                     {
-                        if (d.Damage <= 0) continue;
+                        // An arrow's reaction isn't the melee rule's (#10168).
+                        if (d.Damage <= 0 || arrows.Is(f, d)) continue;
                         if (!f.Entities.TryGetValue(d.Attacker, out var a) || f.Classes.GetValueOrDefault(a.ClassId) != "player") continue;
                         if (!f.Entities.TryGetValue(d.Victim, out var v) || f.Classes.GetValueOrDefault(v.ClassId) != Replay.InputTimeline.OrcClass) continue;
                         var names = f.Sequences.GetValueOrDefault(v.ModelIndex) ?? [];

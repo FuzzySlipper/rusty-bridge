@@ -154,8 +154,9 @@ internal sealed class InputTimeline
         var weaponChanges = new List<(int, string)>();
         string? lastWeapon = null;
         var lastCommand = (Buttons: InputButtons.None, Actions: PlayerActions.None);
+        var arrows = new Calibration.Arrows();
         using (var stream = File.OpenRead(path))
-            foreach (var f in RecordingReader.Frames(stream))
+            foreach (var f in arrows.Frames(stream))
             {
                 foreach (var d in f.Damage)
                     if (f.Entities.TryGetValue(d.Victim, out var victim) && f.Classes.GetValueOrDefault(victim.ClassId) == "player")
@@ -171,8 +172,8 @@ internal sealed class InputTimeline
                     lastHealth = me.Health;
                 }
                 foreach (var d in f.Damage)
-                    // A kick's push is a call of its own, zero damage and untraced: not the kick's blow.
-                    if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
+                    // A kick's push is a call of its own, zero damage and untraced: not the kick's blow. An arrow carries the bit too.
+                    if ((d.DamageType & KickDamage) != 0 && d.TraceValid != 0 && !arrows.Is(f, d) && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
                         && f.Entities.TryGetValue(d.Victim, out var v) && f.Classes.GetValueOrDefault(v.ClassId) is { } cls && cls.StartsWith("npc_", StringComparison.Ordinal))
                         kicks.Add((d.Tick, $"#{d.Victim}.{d.VictimSerial:x}", cls, d.Damage));
                 if (f.Version >= 15 && f.Stats.Valid != 0)

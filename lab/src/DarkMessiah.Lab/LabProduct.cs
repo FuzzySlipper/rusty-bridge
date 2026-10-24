@@ -38,6 +38,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     // The fireballs' look (#10165): a small glowing box each, drawn where it is.
     private readonly Appearance fireballLook;
     private readonly List<EntityId> fireballIds = [];
+    // The arrows in flight (#10168): a thin box each, along its flight.
+    private readonly Appearance arrowLook;
+    private readonly List<EntityId> arrowIds = [];
     private ulong generation;
     private double worldSeconds;
     private string notice = "";
@@ -72,6 +75,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             return hit.Present ? from + step / length * (float)hit.Distance : null;
         };
         fireballLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(1f, .55f, .15f, 1)));
+        arrowLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(.45f, .32f, .2f, 1)));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
         if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
@@ -139,6 +143,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         bool attackHeld = cubes.Held is null && (physical.Held(PointerButton.Primary) || physical.Held(ControllerButton.Button7));
         bool blockHeld = physical.Held(PointerButton.Secondary) || physical.Held(ControllerButton.Button6);
         bool kickHeld = physical.Held(KeyboardControl.KeyF);
+        // The bow's zoom on V, the donor's +zoom (#10168).
+        bool zoomHeld = physical.Held(KeyboardControl.KeyV);
         float delta = (float)facts.FixedDeltaSeconds;
         combat.FirstPerson.Head.LandingScale = player.Tuning.LandingDip;
         bool leanLeft = physical.Held(KeyboardControl.KeyZ), leanRight = physical.Held(KeyboardControl.KeyX);
@@ -161,7 +167,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             player.Lean.Step(delta, leanLeft, leanRight);
             combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
                 move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
-                crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value);
+                crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value, zoomHeld: zoomHeld);
+            player.Zoom = (combat.Zoom, Ranged.BowRules.ZoomedDegrees);
             kickPending = attackPending = blockPending = false;
             // The first person draws from above the eye, turned by the head (#10161).
             player.Camera = combat.FirstPerson.View;
@@ -208,6 +215,19 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             yield return new AppearanceFact(fireballIds[i].Value, false, 0, new Transform(balls[i].Position, Quaternion.Identity, new Vector3(.25f)), fireballLook, true, RenderLayer.Scene);
     }
 
+    /// <summary>Each arrow in flight as a box 2 cm square and 0.75 m long (the classic arrow's length), along its velocity.</summary>
+    private IEnumerable<AppearanceFact> ArrowFacts()
+    {
+        var flying = combat.ArrowsInFlight;
+        while (arrowIds.Count < flying.Count) arrowIds.Add(scene.Entities.Create());
+        for (int i = 0; i < flying.Count; i++)
+        {
+            var along = flying[i].Velocity.LengthSquared() > 1e-6f ? Vector3.Normalize(flying[i].Velocity) : Vector3.UnitZ;
+            var turn = Quaternion.CreateFromRotationMatrix(Matrix4x4.CreateWorld(Vector3.Zero, along, MathF.Abs(along.Y) > .99f ? Vector3.UnitX : Vector3.UnitY));
+            yield return new AppearanceFact(arrowIds[i].Value, false, 0, new Transform(flying[i].Position, turn, new Vector3(.02f, .02f, .75f)), arrowLook, true, RenderLayer.Scene);
+        }
+    }
+
     public void Dispose()
     {
         if (disposed) return;
@@ -217,6 +237,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         // The scene publishes an empty snapshot first, so the fight's appearances leave it before they're released.
         scene.Dispose();
         fireballLook.Dispose();
+        arrowLook.Dispose();
         combat.Dispose();
         hud.Dispose();
         donor.Dispose();
@@ -240,7 +261,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     private static readonly string[] PlaytestActions =
         ["forward", "back", "left", "right", "jump", "crouch", "sprint", "use", "attack", "power", "parry", "kick", "throw",
-         "god", "belt1", "lean-left", "lean-right", "hold-world", "step-world", "reset"];
+         "god", "belt1", "belt5", "zoom", "lean-left", "lean-right", "hold-world", "step-world", "reset"];
 
     private PlaytestAction Action(string id) => id switch
     {
@@ -261,6 +282,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         "kick" => new(id, "KeyF", 100, false),
         "god" => new(id, "KeyG", 100, false),
         "belt1" => new(id, "Digit1", 100, false),
+        "belt5" => new(id, "Digit5", 100, false),
+        "zoom" => new(id, "KeyV", 1500, false, combat.Bow is not null, combat.Bow is null ? "No bow in hand" : null),
         "lean-left" => new(id, "KeyZ", 800, false),
         "lean-right" => new(id, "KeyX", 800, false),
         "throw" => new(id, "Primary", 100, false, cubes.Held is not null, cubes.Held is null ? "No cube held" : null),
@@ -313,7 +336,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private void Publish()
     {
         player.Publish(worldSeconds);
-        scene.Publish(combat.Facts().Concat(FireballFacts()));
+        scene.Publish(combat.Facts().Concat(FireballFacts()).Concat(ArrowFacts()));
         engine.Ui.PublishProjection(new UiProjection(hud, LabHud.Create(Observation())));
     }
 

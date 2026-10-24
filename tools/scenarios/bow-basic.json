@@ -1,0 +1,163 @@
+{
+  "description": "The bow without skills (#10168): the same as bow with a new game's skills (no bow_zoom, stability or bow_reload): shots from 200 units held 0.3, 1 and 2.5 s, one from 400 held 6 s, five 0.5 s draws back to back.",
+  "seconds": 58,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_bow still orc, ai_disable",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword sethealth 1000",
+    {
+      "wait": 0.5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 200 units, held 0.3 s",
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 1.0 s",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 2.5 s",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 400 units, held 6 s (no zoom skill)",
+    "+attack",
+    {
+      "wait": 6.0
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow five draws back to back",
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    }
+  ]
+}

@@ -4,6 +4,7 @@ using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Magic;
 using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Player;
+using DarkMessiah.Lab.Ranged;
 using DarkMessiah.Lab.Sword;
 using DarkMessiah.Shared;
 using Rusty.Engine;
@@ -274,9 +275,129 @@ internal sealed class LabCombat : IDisposable
         if (SpellInHand == spell) { SpellInHand = null; Message = "Weapon in hand"; return; }
         if (Build is { } build && !build.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase)) { Message = $"{spell} isn't known"; return; }
         if (!spell.Equals(FireballRules.Spell, StringComparison.OrdinalIgnoreCase)) { Message = $"{spell} isn't played yet"; return; }
+        Bow = null;
         SpellInHand = FireballRules.Spell;
         spellAttackHeld = false;
         Message = "Fireball in hand";
+    }
+
+    /// <summary>The bow in hand, or null for the weapon (#10168): the belt puts it there.</summary>
+    internal LabBow? Bow { get; private set; }
+    readonly List<LabArrow> arrows = [];
+    /// <summary>The arrows in flight, for drawing.</summary>
+    internal IReadOnlyList<LabArrow> ArrowsInFlight => arrows;
+    /// <summary>Arrows shot, and those that struck an orc.</summary>
+    internal (int Shot, int Struck) Archery { get; private set; }
+    /// <summary>The last arrow that struck an orc: the orc, its hit group and what it asked.</summary>
+    internal (Orc Orc, int? Group, float Asked)? LastArrow { get; private set; }
+    /// <summary>The bow's zoom, 0 (none) to 1 (narrowed to <see cref="BowRules.ZoomedDegrees"/>).</summary>
+    internal float Zoom { get; private set; }
+
+    /// <summary>Puts the bow <paramref name="model"/> in hand, or the weapon back if it's there already (a belt key, #10168).</summary>
+    internal void ToggleBow(string model)
+    {
+        if (Bow is { } held && held.Rules.Model == VpkIndex.Normalize(model)) { Bow = null; Message = "Weapon in hand"; return; }
+        SpellInHand = null;
+        Bow = new LabBow(arrowRules = BowRules.Of(donor, model), FirstPerson.ClipSeconds);
+        Zoom = 0;
+        Message = $"{Path.GetFileNameWithoutExtension(model)} in hand";
+    }
+
+    /// <summary>
+    /// The bow this step: its cycle, an arrow leaving along the view from the eye, the zoom held (<c>bow_zoom</c>), and
+    /// the arrows in flight (#10168).
+    /// </summary>
+    void StepBow(ulong tick, float seconds, bool attack, bool parry, bool zoom, Vector3 eye, Vector3 forward)
+    {
+        if (Bow is { } bow)
+        {
+            if (bow.Step(seconds, attack, parry, Build?.Has("bow_reload") == true))
+            {
+                arrows.Add(new LabArrow(eye, bow.Rules.Launch(forward)));
+                Archery = Archery with { Shot = Archery.Shot + 1 };
+            }
+            bool zooming = zoom && Build?.Has("bow_zoom") == true && (bow.Aiming || Zoom > 0);
+            Zoom = Math.Clamp(Zoom + (zooming ? seconds / BowRules.ZoomIn : -seconds / BowRules.ZoomOut), 0, 1);
+        }
+        else Zoom = 0;
+        foreach (var arrow in arrows)
+        {
+            arrowHit = null;
+            arrow.Step(seconds, arrowRules, ArrowMeets);
+            if (arrowHit is { } hit) ArrowStrikes(tick, hit.Orc, hit.Contact, hit.Targets);
+        }
+        arrows.RemoveAll(a => a.Stopped is not null);
+    }
+
+    /// <summary>
+    /// The head's clip for the bow (#10168; <see cref="BowRules.HeadDraw"/>): the draw's dip as it's drawn, the steadier
+    /// one with <c>stability</c>; without it, the sway loop held drawn, fading; the reload's own clip while it reloads.
+    /// </summary>
+    (string Clip, float Cycle, float Weight)? BowHead(LabBow bow)
+    {
+        var head = FirstPerson.Head;
+        if (bow.State == BowState.FastReload) return (BowRules.FastReload, bow.Clip.Cycle, 1);
+        if (float.IsNaN(bow.DrawAge) || bow.State is not (BowState.Drawing or BowState.Drawn)) return null;
+        bool steady = Build?.Has("stability") == true;
+        string drawClip = steady ? BowRules.HeadSteadyDraw : BowRules.HeadDraw;
+        float draw = MathF.Max(.01f, head.ClipSeconds(drawClip));
+        if (bow.DrawAge < draw) return (drawClip, bow.DrawAge / draw, 1);
+        float held = bow.DrawAge - draw, weight = 1 - held / BowRules.SwayFade;
+        if (steady || weight <= 0) return null;
+        return (BowRules.HeadSway, held / MathF.Max(.01f, head.ClipSeconds(BowRules.HeadSway)) % 1, weight);
+    }
+
+    // The last bow's rules, which its arrows fly and strike by once it's put away (every bow's flight is the same).
+    BowRules arrowRules = new(BowRules.Classic, 30);
+    (Orc Orc, HitContact Contact, List<PosedTarget> Targets)? arrowHit;
+
+    /// <summary>The arrow's radius against the orc's hit boxes, metres: 1 unit.</summary>
+    const float ArrowRadius = 1 * SourceSpace.MetresPerUnit;
+
+    /// <summary>
+    /// Where an arrow's step meets the nearest live orc's hit boxes on its way, or the world. It passes the orcs' cleaver
+    /// and shield hulls (no recorded arrow met one).
+    /// </summary>
+    Vector3? ArrowMeets(Vector3 from, Vector3 to)
+    {
+        Vector3? met = WorldRay?.Invoke(from, to);
+        float nearest = met is Vector3 w ? Vector3.Distance(from, w) : float.PositiveInfinity;
+        foreach (var orc in Orcs.Where(o => o.Alive && !o.Following))
+        {
+            var targets = orc.Targets();
+            if (targets.Count == 0) continue;
+            var contacts = sweep.Sweep(from, to, ArrowRadius, targets).Where(c => !c.Hull).OrderBy(c => c.Along).ToList();
+            if (contacts.Count > 0 && contacts[0].Along <= nearest)
+            {
+                nearest = contacts[0].Along;
+                met = contacts[0].Point;
+                arrowHit = (orc, contacts[0], targets);
+            }
+        }
+        // The world nearer than every orc: the arrow stops there.
+        if (arrowHit is { } hit && met != hit.Contact.Point) arrowHit = null;
+        return met;
+    }
+
+    /// <summary>
+    /// An arrow strikes an orc (#10168): on its body, a player blow of the bow's shoot clip with the bow's <c>WDmg</c> on
+    /// the hit group struck (the not-alerted ×3 and the rest as any blow), and the clip's <c>adrenalineadd</c>; on its
+    /// cleaver or shield, nothing.
+    /// </summary>
+    void ArrowStrikes(ulong tick, Orc orc, HitContact c, List<PosedTarget> targets)
+    {
+        if (c.Target != 0) { Message = "The arrow glances off"; return; }
+        hitOrc = orc;
+        int group = targets[0].Model.Hitboxes[c.Hitbox].Group;
+        var player = new Party("player", "", [BowRules.Shoot], 0, "#1", PlayerModel);
+        float asked = Asked(tick, player, orc.Party(), group, Bow?.Rules.Model ?? arrowRules.Model);
+        var shot = model.EventOf(player);
+        Adrenaline.Gain(shot?.Adrenaline ?? 0);
+        orc.Damage(asked);
+        Archery = Archery with { Struck = Archery.Struck + 1 };
+        LastArrow = (orc, group, asked);
+        Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
+        Message = !orc.Alive ? "The orc falls" : FormattableString.Invariant($"The arrow hits for {asked:0.##} (hit group {group})");
     }
 
     /// <summary>Casts the spell in hand: its cost from mana, or nothing when the mana doesn't cover it.</summary>
@@ -428,6 +549,7 @@ internal sealed class LabCombat : IDisposable
         if (PlayerHealth <= 0) return;
         // A spell's slot puts it in hand, or the weapon back (#10165).
         if (Belt.SpellAt(slot) is { } spell) { ToggleSpell(spell); return; }
+        if (Belt.BowAt(slot) is { } bow) { ToggleBow(bow); return; }
         if (Belt.Use(slot, Health, Mana) is { } item)
             Message = FormattableString.Invariant($"{item.Name}: health {PlayerHealth:0.#} of {Health.Max:0}, mana {Mana.Value:0.#} of {Mana.Max:0}");
     }
@@ -506,7 +628,7 @@ internal sealed class LabCombat : IDisposable
     /// <param name="sprinting">Sprint is held while the body moves: it sprints, draining stamina, once there is enough to start.</param>
     /// <param name="crouched">The body crouches (duck held).</param>
     internal void Step(float seconds, ulong tick, bool attackHeld, bool blockHeld, bool kickHeld, Vector3 eye, Vector3 forward, Vector3 feet,
-        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false, float lean = 0)
+        OrcPose? orcPose = null, Vector2 move = default, bool grounded = true, bool sprinting = false, bool crouched = false, float lean = 0, bool zoomHeld = false)
     {
         fightSeconds += seconds;
         AdrenalineGained = 0;
@@ -524,6 +646,9 @@ internal sealed class LabCombat : IDisposable
             attackHeld = blockHeld = false;
         }
         StepFireballs(seconds, eye, forward);
+        // The bow in hand takes attack and parry (#10168); the sword is away, and doesn't kick.
+        StepBow(tick, seconds, Bow is not null && attackHeld, Bow is not null && blockHeld, zoomHeld, eye, forward);
+        if (Bow is not null) attackHeld = blockHeld = kickHeld = false;
         Sword.Fatal = canFatality && Adrenaline.Full;
         Sword.BackstabReady = BackstabReady(forward, feet, orcPose);
         Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
@@ -538,6 +663,7 @@ internal sealed class LabCombat : IDisposable
         var bodyVelocity = poseFeet is { } was && seconds > 0 ? (feet - was) / seconds : Vector3.Zero;
         poseFeet = feet;
         // A spell in hand poses the arms its own way: the cast clip while the newest fireball forms (#10165).
+        FirstPerson.Bow = Bow is { } inHand ? (inHand.Rules.Model, inHand.Clip.Clip, inHand.Clip.Cycle, inHand.Nocked, BowHead(inHand)) : null;
         FirstPerson.Spell = SpellInHand is null ? null : fireballs.LastOrDefault(b => !b.Flying) is { } forming
             ? (FireballRules.ReadyClip, FireballRules.CastClip, Math.Clamp(forming.Age / MathF.Max(.01f, FirstPerson.ClipSeconds(FireballRules.CastClip)), 0, 1))
             : (FireballRules.ReadyClip, null, 0);
@@ -1079,6 +1205,11 @@ internal sealed class LabCombat : IDisposable
         fireballs.Clear();
         SpellInHand = null;
         LastFireball = LastMateFireball = null;
+        Bow = null;
+        arrows.Clear();
+        Archery = default;
+        LastArrow = null;
+        Zoom = 0;
         Spells = default;
         if (Build?.Belt is { } belt) Belt.Fill(donor, belt);
         recent.Clear();

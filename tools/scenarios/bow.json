@@ -1,0 +1,333 @@
+{
+  "description": "The bow (#10168): every skill, god, notarget, the level's NPCs removed, the classic bow (weapon_arxcrossbow; bow_classic.mdl) given and drawn. An orc spawned in the start courtyard at (0, -2300) with 1000 health and frozen (ai_disable 1): shots (console +attack held, then -attack) from 200 units south held 0.1 to 2.5 s, from 400 and 600 units, one from 300 east, one held 6 s (bow_zoom), five 0.5 s draws back to back (bow_reload); then ai_disable off and notarget off, a new orc coming at the player from 700 units, six 1 s draws at it. Marked in the console with echo rb_bow.",
+  "seconds": 111,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_bow still orc, ai_disable",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword sethealth 1000",
+    {
+      "wait": 0.5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 200 units, held 0.1 s",
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 0.3 s",
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 0.6 s",
+    "+attack",
+    {
+      "wait": 0.6
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 1.0 s",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 1.5 s",
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 200 units, held 2.5 s",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 400 units, held 1.0 s",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 400 units, held 0.3 s",
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2900 -12",
+    "setang 1.5 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 600 units, held 1.0 s",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_bow 600 units, held 2.5 s",
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setpos 300 -2300 -12",
+    "setang 3.1 180.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 300 units east, held 1.0 s",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2700 -12",
+    "setang 2.3 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow 400 units, held 6 s (zoom)",
+    "+attack",
+    {
+      "wait": 6.0
+    },
+    "-attack",
+    {
+      "wait": 4
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow five draws back to back",
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    "+attack",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.05
+    },
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_bow moving orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword sethealth 1000",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -3000 -12",
+    "setang 1.3 90.0 0",
+    "notarget",
+    {
+      "wait": 1.5
+    },
+    "echo rb_bow moving orc, held 1.0 s (1)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "echo rb_bow moving orc, held 1.0 s (2)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "echo rb_bow moving orc, held 1.0 s (3)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "echo rb_bow moving orc, held 1.0 s (4)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "echo rb_bow moving orc, held 1.0 s (5)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "echo rb_bow moving orc, held 1.0 s (6)",
+    "+attack",
+    {
+      "wait": 1.0
+    },
+    "-attack",
+    {
+      "wait": 0.8
+    },
+    "notarget",
+    {
+      "wait": 1
+    }
+  ]
+}

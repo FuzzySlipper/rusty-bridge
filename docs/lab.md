@@ -41,7 +41,9 @@ rusty dev
 | G | God: the orc's blows still count but take no health |
 | Z / X, hold | Lean left / right (#10161) |
 | Walk into a ladder | Climb it (the loft's); back off its top to climb down; Space lets go (#10163) |
-| 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162) |
+| 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162); 3 the fireball, 5 the classic bow |
+| Left button, with the bow | Draw; the arrow goes once drawn and let go (#10168) |
+| V, hold, with the bow drawn | Zoom (`bow_zoom`; the donor's `+zoom`) |
 | P / O | Hold the world / step it one frame |
 | R / M / F3 | Reset / menu / developer shell |
 
@@ -631,6 +633,43 @@ full. `hurtme N` took N.
   within a second, each struck orc's health within 1 of 12, and the replayed mana. `RB_SPELL=path:spell_fire_3` prints
   each projectile (`RB_SPELLTRACE=n` the n-th one's samples).
 
+### The bow
+
+`Ranged/Bow.cs` (#10168; `l01_a-v18-bow`, `-bow-basic`, `-bow-more`, `-bow-zoom`, `-bow-sway`, `-bow-rope`,
+docs/recording.md). The bow's numbers are its model's `.qct` (`WDmg`, `ammo`), the arms' and the head's clips, and
+server.dll's ConVars (`bow-cvars`); the rest is measured.
+
+| | The donor | The lab |
+| --- | --- | --- |
+| In hand | `give`/`use weapon_arxcrossbow` (the classic bow; `weapon_mm_bow_*` the others) | `build.json`'s belt slot 5 (`{"bow": ".../bow_classic.mdl"}`); its key again, the weapon back; the arms play `layer_bow_idle` with the bow on `LeftHand_Bow` and the nocked arrow on `RightHand_Arrows` |
+| The draw | a press at rest draws 0.12 s later (every press); `layer_bowattack_in` always plays its 2 s; a tap's arrow leaves 2.19 s after the press, a hold's as it's let go; let go and pressed again during the draw, it waits for the next release; parry pressed during the draw puts the arrow down | the same: each phase lasts its clip and a tick (`Settle`, 15 ms: the recorded phases came 0.24, 0.54, 0.51, 2.01 and 1.02 s for clips of 0.23, 0.53, 0.50, 2.00 and 1.00) |
+| The reload | with `bow_reload` attack held in `layer_bowattack_fastidle` nocks at once (`layer_bowattack_fastreload`, 1 s): shot to shot 1.29 s; without, `layer_bowattack_out` (0.69 s) lowers it, and a press then draws only if held at rest (0.03 s after) | the same: 1.30 s, and 3.0 without |
+| The flight | `arrow_speed` 2100 units/s; falling 600 units/s² (586 to 606 over 15 flights); leaving 2.8° above the view (2.7° to 3.1°, views 4.6° down to 42° up; `mm_arrow_pitch_compensation`), less from 45° up (`mm_arrow_pitch_compensation_start` −45: 2.04°, 1.96°, 1.81°, 1.51° at 45°, 50°, 60°, 80°) | the same (1.34° + the view pitch's cosine from 45° up); the arrow leaves from the eye 0.03 s into the shot, along the view, and stops on the orc's hit boxes (`HitSweep`, 1 unit) or the arena |
+| Its damage | (strength + `WDmg`) × `layer_bowattack_shoot`'s `HitPow` 1.5 × the hit group, ×3 on an unaware orc: 12 into the world with the classic bow at strength 6 (`extra_damage` 3), 15, 16.5, 19.5 and 10.5 with the long, sniper, explosive and rope bows, 9 and 36 on unaware orcs at strengths 0 and 6; the draw's length changes nothing (2 to 6 s) | the combat model's player blow with the shoot clip and the bow's model: the same on all 56 recorded arrows; the clip's `adrenalineadd` (2) a hit |
+| The zoom | `+zoom` held with the bow drawn: 101.4° to 57.8° across at 16:9 (45° at 4:3; 34.5° high) in 0.37 s, back in 0.21 s once let go; at rest nothing; the damage unchanged (`mul_damage_zoom` 1) | V held: the view narrows to 34.5° high in 0.38 s (on the tangent of the half angle) and widens in 0.2 s |
+| The sway | the camera, not the arrow: the head plays `layer_bowattack_in` as it's drawn (a 5° dip up and back by 1.4 s), then the 1 s loop `layer_bow_stabilisation`, fading over 4 s (2.5° off at release left the arrow where the view was); with `stability`, `layer_bowattack_stability_in` and nothing after | the same clips: the head within 0.20° (RMS) of the donor's camera over a 6 s hold with `stability`, 0.27° without |
+
+- **Arrows that don't fit the rules:** two of 56 releases: a draw pressed as the player landed from a 400-unit drop
+  waited out the landing (`jump_out_bow`, 0.12 s later), and one waited on a restart of the bow's rest clip that nothing
+  in the scenario explains (0.06 s).
+- **Not measured:** an aware orc's arrow damage (every recorded hit was on an unaware orc, or the world: spawned orcs
+  after the first in a run vanished, and `sethealth` came too soon), a head shot (none landed), the explosive arrow's
+  blast (it casts `spell_fire_1` where it lands; the orc it struck died of the arrow), rope arrows' ropes (none of ten
+  rope arrows at l01_a's wood, its overhang included, made one: the lab flies them as arrows), the bow's kicks
+  (`layer_bow_kick_*`) and its fatality (`layer_bowattack_fatalitie_*`, `HitPow` 30), the freeze, poison, holy and
+  mass bows' effects, `ArrowAvoidanceBaseChance` (orcs dodging arrows), the arrows' count (the lab's quiver is the
+  bow's `ammo`), arrows into a moving orc, the reload's sway, and the orc's reaction to an arrow.
+- **The recordings' arrows elsewhere:** an arrow's damage record carries the kick's bit (0x40000) with no swing on
+  screen, so the kick and reaction calibrations leave arrows out by their inflictor (`Calibration/Arrows.cs`).
+- **The smoke:** in the arena the slot puts the bow in hand; a tap's arrow leaves 2.2 s after it, a 3 s hold's 0.03 s
+  after the release, at 2100 units/s, 2.8° above the view, and strikes the held orc's hit boxes for the model's ask;
+  a parry during the draw shoots nothing; with `bow_reload` the next arrow comes 1.30 s after, without 3.0; the zoom
+  narrows in 0.37 s and widens in 0.22, and not at rest. Against the recordings: the donor's input through the lab's bow
+  releases 95% of the arrows within 2.5 ticks and all within 0.13 s; each flight's pitch, speed and gravity are the
+  rules', and the lab's arrow from each start stays within 3 units and 1% of its way of the donor's; each arrow's
+  damage is the model's; the zoom's field and times, and the sway with and without `stability`. `RB_BOWTRACE=name`
+  prints a recording's donor and lab release times and its bow clips, `RB_SWAYTRACE=1` the sway curves.
+
 ### Telekinesis
 
 `Magic/Telekinesis.cs` and `Interaction/CubeInteraction.cs` (#10164; `l01_a-v18-telekinesis-mass`, `-throw`, `-heavy` and
@@ -1216,6 +1255,7 @@ lab/
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
     Magic/                 PlayerMana, Telekinesis (its rules; Interaction/CubeInteraction grips and throws), Fireball (its rules and flight; LabCombat casts)
+    Ranged/Bow.cs          the bow: its rules, its draw and reload (LabBow), its arrows' flight (LabArrow); LabCombat shoots and strikes
     Calibration/           SwordCalibration against recordings
     Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)
     Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below); Player/CharacterBuild is the lab's

@@ -14,7 +14,7 @@ namespace DarkMessiah.Lab.Player;
 /// <see cref="CharacterBuild.From"/>.
 /// </summary>
 /// <param name="OffHand">Null for none, or a shield's model path.</param>
-/// <param name="Belt">The belt's slots 1 to 9 in order (#10162): each an item's model path and how many, or a known spell (#10165).</param>
+/// <param name="Belt">The belt's slots 1 to 9 in order (#10162): each an item's model path and how many, a known spell (#10165), or a bow (#10168).</param>
 internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, string? OffHand, string[] Spells, BeltSlot[] Belt)
 {
     internal const string Path = "build.json";
@@ -22,8 +22,11 @@ internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, 
     internal static BuildFile Load(IEngineContext engine) => Authored.Read(engine, Path, BuildJson.Default.BuildFile);
 }
 
-/// <summary>A belt slot as authored: an item's model path and how many it holds, or a spell its key puts in hand (#10165).</summary>
-internal sealed record BeltSlot(string? Item = null, int Count = 0, string? Spell = null);
+/// <summary>
+/// A belt slot as authored: an item's model path and how many it holds, a spell its key puts in hand (#10165), or a bow
+/// (its model path) its key puts in hand (#10168).
+/// </summary>
+internal sealed record BeltSlot(string? Item = null, int Count = 0, string? Spell = null, string? Bow = null);
 
 /// <summary>
 /// What the player can do, as the game decides it (docs/lab.md, "Builds"): the skill modules learned, the weapon and
@@ -100,6 +103,12 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
             {
                 Authored.Require(file.Belt[i].Item is null, P, $"belt[{i}]", "holds an item or a spell, not both.");
                 Authored.Require(file.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase), P, $"belt[{i}].spell", $"{spell} isn't one of the build's spells.");
+                continue;
+            }
+            if (file.Belt[i].Bow is { } bow)
+            {
+                Authored.Require(file.Belt[i].Item is null, P, $"belt[{i}]", "holds an item or a bow, not both.");
+                Authored.Require(Ranged.BowRules.IsBow(bow) && isItem(bow), P, $"belt[{i}].bow", $"{bow} isn't an imported bow (models/items/weapons/bow_*, with a .qct).");
                 continue;
             }
             Authored.Require(file.Belt[i].Item is { } item && isItem(item), P, $"belt[{i}].item", $"{file.Belt[i].Item} isn't an imported item (no .qct).");

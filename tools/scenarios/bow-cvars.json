@@ -1,0 +1,22 @@
+{
+  "description": "Bow ConVars (#10168): prints the arrow_, bow_, mm_arrow_ and mm_bow_ ConVars (speed, zoom and band times, pitch compensation, precision) to the console log (console.log beside the game), nothing played.",
+  "seconds": 3,
+  "setup": [
+    "sv_cheats 1",
+    {
+      "wait": 0.5
+    },
+    "echo RBBOW-BEGIN",
+    "cvarlist arrow",
+    "cvarlist bow",
+    "cvarlist mm_arrow",
+    "cvarlist mm_bow",
+    "cvarlist stabil",
+    "cvarlist zoom",
+    "cvarlist sk_",
+    "echo RBBOW-END",
+    {
+      "wait": 2
+    }
+  ]
+}

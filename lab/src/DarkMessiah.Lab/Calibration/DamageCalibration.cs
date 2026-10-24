@@ -118,14 +118,15 @@ internal static class DamageCalibration
                     : null;
             }
             // Kicks, which Blows leaves out (it keeps slash and club blows): the player's kick damage on an orc.
+            var arrows = new Arrows();
             using (var stream = File.OpenRead(path))
-                foreach (var f in RecordingReader.Frames(stream))
+                foreach (var f in arrows.Frames(stream))
                     foreach (var d in f.Damage)
                     {
                         // A kick that pushes also makes a zero-damage call of its own, untraced, with a push force: the push, not the
                         // hit. The jump attack's strike makes a traced one (its alwayspush): no kick asks nothing. The jump and
                         // rush attacks' blows carry the kick's bit too: a kick's frame plays a kick, or no move at all.
-                        if ((d.DamageType & CombatModel.KickDamage) == 0 || d.TraceValid == 0 || d.Damage == 0
+                        if ((d.DamageType & CombatModel.KickDamage) == 0 || d.TraceValid == 0 || d.Damage == 0 || arrows.Is(f, d)
                             || MoveLayers(f).Keys.Select(Replay.InputTimeline.Family).ToList() is var moves && moves.Count > 0 && !moves.Contains("kick") || !f.Entities.TryGetValue(d.Attacker, out var a) || f.Classes.GetValueOrDefault(a.ClassId) != "player"
                             || !f.Entities.TryGetValue(d.Victim, out var v) || f.Classes.GetValueOrDefault(v.ClassId) != "npc_orc_sword"
                             ) continue;

@@ -35,6 +35,7 @@
     { "item": "models/items/provisions/potions/life_potion.mdl", "count": 3 },
     { "item": "models/items/provisions/potions/full_life_potion.mdl", "count": 1 },
     { "spell": "fire_3", "count": 0 },
-    { "item": "models/items/provisions/potions/mana_potion.mdl", "count": 2 }
+    { "item": "models/items/provisions/potions/mana_potion.mdl", "count": 2 },
+    { "bow": "models/items/weapons/bow_classic/bow_classic.mdl" }
   ]
 }

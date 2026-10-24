@@ -71,7 +71,8 @@ internal static class KnockdownCalibration
             try
             {
                 using var stream = File.OpenRead(path);
-                foreach (var f in RecordingReader.Frames(stream))
+                var arrows = new Arrows();
+                foreach (var f in arrows.Frames(stream))
                 {
                     interval = f.TickInterval;
                     if (f.Entities.Values.FirstOrDefault(e => f.Classes.GetValueOrDefault(e.ClassId) == "player") is { } p
@@ -90,7 +91,7 @@ internal static class KnockdownCalibration
                     }
                     if (f.Damage.Count > 0) moveCycles.TryAdd(f.Tick, DamageCalibration.MoveLayers(f));
                     foreach (var d in f.Damage)
-                        if ((d.DamageType & CombatModel.KickDamage) != 0 && d.TraceValid != 0 && d.Damage > 0
+                        if ((d.DamageType & CombatModel.KickDamage) != 0 && d.TraceValid != 0 && d.Damage > 0 && !arrows.Is(f, d)
                             && f.Entities.TryGetValue(d.Attacker, out var a) && f.Classes.GetValueOrDefault(a.ClassId) == "player"
                             && f.Entities.TryGetValue(d.Victim, out var v) && f.Classes.GetValueOrDefault(v.ClassId) == Replay.InputTimeline.OrcClass
                             && !DamageCalibration.MoveLayers(f).Keys.Any(k => Replay.InputTimeline.Family(k) is { } fam && fam != "kick"))

@@ -1,0 +1,333 @@
+{
+  "description": "More attack spells (#10166): as attack-spells, each orc frozen with ai_disable once spawned and the spell deployed 3 s after drinking: poison spray (water_2) held 2.5 s, drain (earth_4) held 3 s, fire trap (fire_2) at its feet, inferno (fire_4) held 1.5 s, lightning bolt (air_3) with a second frozen orc 150 units east, and freeze (water_3) then a lightning bolt on the frozen orc. Marked with echo rb_sp.",
+  "seconds": 135,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_sp poison spray held 2.5 s at a frozen orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_WATER_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "-attack",
+    {
+      "wait": 8
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp drain held 3 s at a frozen orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_EARTH_4",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 3
+    },
+    "-attack",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp fire trap at a frozen orc's feet",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 17.7 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_FIRE_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 8
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp inferno held 1.5 s at a frozen orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_FIRE_4",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 8
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp lightning, a second frozen orc 150 units east",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 150 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_AIR_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 5
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp freeze at a frozen orc, then lightning",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_WATER_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 2
+    },
+    "ai_disable 1",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 5
+    }
+  ]
+}

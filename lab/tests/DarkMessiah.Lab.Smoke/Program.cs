@@ -1332,6 +1332,109 @@ host.Call(engine =>
         }
         else Console.WriteLine("skip the donor's fireballs: no local/recordings/experiments/l01_a-v18-fireball.rbrec");
     }
+    // The attack spells (#10166; docs/lab.md, "Attack spells"): belt slots 6 to 8 put the lightning bolt, the freeze and the
+    // inferno in hand. The bolt strikes 1.8 s after the press for its 8 mana, 15 ×2 on the orc, and stuns it; one that
+    // would kill leaves it at 1 and it dies 1.7 s on. The freeze costs 15 as it's cast and holds the orc it meets still for
+    // 7 s. The inferno costs 20 at the press and 15 a second from 1.5 s, and burns the orc in front for 13 every 0.51 s
+    // from 0.17 s; a burn that would kill leaves it at 1 and it dies 5 s on. Against l01_a-v18-attack-spells and -2.
+    {
+        float smpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        // The donor's mana, 100: extra_mana 3 (with focus, which it needs).
+        combat.Rebuild(file with { Skills = new Dictionary<string, int>(file.Skills) { ["focus"] = 1, ["extra_mana"] = 3 } });
+        bool spWasHeld = combat.Orc.Hold;
+        combat.Orc.Hold = true;
+        var spEye = new Vector3(12, 1.6f, 6);
+        var spOrc = new Vector3(12, 0, 6 + 200 * smpu);
+        var spChest = spOrc + Vector3.UnitY * 1.1f;
+        void InHand(string spell, int slot) { if (combat.SpellInHand != spell) combat.UseBelt(slot); }
+        // Steps with attack held for the given steps; the orc's health, the mana and its state each step.
+        List<(float Health, float Mana, DarkMessiah.Lab.Npc.OrcState State, bool Alive, float Frozen)> Run(int heldSteps, int steps)
+        {
+            var trace = new List<(float, float, DarkMessiah.Lab.Npc.OrcState, bool, float)>();
+            for (int i = 0; i < steps; i++)
+            {
+                // Held where it stands: the orc otherwise walks in.
+                if (combat.Orc.FrozenFor <= 0) combat.Orc.PlaceAt(spOrc);
+                combat.Step(Tick, step++, i < heldSteps, false, false, spEye, Vector3.Normalize(spChest - spEye), spEye - Vector3.UnitY * 1.6f);
+                trace.Add((combat.Orc.Health, combat.Mana.Value, combat.Orc.State, combat.Orc.Alive, combat.Orc.FrozenFor));
+            }
+            return trace;
+        }
+        void Fresh() { combat.Orc.Spawn(); combat.Orc.PlaceAt(spOrc); combat.Mana.Fill(); }
+        // The lightning bolt: tapped at a fresh orc, then again at the 5 it leaves.
+        InHand(DarkMessiah.Lab.Magic.LightningRules.Spell, 5);
+        bool boltInHand = combat.SpellInHand == DarkMessiah.Lab.Magic.LightningRules.Spell;
+        Fresh();
+        var lr = combat.Lightning;
+        var bolt = Run(1, (int)(3 / Tick));
+        int struckAt = bolt.FindIndex(t => t.Health < 35);
+        float boltTaken = 35 - bolt[^1].Health, boltCost = combat.Mana.Max - bolt[Math.Max(0, struckAt)].Mana;
+        bool boltStunned = bolt.Skip(Math.Max(0, struckAt)).Any(t => t.State == DarkMessiah.Lab.Npc.OrcState.Stunned);
+        var second = Run(1, (int)(4 / Tick));
+        int leftAt = second.FindIndex(t => t.Health < bolt[^1].Health), diedAt = second.FindIndex(t => !t.Alive);
+        Check(boltInHand && MathF.Abs((struckAt + 1) * Tick - lr.FireSeconds) <= .05f && MathF.Abs(boltCost - lr.Cost) < .05f && MathF.Abs(boltTaken - 2 * lr.Effect) < .01f && boltStunned
+                && leftAt >= 0 && MathF.Abs(second[leftAt].Health - 1) < .01f && diedAt > leftAt && MathF.Abs((diedAt - leftAt) * Tick - lr.DeathDelay) <= 2 * Tick,
+            FormattableString.Invariant($"the lightning bolt: in hand from belt slot 6 ({boltInHand}); a tap strikes {(struckAt + 1) * Tick:0.00} s after it ({lr.FireSeconds:0.0}) for {boltCost:0.#} mana, the orc taking {boltTaken:0.#} (15 ×2) and stunned ({boltStunned}); a second leaves it at {(leftAt >= 0 ? second[leftAt].Health : float.NaN):0.#} and it dies {(diedAt - leftAt) * Tick:0.00} s on ({lr.DeathDelay:0.0})"));
+        // The freeze: cast at a fresh orc, which stands frozen 7 s.
+        InHand(DarkMessiah.Lab.Magic.FreezeRules.Spell, 6);
+        Fresh();
+        var fr = combat.Freeze;
+        var frozen = Run(1, (int)(9 / Tick));
+        float freezeCost = combat.Mana.Max - frozen[0].Mana;
+        int frozenFrom = frozen.FindIndex(t => t.Frozen > 0), thawed = frozen.FindIndex(frozenFrom + 1, t => t.Frozen <= 0);
+        Check(combat.SpellInHand == DarkMessiah.Lab.Magic.FreezeRules.Spell && MathF.Abs(freezeCost - fr.Cost) < .05f && frozenFrom >= 0 && MathF.Abs(frozenFrom * Tick - fr.CastSeconds) <= .1f
+                && MathF.Abs((thawed - frozenFrom) * Tick - fr.FrozenSeconds) <= 2 * Tick && frozen.All(t => MathF.Abs(t.Health - 35) < .01f),
+            FormattableString.Invariant($"the freeze: cast for {freezeCost:0.#} mana ({fr.Cost:0}); its bolt froze the orc 200 units off {frozenFrom * Tick:0.00} s after the press (the bolt {fr.CastSeconds:0.00} s in) for {(thawed - frozenFrom) * Tick:0.00} s ({fr.FrozenSeconds:0}), taking nothing"));
+        // The inferno: held 3 s at a fresh orc.
+        InHand(DarkMessiah.Lab.Magic.InfernoRules.Spell, 7);
+        Fresh();
+        var ir = combat.Inferno;
+        var burn = Run((int)(3 / Tick), (int)(10 / Tick));
+        var burnTimes = new List<float>();
+        for (int i = 1; i < burn.Count; i++) if (burn[i].Alive && burn[i].Health < burn[i - 1].Health - .01f) burnTimes.Add((i + 1) * Tick);
+        float atPress = combat.Mana.Max - burn[0].Mana, atRelease = burn[(int)(3 / Tick) - 1].Mana;
+        int burnDied = burn.FindIndex(t => !t.Alive);
+        float lastBurn = burnTimes.Count > 0 ? burnTimes[^1] : float.NaN;
+        // Upkeep from 1.5 s to the release, and the regeneration's ticks between (the mana gains 0.7 a second while at most full).
+        float upkeepSpent = burn[(int)(1.5f / Tick)].Mana - atRelease;
+        Check(combat.SpellInHand == DarkMessiah.Lab.Magic.InfernoRules.Spell && MathF.Abs(atPress - ir.Cost) < .05f && MathF.Abs(upkeepSpent - ir.Maintain * 1.5f) <= 1.2f
+                && burnTimes.Count == 3 && MathF.Abs(burnTimes[0] - ir.FirstSeconds) <= .04f && MathF.Abs(burnTimes[1] - burnTimes[0] - ir.EverySeconds) <= 1.5f * Tick
+                && MathF.Abs(burn[(int)(3 / Tick)].Health - 1) < .01f && burnDied > 0 && MathF.Abs(burnDied * Tick - lastBurn - ir.BurnDeath) <= 2 * Tick,
+            FormattableString.Invariant($"the inferno: held 3 s, {atPress:0.#} mana at the press ({ir.Cost:0}) and {upkeepSpent:0.#} from 1.5 s to the release ({ir.Maintain:0} a second, less the regeneration); it burnt the orc at {string.Join(", ", burnTimes.Select(t => t.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s, leaving it at {burn[(int)(3 / Tick)].Health:0.#}, and it died {burnDied * Tick - lastBurn:0.00} s after the last ({ir.BurnDeath:0})"));
+        combat.UseBelt(7);
+        combat.Rebuild(file);
+        combat.Orc.Hold = spWasHeld;
+        ((IReplayBody)product).Begin();
+
+        var spellRecordings = new[] { "l01_a-v18-attack-spells", "l01_a-v18-attack-spells-2" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", n + ".rbrec")).Where(File.Exists).ToList();
+        if (spellRecordings.Count > 0)
+        {
+            // The second run's orcs were frozen with ai_disable: they play no reaction, so its bolts' stuns aren't asked.
+            var casts = spellRecordings.SelectMany(path => AttackSpellCalibration.Measure(path).Select(c => (Cast: c, Reacts: !path.EndsWith("-2.rbrec", StringComparison.Ordinal))))
+                .Select(x => x.Cast with { Clips = x.Reacts ? x.Cast.Clips : [(x.Cast.Pressed, "(frozen with ai_disable)")] }).ToList();
+            foreach (var c in casts) Console.WriteLine($"  cast {c}");
+            // Lightning: each strike 1.8 s after its press, 8 mana as it struck, 15 asked and twice that taken but the last 1, a stun.
+            var bolts = casts.Where(c => c.Spell == DarkMessiah.Lab.Magic.LightningRules.Spell && c.Hits.Count > 0).ToList();
+            bool boltsRight = bolts.All(c => MathF.Abs((float)(c.Hits[0].At - c.Pressed) - lr.FireSeconds) <= .1f
+                && c.Mana.Any(m => Math.Abs(m.At - c.Hits[0].At) <= .2 && MathF.Abs(m.Drop - lr.Cost) <= .5f)
+                && c.Hits[0].Asked == lr.Effect && MathF.Abs(c.Hits[0].Taken - MathF.Min(2 * lr.Effect, c.Hits[0].Before - 1)) < .01f
+                && c.Clips.Any(k => k.Clip.StartsWith("hit_stunned", StringComparison.OrdinalIgnoreCase) || k.Clip.StartsWith("Hit_electrocuted", StringComparison.OrdinalIgnoreCase) || k.Clip.StartsWith("(frozen", StringComparison.Ordinal)));
+            // Inferno: 20 at the press, its first blow 0.17 s on and every 0.51 s after, 13 asked, none taken past 1; 15 a second from 1.5 s.
+            var infernos = casts.Where(c => c.Spell == DarkMessiah.Lab.Magic.InfernoRules.Spell && c.Hits.Count > 2).ToList();
+            bool infernosRight = infernos.All(c => c.Mana.Any(m => m.At - c.Pressed <= .05 && MathF.Abs(m.Drop - ir.Cost) <= .5f)
+                && MathF.Abs((float)(c.Hits[0].At - c.Pressed) - ir.FirstSeconds) <= .04f
+                && c.Hits.Zip(c.Hits.Skip(1)).All(p => MathF.Abs((float)(p.Second.At - p.First.At) - ir.EverySeconds) <= .045f)
+                && c.Hits.All(h => h.Asked == ir.Effect && MathF.Abs(h.Taken - MathF.Max(0, MathF.Min(ir.Effect, h.Before - 1))) < .01f)
+                && MathF.Abs(c.Mana.Where(m => m.At - c.Pressed > ir.UpkeepFrom - .05 && m.At <= c.Released + .05).Sum(m => m.Drop) - ir.Maintain * (float)(c.Released - c.Pressed - ir.UpkeepFrom)) <= 1.5f);
+            // Freeze: 15 as it's cast; the orc it met stood (no clip begun) its 7 s from the bolt, 0.27 s after the press.
+            var freezes = casts.Where(c => c.Spell == DarkMessiah.Lab.Magic.FreezeRules.Spell).ToList();
+            bool freezeCosts = freezes.All(c => c.Mana.Any(m => m.At - c.Pressed <= .1 && MathF.Abs(m.Drop - fr.Cost) <= .5f));
+            var stood = freezes.Select(c => c.Clips.FirstOrDefault(k => k.At > c.Pressed + .3).At - c.Pressed).Where(s => s > 0).ToList();
+            Check(bolts.Count >= 4 && boltsRight && infernos.Count >= 2 && infernosRight && freezes.Count >= 2 && freezeCosts && stood.Any(s => (float)s - fr.CastSeconds - fr.FrozenSeconds is >= -.1f and <= .3f),
+                FormattableString.Invariant($"the donor's attack spells: {bolts.Count} lightning bolts struck {string.Join(", ", bolts.Select(c => (c.Hits[0].At - c.Pressed).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s after the press for {lr.Cost:0} mana, asking 15 and taking 30 or all but 1, the orc stunned; {infernos.Count} infernos cost 20 at the press and 15 a second from 1.5 s, burning 13 from 0.17 s every 0.51 s; {freezes.Count} freezes cost 15, and an orc it met stood {string.Join(", ", stood.Select(s => s.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s ({fr.FrozenSeconds:0})"));
+        }
+        else Console.WriteLine("skip the donor's attack spells: no local/recordings/experiments/l01_a-v18-attack-spells.rbrec");
+    }
     // The bow (#10168; docs/lab.md, "The bow"): belt slot 5 puts the classic bow in hand. A press draws it after 0.12 s, the
     // draw plays its 2 s and the arrow leaves 0.03 s into the shot, along the view raised 2.8°, at 2100 units/s falling
     // 600/s²; it strikes the held orc's hit boxes for (strength + WDmg) × the shoot clip's HitPow 1.5 × the hit group, ×3

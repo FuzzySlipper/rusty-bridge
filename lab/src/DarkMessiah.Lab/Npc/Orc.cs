@@ -301,6 +301,10 @@ internal sealed class Orc : IDisposable
         clock += seconds;
         Spotted = false;
         var blows = new List<OrcBlow>();
+        // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
+        if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
+        // Frozen (#10166), it stands as it was: no thought, no clip, no blow.
+        if (FrozenFor > 0) { FrozenFor = MathF.Max(0, FrozenFor - seconds); return blows; }
         // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
         // while the NPC is flagged attacking, +0x2DFD59, and when its attack task completes, +0x2B06D2).
         // An attack cut short between steps (a blow, a stun, a fall) starts it here; one that ends inside a step, done
@@ -461,6 +465,40 @@ internal sealed class Orc : IDisposable
         Health = MathF.Min(Health, 1);
         Layer = null;
         Play(OrcState.Backstabbed, body.Model.Info.Clips.ContainsKey("die_backstabbed") ? "die_backstabbed" : "combatidle");
+    }
+
+    /// <summary>Seconds it stays frozen (the freeze spell's first stage, #10166); 0 when it isn't.</summary>
+    internal float FrozenFor { get; private set; }
+    float dyingLeft;
+
+    /// <summary>Freezes it where it stands for <paramref name="seconds"/>.</summary>
+    internal void Freeze(float seconds)
+    {
+        if (!Alive || Following) return;
+        perception.Struck();
+        FrozenFor = MathF.Max(FrozenFor, seconds);
+    }
+
+    /// <summary>It dies <paramref name="seconds"/> from now (a spell's blow left it at 1; #10166).</summary>
+    internal void DieIn(float seconds)
+    {
+        if (Alive && !Following && dyingLeft <= 0) dyingLeft = seconds;
+    }
+
+    /// <summary>
+    /// Stuns it as a stunning blow from <paramref name="from"/> does, with no dice: the lightning bolt stunned every orc it
+    /// struck (#10166).
+    /// </summary>
+    internal void Stun(Vector3 from)
+    {
+        if (!Alive || Following || State is OrcState.KnockedDown or OrcState.Backstabbed or OrcState.Stunned) return;
+        Vector3 toward = (from - Feet) with { Y = 0 };
+        float ahead = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), Facing) : 1;
+        var left = new Vector3(Facing.Z, 0, -Facing.X);
+        float side = toward.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(toward), left) : 0;
+        Layer = null;
+        stunLeft = stagger.Data.StunSeconds;
+        Play(OrcState.Stunned, $"hit_stunned_{(ahead >= .707f ? "front" : ahead <= -.707f ? "back" : side > 0 ? "left" : "right")}");
     }
 
     /// <summary>The verdict and blow are the combat's; this takes their outcome.</summary>
@@ -775,6 +813,7 @@ internal sealed class Orc : IDisposable
         ReleaseRagdoll();
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
+        FrozenFor = dyingLeft = 0;
         Layer = null;
         mind.Reset();
         stagger.Reset();

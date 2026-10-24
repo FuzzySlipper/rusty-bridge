@@ -33,7 +33,8 @@ internal sealed record CallCase(string Recording, string Caller, string Mate, fl
 
 /// <summary>
 /// The donor's orcs noticing the player against the lab's rule (#10154): every <c>npc_orc_sword</c> in a Wire v18
-/// recording that began unaware and wasn't struck, nor a spell out (its fearfactor alerts NPCs), before its alert level rose.
+/// recording that began unaware and wasn't struck, nor a spell out (its fearfactor alerts NPCs), nor found a body, before
+/// its alert level rose.
 /// </summary>
 internal static class PerceptionCalibration
 {
@@ -83,10 +84,10 @@ internal static class PerceptionCalibration
                     // A setpos jumps the player: no steps (faster than 15 m/s is no gait).
                     var gait = speed > 15 ? PlayerGait.Still : OrcPerception.GaitOf(speed, crouched, sprinting);
                     var struck = f.Damage.Where(d => d.Damage > 0).Select(d => (d.Victim, d.VictimSerial)).ToHashSet();
-                    // A spell out (its projectile off the world's origin, where it waits in hand): its fearfactor alerts NPCs
-                    // (the fireball's 50), which the lab's perception doesn't model yet (#10165): left out like a blow.
-                    bool spellOut = f.Entities.Values.Any(x => f.Classes.GetValueOrDefault(x.ClassId, "").StartsWith("spell_", StringComparison.Ordinal)
-                        && (x.OriginX != 0 || x.OriginY != 0 || x.OriginZ != 0));
+                    // A spell out, in hand or cast (its entity, which waits at the world's origin in hand): its fearfactor alerts
+                    // NPCs (the fireball's 50, the lightning bolt's 300, which struck from the origin: #10166), which the lab's
+                    // perception doesn't model yet (#10165): left out like a blow.
+                    bool spellOut = f.Entities.Values.Any(x => f.Classes.GetValueOrDefault(x.ClassId, "").StartsWith("spell_", StringComparison.Ordinal));
                     foreach (var (index, e) in f.Entities)
                     {
                         if (f.Classes.GetValueOrDefault(e.ClassId) != Replay.InputTimeline.OrcClass || !e.Flags.HasFlag(WireEntityFlags.HasAlert)) continue;
@@ -107,14 +108,19 @@ internal static class PerceptionCalibration
                         if (MathF.Abs(player.OriginX - o.StillX) > 5 || MathF.Abs(player.OriginY - o.StillY) > 5) (o.StillSince, o.StillX, o.StillY) = (time, player.OriginX, player.OriginY);
                         if (o.Rose is null)
                         {
-                            if (struck.Contains(key) || spellOut) o.Struck = true;
+                            // An orc's body within 500 units alerts it too (an attack-spells orc rose 0.18 s after it was spawned beside
+                            // the last one's and ran to check_corpse it): left out.
+                            bool corpse = f.Entities.Values.Any(x => f.Classes.GetValueOrDefault(x.ClassId) == "prop_ragdoll"
+                                && f.Models.GetValueOrDefault(x.ModelIndex, "").Contains("npc_orc", StringComparison.OrdinalIgnoreCase)
+                                && MathF.Sqrt((x.OriginX - e.OriginX) * (x.OriginX - e.OriginX) + (x.OriginY - e.OriginY) * (x.OriginY - e.OriginY)) <= 500);
+                            if (struck.Contains(key) || spellOut || corpse) o.Struck = true;
                             if (e.Alert > 0)
                             {
                                 o.Rose = time - o.Start;
                                 o.Rise = (distance, angle);
-                                // The others unaware near it: does the call reach them?
+                                // The others unaware near it: does the call reach them? Not while a spell is out: it alerts them all.
                                 foreach (var (other, p) in at)
-                                    if (other != key && time - p.Time < .5 && orcs.TryGetValue(other, out var m) && m.Rose is null
+                                    if (!spellOut && other != key && time - p.Time < .5 && orcs.TryGetValue(other, out var m) && m.Rose is null
                                         && MathF.Sqrt((p.X - e.OriginX) * (p.X - e.OriginX) + (p.Y - e.OriginY) * (p.Y - e.OriginY)) is var apart && apart <= CallReach)
                                         open.Add(($"#{index}.{e.Serial:x}", other, time, apart, o.Struck));
                             }

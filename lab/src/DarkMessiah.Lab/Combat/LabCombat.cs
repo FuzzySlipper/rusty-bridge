@@ -99,6 +99,9 @@ internal sealed class LabCombat : IDisposable
         Mana = new PlayerMana(manaRules);
         Telekinesis = TelekinesisRules.From(donor);
         Fireball = FireballRules.From(donor);
+        Lightning = LightningRules.From(donor);
+        Freeze = FreezeRules.From(donor);
+        Inferno = InfernoRules.From(donor);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -269,16 +272,173 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     internal Func<Vector3, Vector3, Vector3?>? WorldRay { get; set; }
 
+    /// <summary>The attack spells' numbers (#10166).</summary>
+    internal LightningRules Lightning { get; }
+    internal FreezeRules Freeze { get; }
+    internal InfernoRules Inferno { get; }
+
+    /// <summary>The spells the lab plays: <c>spells.txt</c>'s id, and its name for the HUD.</summary>
+    static readonly Dictionary<string, string> Played = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [FireballRules.Spell] = "Fireball", [LightningRules.Spell] = "Lightning bolt", [FreezeRules.Spell] = "Freeze", [InfernoRules.Spell] = "Inferno",
+    };
+
     /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
     internal void ToggleSpell(string spell)
     {
-        if (SpellInHand == spell) { SpellInHand = null; Message = "Weapon in hand"; return; }
+        if (SpellInHand is { } inHand && inHand.Equals(spell, StringComparison.OrdinalIgnoreCase)) { SpellInHand = null; EndSpell(); Message = "Weapon in hand"; return; }
         if (Build is { } build && !build.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase)) { Message = $"{spell} isn't known"; return; }
-        if (!spell.Equals(FireballRules.Spell, StringComparison.OrdinalIgnoreCase)) { Message = $"{spell} isn't played yet"; return; }
+        if (!Played.TryGetValue(spell, out var name)) { Message = $"{spell} isn't played yet"; return; }
         Bow = null;
-        SpellInHand = FireballRules.Spell;
+        EndSpell();
+        SpellInHand = Played.Keys.First(k => k.Equals(spell, StringComparison.OrdinalIgnoreCase));
         spellAttackHeld = false;
-        Message = "Fireball in hand";
+        Message = $"{name} in hand";
+    }
+
+    // The attack spells under way (#10166): the bolt's charge, the inferno's hold and its next blow, and the arms' clip.
+    float lightningAge = float.NaN, freezeAge = float.NaN, infernoAge = float.NaN, infernoNext;
+    (string Clip, float Age, bool Loop)? spellClip;
+    readonly List<LabBolt> bolts = [];
+    /// <summary>The freeze bolts in flight, for drawing.</summary>
+    internal IReadOnlyList<LabBolt> Bolts => bolts;
+    /// <summary>The last attack spell's blow on an orc: the spell and the damage it took (#10166).</summary>
+    internal (string Spell, float Damage)? LastSpellHit { get; private set; }
+
+    void EndSpell()
+    {
+        lightningAge = freezeAge = infernoAge = float.NaN;
+        spellClip = null;
+    }
+
+    /// <summary>
+    /// The spell in hand this step, the fireball aside (#10166): the lightning bolt charges from a press and strikes
+    /// <see cref="LightningRules.FireSeconds"/> later, the freeze goes as a bolt, the inferno burns while held.
+    /// </summary>
+    void StepAttackSpell(float seconds, bool pressed, bool held, Vector3 eye, Vector3 forward)
+    {
+        if (spellClip is { } playing)
+            spellClip = playing.Loop || playing.Age + seconds < FirstPerson.ClipSeconds(playing.Clip) ? playing with { Age = playing.Age + seconds } : null;
+        switch (SpellInHand)
+        {
+            case LightningRules.Spell:
+                if (pressed && float.IsNaN(lightningAge)) { lightningAge = 0; spellClip = (LightningRules.CastClip, 0, false); }
+                else if (!float.IsNaN(lightningAge) && (lightningAge += seconds) >= Lightning.FireSeconds)
+                {
+                    lightningAge = float.NaN;
+                    spellClip = (LightningRules.OutClip, 0, false);
+                    if (!Mana.Spend(Lightning.Cost)) { Refuse("the lightning bolt", Lightning.Cost); break; }
+                    Spells = Spells with { Casts = Spells.Casts + 1 };
+                    if (InView(eye, forward, Lightning.RangeUnits, 10) is { } struck)
+                    {
+                        SpellBlow(struck, LightningRules.Spell, Lightning.Effect, Lightning.AdrenalineAdd, Lightning.DeathDelay);
+                        struck.Stun(eye with { Y = struck.Feet.Y });
+                    }
+                }
+                else if (!float.IsNaN(lightningAge) && spellClip is null) spellClip = (LightningRules.HoldClip, 0, true);
+                break;
+            case FreezeRules.Spell:
+                // Its mana at the press, its bolt a moment into the cast.
+                if (!float.IsNaN(freezeAge) && (freezeAge += seconds) >= Freeze.CastSeconds)
+                {
+                    freezeAge = float.NaN;
+                    bolts.Add(new LabBolt(Hand(eye, forward), Vector3.Normalize(forward) * Freeze.SpeedMetres));
+                }
+                if (!pressed || !float.IsNaN(freezeAge)) break;
+                if (!Mana.Spend(Freeze.Cost)) { Refuse("the freeze", Freeze.Cost); break; }
+                Spells = Spells with { Casts = Spells.Casts + 1 };
+                freezeAge = 0;
+                spellClip = (FreezeRules.CastClip, 0, false);
+                break;
+            case InfernoRules.Spell:
+                if (float.IsNaN(infernoAge))
+                {
+                    if (!pressed) break;
+                    if (!Mana.Spend(Inferno.Cost)) { Refuse("the inferno", Inferno.Cost); break; }
+                    Spells = Spells with { Casts = Spells.Casts + 1 };
+                    infernoAge = 0;
+                    infernoNext = Inferno.FirstSeconds;
+                    spellClip = (InfernoRules.CastClip, 0, false);
+                    break;
+                }
+                float before = infernoAge;
+                infernoAge += seconds;
+                // Its upkeep from 1.5 s into the hold; let go, or out of mana, it stops.
+                float upkeep = Inferno.Maintain * MathF.Max(0, infernoAge - MathF.Max(before, Inferno.UpkeepFrom));
+                if (!held || upkeep > 0 && !Mana.Spend(upkeep)) { infernoAge = float.NaN; spellClip = (InfernoRules.OutClip, 0, false); break; }
+                if (spellClip is null) spellClip = (InfernoRules.HoldClip, 0, true);
+                for (; infernoAge >= infernoNext; infernoNext += Inferno.EverySeconds)
+                    if (InView(eye, forward, Inferno.RangeUnits, Inferno.ConeDegrees) is { } burnt)
+                        SpellBlow(burnt, InfernoRules.Spell, Inferno.Effect, Inferno.AdrenalineAdd, Inferno.BurnDeath);
+                break;
+        }
+    }
+
+    void Refuse(string what, float cost)
+    {
+        Spells = Spells with { Refused = Spells.Refused + 1 };
+        Message = FormattableString.Invariant($"Not enough mana for {what} ({cost:0})");
+    }
+
+    /// <summary>The live orc nearest the view within <paramref name="rangeUnits"/> and <paramref name="coneDegrees"/> of it (its body's middle).</summary>
+    Orc? InView(Vector3 eye, Vector3 forward, float rangeUnits, float coneDegrees)
+    {
+        var view = Vector3.Normalize(forward);
+        float cos = MathF.Cos(coneDegrees * MathF.PI / 180);
+        return Orcs.Where(o => o.Alive && !o.Following).Select(o => (Orc: o, To: o.Hull.Center - eye))
+            .Where(x => x.To.Length() <= rangeUnits * SourceSpace.MetresPerUnit && Vector3.Dot(Vector3.Normalize(x.To), view) >= cos)
+            .OrderBy(x => x.To.Length()).Select(x => x.Orc).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// A spell's blow on <paramref name="orc"/>: its effect times the orc's vulnerability to it, and its adrenaline. A blow
+    /// that would kill leaves it at 1, and it dies <paramref name="deathDelay"/> s later, as the donor's did.
+    /// </summary>
+    void SpellBlow(Orc orc, string spell, float effect, float adrenaline, float deathDelay)
+    {
+        float damage = model.SpellDamage(spell, effect, 0, 0, Npc.Orc.Model);
+        bool lethal = damage >= orc.Health;
+        float taken = lethal ? MathF.Max(0, orc.Health - 1) : damage;
+        orc.Damage(taken);
+        if (lethal && orc.Alive) orc.DieIn(deathDelay);
+        Adrenaline.Gain(adrenaline);
+        LastSpellHit = (spell, taken);
+        Message = FormattableString.Invariant($"{Played[spell]} hits the orc for {taken:0.#}");
+    }
+
+    /// <summary>The freeze bolts: each one that meets an orc's body freezes it.</summary>
+    void StepBolts(float seconds)
+    {
+        foreach (var bolt in bolts)
+        {
+            Orc? met = null;
+            bolt.Step(seconds, Freeze.LifeSeconds, (from, to) =>
+            {
+                Vector3? world = WorldRay?.Invoke(from, to);
+                float nearest = world is Vector3 w ? Vector3.Distance(from, w) : float.PositiveInfinity;
+                Vector3? hit = world;
+                foreach (var orc in Orcs.Where(o => o.Alive && !o.Following))
+                {
+                    var (centre, half) = orc.Hull;
+                    if (SegmentEntersBox(from, to, centre - half, centre + half) is float t && t * Vector3.Distance(from, to) <= nearest)
+                    {
+                        nearest = t * Vector3.Distance(from, to);
+                        hit = Vector3.Lerp(from, to, t);
+                        met = orc;
+                    }
+                }
+                if (met is not null && hit is Vector3 h && world is Vector3 ww && h == ww) met = null;
+                return hit;
+            });
+            if (met is not null)
+            {
+                met.Freeze(Freeze.FrozenSeconds);
+                Adrenaline.Gain(Freeze.AdrenalineAdd);
+                LastSpellHit = (FreezeRules.Spell, 0);
+                Message = "The orc is frozen";
+            }
+        }
+        bolts.RemoveAll(b => b.Stopped is not null);
     }
 
     /// <summary>The bow in hand, or null for the weapon (#10168): the belt puts it there.</summary>
@@ -500,6 +660,20 @@ internal sealed class LabCombat : IDisposable
 
     /// <summary>The last fireball that hurt the mate: its distance (units) and the damage.</summary>
     internal (float Distance, float Damage)? LastMateFireball { get; private set; }
+    static string ReadyClipOf(string spell) => spell switch
+    {
+        LightningRules.Spell => LightningRules.ReadyClip,
+        FreezeRules.Spell => FreezeRules.ReadyClip,
+        InfernoRules.Spell => InfernoRules.ReadyClip,
+        _ => FireballRules.ReadyClip,
+    };
+
+    float SpellCycle((string Clip, float Age, bool Loop) clip)
+    {
+        float length = MathF.Max(.01f, FirstPerson.ClipSeconds(clip.Clip));
+        return clip.Loop ? clip.Age / length % 1 : Math.Clamp(clip.Age / length, 0, 1);
+    }
+
     /// <summary>The last fireball that hurt the orc: its distance (units) and the damage.</summary>
     internal (float Distance, float Damage)? LastFireball { get; private set; }
     /// <summary>Telekinesis' numbers (#10164): mana by mass class, reach, the hold and throw, thrown bodies' damage.</summary>
@@ -641,11 +815,14 @@ internal sealed class LabCombat : IDisposable
         // A spell in hand takes attack: a press casts it (#10165), and the sword doesn't swing.
         if (SpellInHand is not null)
         {
-            if (attackHeld && !spellAttackHeld) Cast(eye, forward);
+            bool pressed = attackHeld && !spellAttackHeld;
+            if (SpellInHand == FireballRules.Spell) { if (pressed) Cast(eye, forward); }
+            else StepAttackSpell(seconds, pressed, attackHeld, eye, forward);
             spellAttackHeld = attackHeld;
             attackHeld = blockHeld = false;
         }
         StepFireballs(seconds, eye, forward);
+        StepBolts(seconds);
         // The bow in hand takes attack and parry (#10168); the sword is away, and doesn't kick.
         StepBow(tick, seconds, Bow is not null && attackHeld, Bow is not null && blockHeld, zoomHeld, eye, forward);
         if (Bow is not null) attackHeld = blockHeld = kickHeld = false;
@@ -664,9 +841,11 @@ internal sealed class LabCombat : IDisposable
         poseFeet = feet;
         // A spell in hand poses the arms its own way: the cast clip while the newest fireball forms (#10165).
         FirstPerson.Bow = Bow is { } inHand ? (inHand.Rules.Model, inHand.Clip.Clip, inHand.Clip.Cycle, inHand.Nocked, BowHead(inHand)) : null;
-        FirstPerson.Spell = SpellInHand is null ? null : fireballs.LastOrDefault(b => !b.Flying) is { } forming
-            ? (FireballRules.ReadyClip, FireballRules.CastClip, Math.Clamp(forming.Age / MathF.Max(.01f, FirstPerson.ClipSeconds(FireballRules.CastClip)), 0, 1))
-            : (FireballRules.ReadyClip, null, 0);
+        FirstPerson.Spell = SpellInHand is not { } inHandSpell ? null
+            : inHandSpell == FireballRules.Spell ? fireballs.LastOrDefault(b => !b.Flying) is { } forming
+                ? (FireballRules.ReadyClip, FireballRules.CastClip, Math.Clamp(forming.Age / MathF.Max(.01f, FirstPerson.ClipSeconds(FireballRules.CastClip)), 0, 1))
+                : (FireballRules.ReadyClip, null, 0)
+            : (ReadyClipOf(inHandSpell), spellClip?.Clip, spellClip is { } c ? SpellCycle(c) : 0);
         FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity, lean);
         var gait = Gait(seconds, feet, sprinting, crouched);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
@@ -1205,6 +1384,9 @@ internal sealed class LabCombat : IDisposable
         fireballs.Clear();
         SpellInHand = null;
         LastFireball = LastMateFireball = null;
+        EndSpell();
+        bolts.Clear();
+        LastSpellHit = null;
         Bow = null;
         arrows.Clear();
         Archery = default;

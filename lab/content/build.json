@@ -30,12 +30,15 @@
   },
   "weapon": "models/items/weapons/sword_short/sword_short.mdl",
   "offHand": null,
-  "spells": ["fire_3"],
+  "spells": ["fire_3", "air_3", "water_3", "fire_4"],
   "belt": [
     { "item": "models/items/provisions/potions/life_potion.mdl", "count": 3 },
     { "item": "models/items/provisions/potions/full_life_potion.mdl", "count": 1 },
     { "spell": "fire_3", "count": 0 },
     { "item": "models/items/provisions/potions/mana_potion.mdl", "count": 2 },
-    { "bow": "models/items/weapons/bow_classic/bow_classic.mdl" }
+    { "bow": "models/items/weapons/bow_classic/bow_classic.mdl" },
+    { "spell": "air_3", "count": 0 },
+    { "spell": "water_3", "count": 0 },
+    { "spell": "fire_4", "count": 0 }
   ]
 }

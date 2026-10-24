@@ -41,7 +41,7 @@ rusty dev
 | G | God: the orc's blows still count but take no health |
 | Z / X, hold | Lean left / right (#10161) |
 | Walk into a ladder | Climb it (the loft's); back off its top to climb down; Space lets go (#10163) |
-| 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162); 3 the fireball, 5 the classic bow |
+| 1–9 | The belt's slots (`build.json`'s `belt`): a life potion, the full life potion... (#10162); 3 the fireball, 5 the classic bow, 6 the lightning bolt, 7 the freeze, 8 the inferno |
 | Left button, with the bow | Draw; the arrow goes once drawn and let go (#10168) |
 | V, hold, with the bow drawn | Zoom (`bow_zoom`; the donor's `+zoom`) |
 | P / O | Hold the world / step it one frame |
@@ -632,6 +632,35 @@ full. `hurtme N` took N.
   gives its 50 up to the maximum. Against the recording: each cast's cost and forming, the speed of those that went off
   within a second, each struck orc's health within 1 of 12, and the replayed mana. `RB_SPELL=path:spell_fire_3` prints
   each projectile (`RB_SPELLTRACE=n` the n-th one's samples).
+
+### Attack spells
+
+`Magic/AttackSpells.cs` (#10166; `l01_a-v18-attack-spells`, `-attack-spells-2`, docs/recording.md), on the fireball's
+core: each spell's belt slot puts it in hand (`build.json`'s `spells` and `belt`), its numbers from `spells.txt`.
+
+| | The donor | The lab |
+| --- | --- | --- |
+| Lightning bolt (`air_3`) | a press strikes 1.78 to 1.87 s later, tapped or held 1.5 s (5 casts); `cost` 8 taken as it strikes; `effect` 15, which the orc takes twice (its `Vulnerabilities_spells` `air_3` 2); the struck orc stunned (`hit_stunned_front`, every one that could react); a strike on a 5.5-health orc left it at 1 (`Hit_electrocuted`), and it died 1.7 s later | strikes 1.8 s after the press for its 8, the live orc nearest the view within 10° and `lightning_NPC_Bounce_Distance` (2000 units); `CombatModel.SpellDamage` (30 on the orc), a stun, `adrenaline_add` 3; a strike that would kill leaves 1, death 1.7 s on |
+| Freeze (`water_3`) | `cost` 15 at the press; a bolt 0.27 s later at 4320 units/s; the orc it met stood still 7.2 s from it (`Stage1_Duration` 7), then fought on; no damage | the same: the orc's thought, clips and blows stop for 7 s |
+| Inferno (`fire_4`) | held: `cost` 20 at the press, then `maintain_cost` 15 a second from 1.5 s until let go (both holds); `effect` 13 on the orc 200 units ahead 0.16 s after the press and every 0.51 s while held; a blow that would kill left it at 1, and the blows after took nothing; it died 5.2 s after the last that hurt (released at 1.5 s), or 2.4 s after its flame caught (held on to 3 s) | the same costs and blows, on the live orc nearest the view within 15° and 300 units (the lab's: the recorded orc was 200 off); a blow that would kill leaves 1, and it dies `Fire_Time_Ignite` (5 s) on |
+
+- **Not in the lab, and why:**
+  - **poison spray (`water_2`) and drain (`earth_4`):** `Deploy_Spell_WATER_2` and `_EARTH_4` put nothing in hand from
+    the console (no deploy clip, no mana spent, in two runs), so neither is recorded;
+  - **fire trap (`fire_2`):** its cast, once (15 mana; its projectile `arxspellmissileshot_7` to the floor), and once not
+    at all; the orc never walked into a trap, so its trigger and `effect` 34 over `Radius_damage_on_explode` 200 aren't
+    recorded;
+  - **flame arrow (`fire_1`):** with the bow, which waits for #10168's review;
+  - **the bolt's bounce:** none recorded: the second orc spawned beside the first never stood (it took the first's
+    place).
+- **Not measured:** the bolt held past 1.8 s, the freeze's later stages (6 and 12 s: nothing seen) and its shatter, the
+  inferno's reach and width, the inferno's own `adrenaline_add` (0.1), and the lightning's on a frozen orc (it struck
+  nothing).
+- **The smoke:** in the arena each slot puts its spell in hand; a bolt tapped strikes 1.83 s after for 8, the orc taking
+  30 and stunned, and a second leaves it at 1 and it dies 1.7 s on; a freeze costs 15 and its bolt holds the orc still
+  6.98 s; an inferno held 3 s costs 20 and 21.8 more from 1.5 s, burns the orc at 0.2, 0.7 and 1.2 s to 1, and it dies
+  5 s after. Against the recordings: every bolt's strike time, cost, damage and stun, every inferno's costs, blows and
+  their spacing, every freeze's cost and the orc it froze standing 7 s from its bolt.
 
 ### The bow
 
@@ -1254,7 +1283,7 @@ lab/
     Sword/                 PlayerSword (the moves), PlayerStamina, FirstPerson (arms, sword, blade trace), Rig, CombatTuning
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
-    Magic/                 PlayerMana, Telekinesis (its rules; Interaction/CubeInteraction grips and throws), Fireball (its rules and flight; LabCombat casts)
+    Magic/                 PlayerMana, Telekinesis (its rules; Interaction/CubeInteraction grips and throws), Fireball (its rules and flight; LabCombat casts), AttackSpells (lightning, freeze, inferno; LabCombat casts)
     Ranged/Bow.cs          the bow: its rules, its draw and reload (LabBow), its arrows' flight (LabArrow); LabCombat shoots and strikes
     Calibration/           SwordCalibration against recordings
     Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)

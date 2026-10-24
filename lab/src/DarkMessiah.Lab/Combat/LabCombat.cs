@@ -312,19 +312,26 @@ internal sealed class LabCombat : IDisposable
     /// <summary>A fireball's size, units: it meets the orc's body this far from it.</summary>
     const float BallUnits = 5;
 
-    /// <summary>Where a fireball's step meets the orc's body (a sphere of its 5 units against the body's box) or the world.</summary>
+    /// <summary>
+    /// Where a fireball's step meets an orc's body (a sphere of its 5 units against the body's box: the nearest live orc
+    /// on its way, the mate too, R10165-1) or the world.
+    /// </summary>
     Vector3? Meets(Vector3 from, Vector3 to)
     {
         Vector3? world = WorldRay?.Invoke(from, to);
-        if (Orc.Alive && !Orc.Following)
+        float nearest = world is Vector3 w ? Vector3.Distance(from, w) : float.PositiveInfinity;
+        Vector3? met = world;
+        foreach (var orc in Orcs.Where(o => o.Alive && !o.Following))
         {
-            var (centre, half) = Orc.Hull;
+            var (centre, half) = orc.Hull;
             var grown = half + new Vector3(BallUnits * SourceSpace.MetresPerUnit);
-            if (SegmentEntersBox(from, to, centre - grown, centre + grown) is float t
-                && (world is not Vector3 w || t * Vector3.Distance(from, to) <= Vector3.Distance(from, w)))
-                return Vector3.Lerp(from, to, t);
+            if (SegmentEntersBox(from, to, centre - grown, centre + grown) is float t && t * Vector3.Distance(from, to) <= nearest)
+            {
+                nearest = t * Vector3.Distance(from, to);
+                met = Vector3.Lerp(from, to, t);
+            }
         }
-        return world;
+        return met;
     }
 
     /// <summary>The fraction along the segment where it enters the box, or null if it doesn't.</summary>
@@ -345,22 +352,33 @@ internal sealed class LabCombat : IDisposable
         return t0;
     }
 
-    /// <summary>A fireball goes off: the orc takes its share by its distance (to its body's nearest point), and adrenaline its gain.</summary>
+    /// <summary>
+    /// A fireball goes off: each live orc in its radius (the mate too, R10165-1) takes its share by its distance (to its
+    /// body's nearest point), and adrenaline its gain once.
+    /// </summary>
     void Explode(Vector3 at)
     {
         Spells = Spells with { Explosions = Spells.Explosions + 1 };
-        if (!Orc.Alive || Orc.Following) return;
-        var (centre, half) = Orc.Hull;
-        // From the ball's edge: one that struck the body is 0 off.
-        float distance = MathF.Max(0, Vector3.Distance(at, Vector3.Clamp(at, centre - half, centre + half)) / SourceSpace.MetresPerUnit - BallUnits);
-        float damage = model.SpellDamage(FireballRules.Spell, Fireball.Effect, Fireball.RadiusUnits, distance, Npc.Orc.Model);
-        if (damage <= 0) return;
-        Orc.Damage(damage);
+        var hurt = new List<string>();
+        foreach (var orc in Orcs.Where(o => o.Alive && !o.Following).ToList())
+        {
+            var (centre, half) = orc.Hull;
+            // From the ball's edge: one that struck the body is 0 off.
+            float distance = MathF.Max(0, Vector3.Distance(at, Vector3.Clamp(at, centre - half, centre + half)) / SourceSpace.MetresPerUnit - BallUnits);
+            float damage = model.SpellDamage(FireballRules.Spell, Fireball.Effect, Fireball.RadiusUnits, distance, Npc.Orc.Model);
+            if (damage <= 0) continue;
+            orc.Damage(damage);
+            string who = orc == Orc ? "the orc" : "its mate";
+            if (orc == Orc) LastFireball = (distance, damage); else LastMateFireball = (distance, damage);
+            hurt.Add(FormattableString.Invariant($"{who} for {damage:0.#} ({distance:0} units off)"));
+        }
+        if (hurt.Count == 0) return;
         Adrenaline.Gain(Fireball.AdrenalineAdd);
-        LastFireball = (distance, damage);
-        Message = FormattableString.Invariant($"The fireball hits the orc for {damage:0.#} ({distance:0} units off)");
+        Message = "The fireball hits " + string.Join(" and ", hurt);
     }
 
+    /// <summary>The last fireball that hurt the mate: its distance (units) and the damage.</summary>
+    internal (float Distance, float Damage)? LastMateFireball { get; private set; }
     /// <summary>The last fireball that hurt the orc: its distance (units) and the damage.</summary>
     internal (float Distance, float Damage)? LastFireball { get; private set; }
     /// <summary>Telekinesis' numbers (#10164): mana by mass class, reach, the hold and throw, thrown bodies' damage.</summary>
@@ -1060,7 +1078,7 @@ internal sealed class LabCombat : IDisposable
         Mana.Fill();
         fireballs.Clear();
         SpellInHand = null;
-        LastFireball = null;
+        LastFireball = LastMateFireball = null;
         Spells = default;
         if (Build?.Belt is { } belt) Belt.Fill(donor, belt);
         recent.Clear();

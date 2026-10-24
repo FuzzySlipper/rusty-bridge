@@ -1665,6 +1665,44 @@ host.Call(engine =>
             FormattableString.Invariant($"replaying, the live squad-mate in reach takes no blow (R10154-4): a swing and a kick at it with the recorded orc absent take {swungReplaying.Mate:0.##} and {kickedReplaying.Mate:0.##}, landing {swungReplaying.Hits + kickedReplaying.Hits} hits"));
         Check(swungAt.Mate > 0 && swungAt.First == 0 && kickedAt.Mate > 0 && kickedAt.First == 0 && swungAt.Victim == "the mate",
             FormattableString.Invariant($"the player's blows land on the squad-mate they reach (R10154-3): a fast attack takes {swungAt.Mate:0.##} and a kick {kickedAt.Mate:0.##} from it, none from the first orc 20 m off ({swungAt.First:0.##}, {kickedAt.First:0.##})"));
+        // A fireball meets and burns the squad-mate as it does the first orc (R10165-1): cast at its torso with the first
+        // 20 m off, and at the floor between the two 60 units apart; replaying, it passes the live mate by.
+        (float Mate, float First) FireAtMate(bool between, bool replaying = false)
+        {
+            var spawnAt = new Vector3(saved.Orc.Spawn[0], saved.Orc.Spawn[1], saved.Orc.Spawn[2]);
+            var mateAt = spawnAt + side * 300 * mpu;
+            combat.Retune(saved with { Orc = saved.Orc with { Map = "l05_a", SquadMate = [mateAt.X, mateAt.Y, mateAt.Z] } });
+            combat.Reset();
+            foreach (var o in new[] { combat.Orc, combat.Mate! }) o.Hold = true;
+            var firstAt = between ? mateAt + side * 60 * mpu : spawnAt - side * 20;
+            combat.Orc.PlaceAt(firstAt);
+            combat.Mana.Fill();
+            if (combat.SpellInHand is null) combat.UseBelt(2);
+            var feet = mateAt + face * 200 * mpu;
+            var aim = between ? (mateAt + firstAt) / 2 : mateAt + Vector3.UnitY * 1.1f;
+            var eye = feet + Vector3.UnitY * 1.6f;
+            float mate = combat.Mate!.Health, first = combat.Orc.Health;
+            var absent = new OrcPose("", new Vector3(0, -1000, 0), Vector3.UnitZ, 0, "combatidle", 0, 1, null, 0, true);
+            ulong t = 0;
+            for (int i = 0; i < 180; i++)
+            {
+                combat.Mate.PlaceAt(mateAt);
+                if (!replaying) combat.Orc.PlaceAt(firstAt);
+                combat.Step(Tick, t++, i < 3, false, false, eye, Vector3.Normalize(aim - eye), feet, replaying ? absent : null);
+            }
+            if (replaying) combat.Orc.StopFollowing();
+            if (combat.SpellInHand is not null) combat.UseBelt(2);
+            foreach (var o in new[] { combat.Orc, combat.Mate }) o.Hold = false;
+            return (mate - combat.Mate.Health, first - combat.Orc.Health);
+        }
+        var fbMate = FireAtMate(false);
+        var fbBoth = FireAtMate(true);
+        var fbBothOff = (combat.LastFireball?.Distance ?? float.NaN, combat.LastMateFireball?.Distance ?? float.NaN);
+        var fbMateReplaying = FireAtMate(false, true);
+        var fbr = combat.Fireball;
+        Check(MathF.Abs(fbMate.Mate - fbr.Effect) < .01f && fbMate.First == 0 && fbBoth.Mate > 0 && fbBoth.First > 0
+                && MathF.Abs(fbBoth.Mate - fbr.Damage(fbBothOff.Item2)) < .01f && MathF.Abs(fbBoth.First - fbr.Damage(fbBothOff.Item1)) < .01f && fbMateReplaying.Mate == 0,
+            FormattableString.Invariant($"a fireball meets the squad-mate (R10165-1): struck, it took {fbMate.Mate:0.##} ({fbr.Effect:0}) and the first orc 20 m off {fbMate.First:0.##}; off the floor between them, the mate took {fbBoth.Mate:0.##} ({fbBothOff.Item2:0} units off) and the first {fbBoth.First:0.##} ({fbBothOff.Item1:0} off); replaying, the mate took {fbMateReplaying.Mate:0.##}"));
         combat.Retune(saved);
         combat.Reset();
         static string When(double? t) => t is double v ? FormattableString.Invariant($"{v:0.00} s") : "never";

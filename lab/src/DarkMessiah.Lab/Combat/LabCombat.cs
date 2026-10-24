@@ -335,7 +335,7 @@ internal sealed class LabCombat : IDisposable
                     spellClip = (LightningRules.OutClip, 0, false);
                     if (!Mana.Spend(Lightning.Cost)) { Refuse("the lightning bolt", Lightning.Cost); break; }
                     Spells = Spells with { Casts = Spells.Casts + 1 };
-                    if (InView(eye, forward, Lightning.RangeUnits, 10) is { } struck)
+                    if (InView(eye, forward, Lightning.RangeUnits, 10).FirstOrDefault() is { } struck)
                     {
                         SpellBlow(struck, LightningRules.Spell, Lightning.Effect, Lightning.AdrenalineAdd, Lightning.DeathDelay);
                         struck.Stun(eye with { Y = struck.Feet.Y });
@@ -373,8 +373,9 @@ internal sealed class LabCombat : IDisposable
                 float upkeep = Inferno.Maintain * MathF.Max(0, infernoAge - MathF.Max(before, Inferno.UpkeepFrom));
                 if (!held || upkeep > 0 && !Mana.Spend(upkeep)) { infernoAge = float.NaN; spellClip = (InfernoRules.OutClip, 0, false); break; }
                 if (spellClip is null) spellClip = (InfernoRules.HoldClip, 0, true);
+                // An area: every orc in its path each blow (R10166-1).
                 for (; infernoAge >= infernoNext; infernoNext += Inferno.EverySeconds)
-                    if (InView(eye, forward, Inferno.RangeUnits, Inferno.ConeDegrees) is { } burnt)
+                    foreach (var burnt in InView(eye, forward, Inferno.RangeUnits, Inferno.ConeDegrees).ToList())
                         SpellBlow(burnt, InfernoRules.Spell, Inferno.Effect, Inferno.AdrenalineAdd, Inferno.BurnDeath);
                 break;
         }
@@ -386,14 +387,19 @@ internal sealed class LabCombat : IDisposable
         Message = FormattableString.Invariant($"Not enough mana for {what} ({cost:0})");
     }
 
-    /// <summary>The live orc nearest the view within <paramref name="rangeUnits"/> and <paramref name="coneDegrees"/> of it (its body's middle).</summary>
-    Orc? InView(Vector3 eye, Vector3 forward, float rangeUnits, float coneDegrees)
+    /// <summary>
+    /// The live orcs within <paramref name="rangeUnits"/> and <paramref name="coneDegrees"/> of the view (their body's
+    /// middle), nearest first, that the arena doesn't hide: the world's ray from the eye to the middle meets nothing first
+    /// (R10166-3).
+    /// </summary>
+    IEnumerable<Orc> InView(Vector3 eye, Vector3 forward, float rangeUnits, float coneDegrees)
     {
         var view = Vector3.Normalize(forward);
         float cos = MathF.Cos(coneDegrees * MathF.PI / 180);
         return Orcs.Where(o => o.Alive && !o.Following).Select(o => (Orc: o, To: o.Hull.Center - eye))
-            .Where(x => x.To.Length() <= rangeUnits * SourceSpace.MetresPerUnit && Vector3.Dot(Vector3.Normalize(x.To), view) >= cos)
-            .OrderBy(x => x.To.Length()).Select(x => x.Orc).FirstOrDefault();
+            .Where(x => x.To.Length() <= rangeUnits * SourceSpace.MetresPerUnit && Vector3.Dot(Vector3.Normalize(x.To), view) >= cos
+                && !(WorldRay?.Invoke(eye, eye + x.To) is Vector3 wall && Vector3.Distance(eye, wall) < x.To.Length() - .05f))
+            .OrderBy(x => x.To.Length()).Select(x => x.Orc);
     }
 
     /// <summary>

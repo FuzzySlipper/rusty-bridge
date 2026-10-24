@@ -67,10 +67,11 @@ internal sealed record FreezeRules(float Cost, float AdrenalineAdd, float Frozen
 /// <summary>
 /// The inferno (<c>fire_4</c>; #10166): held, a stream of fire. Its <c>cost</c> (20) at the press, then
 /// <c>maintain_cost</c> (15) a second from <see cref="UpkeepFrom"/> s into the hold (both recorded holds) until it's let
-/// go or the mana runs out; <c>effect</c> (13) on the orc in its path <see cref="FirstSeconds"/> s after the press and
-/// every <see cref="EverySeconds"/> s after (0.17 and 0.51, both holds); a blow that would kill leaves it at 1, and it
-/// dies once it has burnt <see cref="BurnDeath"/> s (the settings' <c>Fire_Time_Ignite</c>: 5.2 s after the last
-/// blow, one; the other, struck on at 1 until let go, 2.4 s after the flame caught).
+/// go or the mana runs out; <c>effect</c> (13) on every orc in its path (an area, R10166-1; one orc was recorded)
+/// <see cref="FirstSeconds"/> s after the press and every <see cref="EverySeconds"/> s after (0.17 and 0.51, both holds).
+/// A blow that would kill leaves the orc at 1; it plays <c>onfire</c> and dies <see cref="BurnDeath"/> s after the blow
+/// (R10166-2: the orc with its AI on, 2.42 s; one frozen with <c>ai_disable</c>, which played no <c>onfire</c>, died when
+/// its fire ran out, 5.24 s, the settings' <c>Fire_Time_Ignite</c> 5 and a step: the lab's orc always reacts).
 /// </summary>
 internal sealed record InfernoRules(float Cost, float Maintain, float Effect, float AdrenalineAdd, float BurnDeath,
     float FirstSeconds = .17f, float EverySeconds = .51f, float UpkeepFrom = 1.5f, float RangeUnits = 300, float ConeDegrees = 15)
@@ -79,7 +80,7 @@ internal sealed record InfernoRules(float Cost, float Maintain, float Effect, fl
     internal const string ReadyClip = "layer_spellcasting_ready_fire_4", CastClip = "layer_spellcasting_cast_in_fire_4",
         HoldClip = "layer_spellcasting_cast_idle_fire_4", OutClip = "layer_spellcasting_cast_out_fire_4";
 
-    internal static readonly InfernoRules Shipped = new(20, 15, 13, .1f, 5);
+    internal static readonly InfernoRules Shipped = new(20, 15, 13, .1f, 2.4f);
 
     /// <summary>
     /// Its numbers from the donor. Its reach (<see cref="RangeUnits"/>, 300 units) and width (<see cref="ConeDegrees"/>)
@@ -94,7 +95,6 @@ internal sealed record InfernoRules(float Cost, float Maintain, float Effect, fl
             Maintain = Spell("maintain_cost") ?? Shipped.Maintain,
             Effect = Spell("effect") ?? Shipped.Effect,
             AdrenalineAdd = Spell("adrenaline_add") ?? Shipped.AdrenalineAdd,
-            BurnDeath = donor.Combat.Setting("Fire_Time_Ignite") ?? Shipped.BurnDeath,
         };
     }
 }

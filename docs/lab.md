@@ -640,9 +640,9 @@ core: each spell's belt slot puts it in hand (`build.json`'s `spells` and `belt`
 
 | | The donor | The lab |
 | --- | --- | --- |
-| Lightning bolt (`air_3`) | a press strikes 1.78 to 1.87 s later, tapped or held 1.5 s (5 casts); `cost` 8 taken as it strikes; `effect` 15, which the orc takes twice (its `Vulnerabilities_spells` `air_3` 2); the struck orc stunned (`hit_stunned_front`, every one that could react); a strike on a 5.5-health orc left it at 1 (`Hit_electrocuted`), and it died 1.7 s later | strikes 1.8 s after the press for its 8, the live orc nearest the view within 10° and `lightning_NPC_Bounce_Distance` (2000 units); `CombatModel.SpellDamage` (30 on the orc), a stun, `adrenaline_add` 3; a strike that would kill leaves 1, death 1.7 s on |
+| Lightning bolt (`air_3`) | a press strikes 1.78 to 1.87 s later, tapped or held 1.5 s (5 casts); `cost` 8 taken as it strikes; `effect` 15, which the orc takes twice (its `Vulnerabilities_spells` `air_3` 2); the struck orc stunned (`hit_stunned_front`, every one that could react); a strike on a 5.5-health orc left it at 1 (`Hit_electrocuted`), and it died 1.7 s later | strikes 1.8 s after the press for its 8, the live orc nearest the view within 10° and `lightning_NPC_Bounce_Distance` (2000 units) that the arena doesn't hide (R10166-3: none through a wall or crate); `CombatModel.SpellDamage` (30 on the orc), a stun, `adrenaline_add` 3; a strike that would kill leaves 1, death 1.7 s on |
 | Freeze (`water_3`) | `cost` 15 at the press; a bolt 0.27 s later at 4320 units/s; the orc it met stood still 7.2 s from it (`Stage1_Duration` 7), then fought on; no damage | the same: the orc's thought, clips and blows stop for 7 s |
-| Inferno (`fire_4`) | held: `cost` 20 at the press, then `maintain_cost` 15 a second from 1.5 s until let go (both holds); `effect` 13 on the orc 200 units ahead 0.16 s after the press and every 0.51 s while held; a blow that would kill left it at 1, and the blows after took nothing; it died 5.2 s after the last that hurt (released at 1.5 s), or 2.4 s after its flame caught (held on to 3 s) | the same costs and blows, on the live orc nearest the view within 15° and 300 units (the lab's: the recorded orc was 200 off); a blow that would kill leaves 1, and it dies `Fire_Time_Ignite` (5 s) on |
+| Inferno (`fire_4`) | held: `cost` 20 at the press, then `maintain_cost` 15 a second from 1.5 s until let go (both holds); `effect` 13 on the orc 200 units ahead 0.16 s after the press and every 0.51 s while held; a blow that would kill left it at 1, and the blows after took nothing; the orc with its AI on played `onfire` and died 2.4 s after that blow; one frozen with `ai_disable` played nothing and died when its fire ran out, 5.2 s on (`Fire_Time_Ignite` 5) | the same costs and blows, on every live orc within 15° and 300 units of the view that the arena doesn't hide (an area, R10166-1: only one orc was recorded; its reach and width are the lab's, the recorded orc 200 off); a blow that would kill leaves 1, and it dies 2.4 s on, as the live orc did (R10166-2: the lab's orc always reacts) |
 
 - **Not in the lab, and why:**
   - **poison spray (`water_2`) and drain (`earth_4`):** `Deploy_Spell_WATER_2` and `_EARTH_4` put nothing in hand from
@@ -659,8 +659,10 @@ core: each spell's belt slot puts it in hand (`build.json`'s `spells` and `belt`
 - **The smoke:** in the arena each slot puts its spell in hand; a bolt tapped strikes 1.83 s after for 8, the orc taking
   30 and stunned, and a second leaves it at 1 and it dies 1.7 s on; a freeze costs 15 and its bolt holds the orc still
   6.98 s; an inferno held 3 s costs 20 and 21.8 more from 1.5 s, burns the orc at 0.2, 0.7 and 1.2 s to 1, and it dies
-  5 s after. Against the recordings: every bolt's strike time, cost, damage and stun, every inferno's costs, blows and
-  their spacing, every freeze's cost and the orc it froze standing 7 s from its bolt.
+  2.4 s after; held at the orc and its squad-mate side by side, it burns both; a bolt at the orc behind the big crate
+  strikes nothing, from beside it the orc. Against the recordings: every bolt's strike time, cost, damage and stun, every
+  inferno's costs, blows and their spacing, every freeze's cost and the orc it froze standing 7 s from its bolt, and the
+  deaths after a blow that left 1 (1.68 s after the bolt, 2.40 after the inferno's).
 
 ### The bow
 

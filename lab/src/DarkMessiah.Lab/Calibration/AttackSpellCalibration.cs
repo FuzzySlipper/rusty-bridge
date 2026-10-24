@@ -14,6 +14,8 @@ namespace DarkMessiah.Lab.Calibration;
 internal sealed record SpellCast(string Spell, double Pressed, double Released, IReadOnlyList<(double At, float Drop)> Mana,
     IReadOnlyList<(double At, float Asked, float Taken, float Before)> Hits, IReadOnlyList<(double At, string Clip)> Clips)
 {
+    /// <summary>When the first struck NPC died (its health at 0 or its life state off), within 12 s of the press; NaN if not.</summary>
+    internal double Died { get; init; } = double.NaN;
     public override string ToString() =>
         FormattableString.Invariant($"{Spell} pressed {Pressed:0.00} s, held {Released - Pressed:0.00} s: mana ")
         + string.Join(" ", Mana.Take(4).Select(m => FormattableString.Invariant($"-{m.Drop:0.#}@{m.At - Pressed:+0.00}"))) + (Mana.Count > 4 ? FormattableString.Invariant($" ... ({Mana.Count}, {Mana.Sum(m => m.Drop):0.#} in all)") : "")
@@ -28,7 +30,8 @@ internal static class AttackSpellCalibration
         var names = new EventNames();
         var casts = new List<(string Spell, double Pressed, double Released)>();
         var mana = new List<(double, float)>();
-        var damage = new List<(double At, string Inflictor, int Victim, float Asked, float Taken, float Before)>();
+        var damage = new List<(double At, string Inflictor, int Victim, float Asked, float Taken, float Before, uint Serial)>();
+        var deaths = new Dictionary<(int, uint), double>();
         var npcClips = new Dictionary<int, List<(double, string)>>();
         var npcSeen = new Dictionary<int, string>();
         string? inHand = null;
@@ -59,9 +62,15 @@ internal static class AttackSpellCalibration
                 foreach (var d in f.Damage)
                 {
                     string victim = names.Name(f, d.Victim, d.VictimSerial), by = names.Name(f, d.Inflictor, d.InflictorSerial);
+                    // Its death: the blow that leaves it at 0 (a spell's at 1 is followed by the orc's own, as its reaction ends).
+                    if (victim.StartsWith("npc_orc", StringComparison.Ordinal) && d.HealthAfter <= 0 && d.HealthBefore > -1) deaths.TryAdd((d.Victim, d.VictimSerial), d.Tick * interval);
                     if (victim.StartsWith("npc_", StringComparison.Ordinal) && by.StartsWith("spell_", StringComparison.Ordinal))
-                        damage.Add((d.Tick * interval, by["spell_".Length..], d.Victim, d.Damage, d.HealthBefore - d.HealthAfter, d.HealthBefore));
+                        damage.Add((d.Tick * interval, by["spell_".Length..], d.Victim, d.Damage, d.HealthBefore - d.HealthAfter, d.HealthBefore, d.VictimSerial));
                 }
+                foreach (var (index, e) in f.Entities)
+                    if (f.Classes.GetValueOrDefault(e.ClassId, "").StartsWith("npc_orc", StringComparison.Ordinal) && e.Flags.HasFlag(WireEntityFlags.HasHealth)
+                        && (e.Health <= 0 || e.LifeState != 0))
+                        deaths.TryAdd((index, e.Serial), time);
                 foreach (var (index, e) in f.Entities)
                     if (f.Classes.GetValueOrDefault(e.ClassId, "").StartsWith("npc_orc", StringComparison.Ordinal) && f.Sequences.GetValueOrDefault(e.ModelIndex) is { } seqs
                         && e.Sequence >= 0 && e.Sequence < seqs.Length && npcSeen.GetValueOrDefault(index) != seqs[e.Sequence])
@@ -82,7 +91,10 @@ internal static class AttackSpellCalibration
                 : npcClips.Where(kv => kv.Value.Any(c => c.Item1 <= pressed)).OrderByDescending(kv => kv.Value.Last(c => c.Item1 <= pressed).Item1).Select(kv => (int?)kv.Key).FirstOrDefault();
             var clips = struck is int k2 && npcClips.TryGetValue(k2, out var list2) ? list2.Where(c => c.Item1 >= pressed && c.Item1 <= pressed + 12).ToList() : [];
             result.Add(new SpellCast(spell, pressed, double.IsNaN(released) ? pressed : released, mana.Where(m => m.Item1 >= pressed - .05 && m.Item1 < until).ToList(),
-                hits.Select(h => (h.At, h.Asked, h.Taken, h.Before)).ToList(), clips));
+                hits.Select(h => (h.At, h.Asked, h.Taken, h.Before)).ToList(), clips)
+            {
+                Died = hits.Count > 0 && deaths.TryGetValue((hits[0].Victim, hits[0].Serial), out var died) && died >= pressed && died <= pressed + 12 ? died : double.NaN,
+            });
         }
         return result;
     }

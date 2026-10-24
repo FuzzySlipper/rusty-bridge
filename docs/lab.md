@@ -608,11 +608,14 @@ recorded):
 - **Getting on and off takes** `mm_time_to_exit_enter_ladder`, 1 s: an eased move onto the rail or off it, the
   controls held off meanwhile (R10163-1). The body's `Player_ladder_*` clips aren't played. Not measured against the
   donor.
+- **Standing:** the ladder stands the body (R10163-3). A crouched one walking into it rises over its feet as the move
+  onto the rail begins, the rail's ends are the standing body's, and crouch does nothing on the rail.
 - **Drawn:** two side rails and a rung every 0.3 m, 0.5 m wide, against the face from its foot to its top
   (`LadderRules.Pieces`; drawn only, the climb is the rail's), so it's found where it's climbed (R10163-2).
 - **The smoke:** the drawn ladder stands 0.05 m off its face either side of the climb (the rail 0.53 m off); got on
   walking into it in 1.02 s without climbing, 80 units/s up and down, off onto the loft in 1.02 s, on again from the
-  top, off at the foot, a jump letting go.
+  top, off at the foot, a jump letting go; crouched into it, it stands onto the rail with its feet never below the
+  floor and climbs with crouch held, no recovery needed.
 
 Mantling is #10329 (its trigger in server.dll's movement code, 0x223F2707, not yet reproduced) and climbing ropes
 #10330.

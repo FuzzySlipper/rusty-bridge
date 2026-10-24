@@ -1026,6 +1026,24 @@ host.Call(engine =>
         climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
         bool jumpedOff = p.Climbing is null && p.LadderMove is null;
         for (int i = 0; i < 90; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        // Crouched into it (R10163-3): the ladder stands the body over its feet, which never go below the floor, and it
+        // climbs, crouch still held, with no recovery from a penetration.
+        p.Place(new Vector3(19, half, 21), 90);
+        for (int i = 0; i < 20; i++) climber.Step(Vector2.Zero, east, false, false, true, false, Tick);
+        bool crouchedFirst = p.Motion.Stance == CharacterStance.Crouched;
+        uint recoveriesBefore = p.Recoveries;
+        float lowestFeet = float.MaxValue;
+        void CrouchedStep() { climber.Step(Vector2.UnitY, east, false, false, true, false, Tick); lowestFeet = MathF.Min(lowestFeet, p.Feet.Y); }
+        for (int i = 0; i < 300 && p.Climbing is null; i++) CrouchedStep();
+        bool crouchedMounted = p.Climbing is not null && p.Motion.Stance == CharacterStance.Standing;
+        float crouchedFrom = p.Feet.Y;
+        for (int i = 0; i < 30; i++) CrouchedStep();
+        float crouchedRise = (p.Feet.Y - crouchedFrom) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        bool crouchedClean = p.Recoveries == recoveriesBefore;
+        climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
+        for (int i = 0; i < 120; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        Check(crouchedFirst && crouchedMounted && lowestFeet > -.01f && crouchedRise > 30 && crouchedClean,
+            FormattableString.Invariant($"crouched into the ladder (R10163-3): stood onto its rail ({crouchedMounted}), the feet never below the floor (lowest {lowestFeet:0.000} m), climbing {crouchedRise:0} units in 0.5 s with crouch held, no recovery ({crouchedClean})"));
         p.Place(ladderStart, ladderYaw, ladderPitch);
         int second = (int)MathF.Round(LadderRules.EnterExitSeconds / Tick);
         Check(drawnThere && mountSteps >= second - 1 && mountSteps <= second + 1 && mountHeld && exitSteps >= second - 2 && exitSteps <= second + 1
@@ -1054,6 +1072,7 @@ host.Call(engine =>
         Check(falls.Zip(recorded).All(x => MathF.Abs(x.First.Taken - x.Second) <= 2.5f),
             FormattableString.Invariant($"a fall takes the donor's health from 300 units: {string.Join(", ", falls.Zip(recorded).Select(x => $"{x.First.Drop:0} units {x.First.Taken:0.#} (the donor's {x.Second})"))}"));
     }
+    // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     {
         var head = combat.FirstPerson.Head;
         float DipAt(float scale)
@@ -1072,7 +1091,6 @@ host.Call(engine =>
             FormattableString.Invariant($"the landing dips the view {full:0.0}° at landingDip 1 (player.json's), {half:0.0}° at 0.5, {none:0.0}° at 0"));
     }
     // Health (#10162): 50 and 10 an extra_health level; fast_metabolism regains 0.25 a second; the belt's potions give
-    // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     // their give_health up to the maximum, one fewer each use; keys 1 to 9 are its slots.
     {
         Check(combat.Health.Max == 50 && combat.Belt[0] is { Count: 3 } firstSlot && firstSlot.Item.GiveHealth == 10 && combat.Belt[1] is { Count: 1 } secondSlot

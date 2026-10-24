@@ -134,8 +134,8 @@ internal sealed class PlayerController : IDisposable
         // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it; jump lets go.
         if (Climbing is null && input.Movement.Y > 0 && !jumpPressed && LadderInReach() is { } reached)
         {
-            var (bottom, top) = LadderRules.Rail(reached, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
-            StartLadderMove(bottom with { Y = Math.Clamp(Position.Y, bottom.Y, top.Y) }, reached);
+            var (bottom, top) = LadderRules.Rail(reached, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
+            StartLadderMove(bottom with { Y = Math.Clamp(StandingY, bottom.Y, top.Y) }, reached);
             return BodyEvent.None;
         }
         // Or from its top: at the edge, facing the ladder's way, backing off steps onto the rail's top (the exit's reverse).
@@ -151,15 +151,15 @@ internal sealed class PlayerController : IDisposable
             var movement = default(CharacterMovementRequest);
             if (Climbing is { } ladder)
             {
-                var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+                var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
                 climbIntent = LadderRules.Intent(input.Movement.Y * movementScale, LookState.PitchRadians * 180 / MathF.PI);
                 movement = new CharacterMovementRequest(CharacterMovementMode.Climbing, climbIntent, LadderRules.SpeedMetres, 0, 0, bottom, top, 0, 0, LadderRules.Reach);
             }
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,
-                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld ? crouching : input.SprintHeld ? sprinting : walkHeld ? slow
+                ReadOnlyMemory<CharacterMeshInstance>.Empty, input.CrouchHeld && Climbing is null ? crouching : input.SprintHeld ? sprinting : walkHeld ? slow
                     : input.Movement.Y < 0 && input.Movement.X == 0 ? backing : walking,
                 new CharacterControllerCommand(movement, Climbing is null ? input.Movement * movementScale : Vector2.Zero, LookState.YawRadians,
-                    Climbing is null && jumpPressed && movementScale > 0, input.JumpHeld, input.CrouchHeld, Vector3.Zero, impulse, delta, ++commandSequence)));
+                    Climbing is null && jumpPressed && movementScale > 0, input.JumpHeld, input.CrouchHeld && Climbing is null, Vector3.Zero, impulse, delta, ++commandSequence)));
         }
         catch (EngineCallException refusal) when (PlayerRecovery.IsPenetration(refusal))
         {
@@ -328,7 +328,12 @@ internal sealed class PlayerController : IDisposable
     /// <summary>Getting on or off a ladder (R10163-1): from, to, the time so far, and the ladder climbed after (null: off).</summary>
     internal (Vector3 From, Vector3 To, float Elapsed, Ladder? Then)? LadderMove { get; private set; }
 
-    private void StartLadderMove(Vector3 to, Ladder? then) => LadderMove = (Position, to, 0, then);
+    // The ladder stands the body (R10163-3): a crouched one rises from where its feet are, so the move starts from the
+    // standing centre over them and the rail's ends are the standing body's.
+    private void StartLadderMove(Vector3 to, Ladder? then) => LadderMove = (Feet + Vector3.UnitY * (Tuning.Height / 2), to, 0, then);
+
+    // The centre's height the body would stand at over its feet: the rail is the standing body's (R10163-3).
+    private float StandingY => Feet.Y + Tuning.Height / 2 + walking.Shape.ContactSkin;
 
     /// <summary>A ladder whose rail is within reach, its top above the body and its foot below, the look toward it.</summary>
     private Ladder? LadderInReach()
@@ -338,9 +343,9 @@ internal sealed class PlayerController : IDisposable
         look = Vector3.Normalize(look);
         foreach (var ladder in Ladders)
         {
-            var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+            var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
             var away = (Position - bottom) with { Y = 0 };
-            if (away.Length() <= LadderRules.Reach && Position.Y >= bottom.Y - .1f && Position.Y < top.Y
+            if (away.Length() <= LadderRules.Reach && StandingY >= bottom.Y - .1f && StandingY < top.Y
                 && Vector3.Dot(look, Vector3.Normalize(ladder.Facing with { Y = 0 })) >= LadderRules.MountDot)
                 return ladder;
         }
@@ -358,10 +363,10 @@ internal sealed class PlayerController : IDisposable
         look = Vector3.Normalize(look);
         foreach (var ladder in Ladders)
         {
-            var (_, top) = LadderRules.Rail(ladder, Tuning.Radius, Height / 2 + walking.Shape.ContactSkin);
+            var (_, top) = LadderRules.Rail(ladder, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
             var facing = Vector3.Normalize(ladder.Facing with { Y = 0 });
             var exit = top + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres);
-            if (((Position - exit) with { Y = 0 }).Length() <= LadderRules.Reach + .3f && MathF.Abs(Position.Y - top.Y) < .15f
+            if (((Position - exit) with { Y = 0 }).Length() <= LadderRules.Reach + .3f && MathF.Abs(StandingY - top.Y) < .15f
                 && Vector3.Dot(look, facing) >= LadderRules.MountDot)
                 return (ladder, top with { Y = top.Y - .03f });
         }

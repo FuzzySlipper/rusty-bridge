@@ -90,7 +90,10 @@ A studio model is one skinned GLB:
   helmet or prop) has it in `asset.extras.collision`: the root joint's name
   and the solid's convex pieces (`points` in that joint's frame, metres;
   `triangles` over them). Traces meet items by these. Characters' ragdoll
-  solids, one per bone, aren't written.
+  solids, one per bone, aren't written. With them, the solid's `mass` (kg)
+  and `surfaceprop` from the `.phy`'s text (studiomdl's `solid {...}`):
+  telekinesis sorts bodies by mass (#10164; `barrel01` 80, `jug01` 4,
+  `cratea_new` 300).
 
 Every clip goes into the model's one GLB. The Engine bounds what a GLB's
 clips decode to, 16,000,000 keyframes and 32,000,000 values (rusty-engine

@@ -1,0 +1,43 @@
+{
+  "description": "Telekinesis probe (#10164): every skill, god, notarget, the level's NPCs removed, telekinesis deployed; 15 minutes recorded with no scripted input, for console probing (rbwire exec) of where l01_a's props of each mass class stand.",
+  "seconds": 900,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    }
+  ]
+}

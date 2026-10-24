@@ -95,6 +95,14 @@ internal sealed class DonorContent : IDisposable
     public float? Number(string model, string block, string key) =>
         Read(Path.ChangeExtension(model, ".qct")) is byte[] qct && KeyValues.ParseAll(qct).FirstOrDefault()?.Find(block)?.Number(key) is float value ? value : null;
 
+    /// <summary>A model's collision mass, kg (#10164), from its GLB's header alone; null when it has none or isn't imported.</summary>
+    public float? Mass(string donorPath)
+    {
+        string file = Path.ChangeExtension(VpkIndex.Normalize(donorPath), ".glb");
+        try { return ModelInfo.FromGlb(bundle.ReadBytes(file).Span).Mass; }
+        catch (Exception e) when (e is IOException or InvalidOperationException or KeyNotFoundException or ArgumentException) { return null; }
+    }
+
     /// <summary>A model by its donor path (<c>models/npc/orc/npc_orc.mdl</c>), opened on first use.</summary>
     public DonorModel Model(string donorPath)
     {

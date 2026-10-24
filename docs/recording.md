@@ -128,7 +128,9 @@ front, and input would land in them.
 - `description`, `seconds` (default 60), `launch` (the game's arguments; default the `rb_start` ones);
 - `setup`: console lines, `{"wait": seconds}`, and `{"approach": "npc_goblin", "distance": 60}`, which puts the player
   that many units in front of the nearest living NPC of that class on the Wire, facing it (`"height"`: that many
-  units above the NPC's feet, default 4, to drop from; `"pitch"`: that many degrees down). NPCs spawned with `mm_npc_create` land where the view points,
+  units above the NPC's feet, default 4, to drop from; `"pitch"`: that many degrees down; `"model"`: only entities
+  whose model path holds it, so a prop of one kind can be approached, `{"approach": "prop_physics", "model":
+  "barrel01"}`; a prop needn't have health). NPCs spawned with `mm_npc_create` land where the view points,
   often out of reach: set the position and view first;
 - `play`: console lines, `{"point": [x, y], "of": [1280, 720]}` (the cursor to a place in a desktop capture of that
   size, for the game's menus), `{"click": 1, "ms": 80}` (1 left, 3 right), `{"hold": ["F", "W"], "ms": 150}` (letters,
@@ -177,6 +179,9 @@ perception checks read: their fights would skew the orc's behaviour and defence 
 | `jump-hold` | the same | standing jumps, two each with jump held 0.05 to 1 s (#10159) |
 | `sprint`, `sprint-double` | the short sword, the level's NPCs removed; a new game's skills (stamina 9), or every skill (`double_sprint`, 12) | round a small square turned every second: a sprint from full held 3 s past empty, a rest, a sprint tried below 3, a rest to full, a kick in a sprint, a kick standing (#10160) |
 | `fall` | god off, `notarget`, every skill (80 health), the level's NPCs removed | the health set to 80, then `setpos` 209 to 484 units above the ground at (0, -2400), eight drops 5 s apart (`fall-1` dropped 100 to 400 at whatever health it had) (R10159-1) |
+| `tk-probe` | every skill, god, `notarget`, the level's NPCs removed, telekinesis deployed | nothing: 15 minutes recorded for console probing with `rbwire exec` (#10164) |
+| `telekinesis-mass` | every skill, god, `notarget`, the level's NPCs removed, twelve mana potions on the belt | l01_a's props where they stand: the upper hall's jug (4 kg), bread (1), table (40) and wood bin (30), the lower room's broom (5), barrels (80) and stool (40), the crate room's crates (40, 300, 300); each gripped (`+attack` held), the view turned, let go and pressed again (the throw); then an orc, spawned where the view meets the hall's floor, has a table, stools and a log thrown at it. Two belt slots drunk and `Deploy_Spell_AIR_1` again before each grab (drinking puts the sword back) (#10164) |
+| `telekinesis-throw` | the same | an orc in the upper hall, frozen with `ai_disable`, takes the jug, bread, a log, two stools, the table and a wood bin thrown at it; a second in the lower room, the two barrels (#10164) |
 | `health` | `notarget`, 60 skill points; two life potions, a red apple, a roasted chicken, cooked bread and a full life potion given (the save's player has 15 of 50 health) | belt slots 1 to 9 used 3 s apart (`give` puts the potions on the belt, not the food); in the sheet's misc tab stamina, `extra_health` to 3 and `fast_metabolism` learned one double click at a time; `hurtme 10`, 20 s, `hurtme 5`, 10 s (#10162) |
 | `lean` | the short sword, the level's NPCs removed | facing north from (0, -2400): lean left 2 s, right 2 s, a 0.3 s tap, a walking lean; then strafing left into a wall, leaning into it, stepping off 27 and 54 more units and leaning again (R10161-2) |
 | `mantle`, `mantle-crates` | the short sword, the level's NPCs removed | jumps, held or tapped, into world steps of 32 and 37 units, a tall wall and the 57.6- and 75-unit crates: no mantle came (#10163; the trigger is #10329's) |
@@ -217,6 +222,13 @@ plus one `point` step for the character sheet; nothing goes through the inventor
   learned spell in hand, and clicks cast it, mana falling. `give spell_fire_1` and `give spell_air_3` equip but don't
   cast; `use` of the spell weapons and the belt slots select nothing, and `mm_spellshortcut` and `mm_book` are no
   commands. There is no `prop_physics_create`: telekinesis takes a prop the level has (the start area's jug).
+- **Telekinesis** (#10164): attack held grips the body in view and holds it; let go, it stays where it was held;
+  pressed again, it's thrown. Console `+attack`/`-attack` drive it (`rbwire exec` or a scenario's lines). `+attack2`
+  is the parry: with the spell in hand it puts the spell away (the sword comes back), as drinking from the belt does;
+  `Deploy_Spell_AIR_1` takes it out again (`use weapon_MMTelekinesis_physcannon` empties the hand). `addoutput
+  origin` moves a prop's entity but not its physics body, which springs back when touched, and there's no
+  `ent_create`: props are tried where the level put them. An orc frozen with `ai_disable` takes a thrown body's full
+  damage (the settings' 8 for a small one), unaware or not.
 - **A still NPC:** `ai_disable 1` holds it still, but it then counts as unaware (the not-alerted ×3 and more), so its
   damage doesn't calibrate; `chained-slash` lets the orc fight.
 - **Crashes:** `give weapon_mmspell`, `give spell_air_1` and `give weapon_MMSpell_weapon_AIR_1` shut the game down

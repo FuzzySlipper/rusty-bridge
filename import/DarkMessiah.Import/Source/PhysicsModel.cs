@@ -45,6 +45,29 @@ public static class PhysicsModel
         return solids;
     }
 
+    /// <summary>
+    /// The first solid's mass (kg) and surface property from the text after the solids: studiomdl's
+    /// <c>solid { "index" "0" ... "mass" "80.000000" "surfaceprop" "Wood_Crate" ... }</c> (telekinesis sorts props by
+    /// mass, #10164). Null where the file has none.
+    /// </summary>
+    public static (float? Mass, string? SurfaceProp) Properties(byte[] b)
+    {
+        if (b.Length < HeaderBytes) return (null, null);
+        int count = BitConverter.ToInt32(b, 8), at = BitConverter.ToInt32(b, 0);
+        for (int s = 0; s < count && at + 4 <= b.Length; s++)
+        {
+            int size = BitConverter.ToInt32(b, at);
+            if (size <= 0) return (null, null);
+            at += 4 + size;
+        }
+        if (at >= b.Length) return (null, null);
+        string text = Encoding.ASCII.GetString(b, at, b.Length - at);
+        string? Value(string key) =>
+            System.Text.RegularExpressions.Regex.Match(text, "\"" + key + "\"\\s*\"([^\"]*)\"") is { Success: true } m ? m.Groups[1].Value : null;
+        float? mass = float.TryParse(Value("mass"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float kg) ? kg : null;
+        return (mass, Value("surfaceprop"));
+    }
+
     static void Leaves(byte[] b, int node, int start, int end, List<ConvexPiece> pieces, string path, int depth = 0)
     {
         if (node < start || node + NodeBytes > end || depth > 64) throw new InvalidDataException($"{path}: a ledge tree node lies outside its solid");

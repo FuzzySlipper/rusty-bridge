@@ -56,8 +56,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         scene = new LabScene(engine, LabDefinition.Load(engine));
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         player.Ladders = scene.Definition.Ladders.Select(LabScene.Ladder).ToArray();
-        cubes = new CubeInteraction(engine, scene, player);
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
+        cubes = new CubeInteraction(engine, scene, player, combat);
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
         if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
@@ -73,6 +73,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     internal LabCombat Combat => combat;
     internal PlayerController Player => player;
     internal DonorContent Donor => donor;
+    internal CubeInteraction Cubes => cubes;
+    internal LabScene Scene => scene;
 
     public void Start()
     {
@@ -150,6 +152,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             // The first person draws from above the eye, turned by the head (#10161).
             player.Camera = combat.FirstPerson.View;
             scene.Step(delta, cubes.PrepareStep());
+            cubes.AfterStep(delta);
         }
         time.SetSlow(combat.TimeScale);
         // Facts identify the first admitted step; the published state is at the end boundary.

@@ -37,7 +37,8 @@ internal sealed record LabDefinition(float VoxelSize, float Gravity, float[] Spa
 
     internal static Color Color(float[] rgb) => Authored.Color(rgb);
 }
-internal sealed record InteractionTuning(float Reach, float HoldDistance, float HoldSlack, float HoldReelSpeed, float ThrowSpeed);
+/// <summary>How the held body's tether pulls (its reach, hold distance and throw are telekinesis', #10164: <c>TelekinesisRules</c>).</summary>
+internal sealed record InteractionTuning(float HoldSlack, float HoldReelSpeed);
 internal sealed record VolumeDefinition(string Label, float[] Min, float[] Max, uint Material);
 internal sealed record RampDefinition(string Label, float[] Origin, float Width, float Length, float AngleDegrees, float[] Color);
 internal sealed record BlockDefinition(string Label, float[] Center, float[] Size);

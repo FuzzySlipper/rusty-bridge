@@ -84,6 +84,8 @@ public sealed class ModelInfo
     public IReadOnlyList<ConvexHull> Collision { get; }
     /// <summary>The model's clips by name.</summary>
     public IReadOnlyDictionary<string, ModelClip> Clips { get; }
+    /// <summary>Its collision solid's mass, kg (the .phy's, #10164); null for a character or an older import.</summary>
+    public float? Mass { get; init; }
 
     /// <summary>The length of a GLB's header and JSON chunk, from its first 20 bytes; 0 when it isn't a GLB.</summary>
     public static int HeaderLength(ReadOnlySpan<byte> first20) =>
@@ -96,7 +98,10 @@ public sealed class ModelInfo
         if (length == 0 || glb.Length < length) return Empty;
         var json = JsonNode.Parse(Encoding.UTF8.GetString(glb[20..length]));
         var extras = json?["asset"]?["extras"];
-        return new ModelInfo(ReadAttachments(extras), ReadHitboxes(extras), ReadCollision(extras), ReadClips(json));
+        return new ModelInfo(ReadAttachments(extras), ReadHitboxes(extras), ReadCollision(extras), ReadClips(json))
+        {
+            Mass = extras?["collision"]?["mass"]?.GetValue<float>(),
+        };
     }
 
     static List<(string Name, ModelAttachment Attachment)> ReadAttachments(JsonNode? extras)

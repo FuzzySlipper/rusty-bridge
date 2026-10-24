@@ -79,16 +79,19 @@ static class Scenario
 
     /// <param name="height">Units above the NPC's feet to put the player (4 stands it on level ground; more drops it).</param>
     /// <param name="pitch">The view's pitch, degrees down (0 looks level).</param>
-    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance, float height = 4, float pitch = 0)
+    /// <param name="model">Only entities whose model path holds this (any case): a prop of one kind (#10164).</param>
+    static (string Setpos, string Setang) Approach(string wirePath, string cls, float distance, float height = 4, float pitch = 0, string? model = null)
     {
         using var reader = new WireReader(wirePath);
         var snap = new WireSnapshot();
         if (!reader.TryReadLatest(snap)) throw new InvalidOperationException("no frame on the Wire");
         var entities = snap.Span.ToArray();
         var player = entities.FirstOrDefault(e => reader.ClassName(snap, e.ClassId) == "player");
-        var found = entities.Where(e => reader.ClassName(snap, e.ClassId) == cls && e.LifeState == 0 && e.Health > 0)
+        // An NPC alive; a prop as it is (an unbreakable one has no health).
+        var found = entities.Where(e => reader.ClassName(snap, e.ClassId) == cls && e.LifeState == 0 && (e.Health > 0 || !cls.StartsWith("npc_", StringComparison.Ordinal))
+                && (model is null || reader.ModelPath(snap, e.ModelIndex).Contains(model, StringComparison.OrdinalIgnoreCase)))
             .OrderBy(e => Math.Pow(e.OriginX - player.OriginX, 2) + Math.Pow(e.OriginY - player.OriginY, 2)).ToList();
-        if (found.Count == 0) throw new InvalidOperationException($"no living {cls} on the Wire to approach");
+        if (found.Count == 0) throw new InvalidOperationException($"no living {cls}{(model is null ? "" : " of " + model)} on the Wire to approach");
         var npc = found[0];
         double dx = player.OriginX - npc.OriginX, dy = player.OriginY - npc.OriginY, d = Math.Sqrt(dx * dx + dy * dy);
         (dx, dy) = d > 1 ? (dx / d, dy / d) : (Math.Cos(npc.Yaw * Math.PI / 180), Math.Sin(npc.Yaw * Math.PI / 180));
@@ -170,13 +173,14 @@ static class Scenario
     /// A setup step: a console line, <c>{"wait": seconds}</c>, or <c>{"approach": "npc_orc_sword", "distance": 60}</c>,
     /// which finds the nearest living entity of that class on the Wire and puts the player that many units in front of
     /// it, facing it (spawned NPCs land where the view pointed, which isn't always in reach); <c>"height"</c> puts it
-    /// that many units above the NPC's feet (default 4), to drop from, and <c>"pitch"</c> looks that many degrees down.
+    /// that many units above the NPC's feet (default 4), to drop from, <c>"pitch"</c> looks that many degrees down, and
+    /// <c>"model"</c> takes only entities whose model path holds it.
     /// </summary>
     static void Setup(TapControl control, JsonNode step, string wirePath)
     {
         if (step is JsonObject o && o["approach"] is { } target)
         {
-            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60, (float?)o["height"] ?? 4, (float?)o["pitch"] ?? 0);
+            var (setpos, setang) = Approach(wirePath, (string)target!, (float?)o["distance"] ?? 60, (float?)o["height"] ?? 4, (float?)o["pitch"] ?? 0, (string?)o["model"]);
             Setup(control, setpos, wirePath);
             Setup(control, setang, wirePath);
             return;

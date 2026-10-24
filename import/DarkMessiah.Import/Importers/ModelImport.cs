@@ -118,9 +118,13 @@ public sealed class ModelImport
         {
             var root = mdl.Bones[0];
             var toRoot = Quaternion.Inverse(root.Rotation);
+            var (mass, surfaceProp) = PhysicsModel.Properties(phy);
             gltf.Extras["collision"] = new JsonObject
             {
                 ["joint"] = root.Name,
+                // The solid's mass in kg and surface property, as studiomdl wrote them (#10164).
+                ["mass"] = mass,
+                ["surfaceprop"] = surfaceProp,
                 ["pieces"] = new JsonArray(solid.Select(piece => (JsonNode)new JsonObject
                 {
                     ["points"] = GltfBuilder.FloatArray(piece.Points

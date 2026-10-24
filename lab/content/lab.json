@@ -7,7 +7,7 @@
   "ladders": [
     {"label":"loft ladder", "foot":[20, 0, 21], "top":2.5, "facing":[1, 0, 0]}
   ],
-  "interaction": {"reach": 3.5, "holdDistance": 2, "holdSlack": 0.15, "holdReelSpeed": 12, "throwSpeed": 11},
+  "interaction": {"holdSlack": 0.15, "holdReelSpeed": 12},
   "volumes": [
     {"label":"courtyard floor", "min":[0,-0.5,0], "max":[24,0,24], "material":1},
     {"label":"west wall", "min":[0,0,0], "max":[0.5,4,24], "material":2},
@@ -23,8 +23,10 @@
     {"label":"low wall", "center":[12,0.4,2.5], "size":[6,0.8,0.6]}
   ],
   "cubes": [
-    {"label":"crate / 6kg", "center":[3,0.55,20], "size":1, "mass":6, "color":[0.62,0.44,0.27]},
-    {"label":"crate / 6kg", "center":[4.2,0.55,20], "size":1, "mass":6, "color":[0.62,0.44,0.27]},
-    {"label":"barrel / 2kg", "center":[16,0.3,20], "size":0.6, "mass":2, "color":[0.5,0.36,0.22]}
+    {"label":"crate / 40kg", "center":[3,0.55,20], "size":1, "mass":40, "color":[0.62,0.44,0.27]},
+    {"label":"crate / 40kg", "center":[4.2,0.55,20], "size":1, "mass":40, "color":[0.62,0.44,0.27]},
+    {"label":"barrel / 80kg", "center":[16,0.3,20], "size":0.6, "mass":80, "color":[0.5,0.36,0.22]},
+    {"label":"jug / 4kg", "center":[6,0.15,19], "size":0.3, "mass":4, "color":[0.7,0.55,0.4]},
+    {"label":"big crate / 300kg", "center":[9,0.75,21], "size":1.5, "mass":300, "color":[0.55,0.4,0.25]}
   ]
 }

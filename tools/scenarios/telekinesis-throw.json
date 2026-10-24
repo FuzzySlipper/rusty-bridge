@@ -1,0 +1,389 @@
+{
+  "description": "Telekinesis throws at orcs (#10164): every skill, god, notarget, the level's NPCs removed, twelve mana potions on the belt (two slots drunk and telekinesis deployed again before each grab). An orc spawned in l01_a's upper hall (where the view meets its floor), its AI then frozen with ai_disable, takes thrown bodies of each damage class: the jug (4 kg), bread (1) and a log (7), small; two stools and a table (40) and a wood bin (30), medium. A second orc in the lower room takes the two barrels (80), big. Each is gripped (console +attack held 2 s), the view turned at the orc, let go (it stays, held) and pressed again: the throw. Marked in the console with echo rb_tk.",
+  "seconds": 240,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_tk orc in the upper hall",
+    "setpos -1200 1000 713",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "echo rb_tk throw jug 4 kg",
+    "setpos -1332.8 1183.1 712.9",
+    "setang 9.6 120.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 7.1 322.2 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw bread 1 kg",
+    "setpos -1295.5 1195.6 712.9",
+    "setang 12.1 120.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 8.0 309.6 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw log 7 kg",
+    "setpos -1578.8 1206.1 712.9",
+    "setang 32.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 3.0 341.6 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw stool 40 kg",
+    "setpos -1043.6 1241.9 712.9",
+    "setang 35.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 5.3 226.0 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw stool 40 kg",
+    "setpos -980.6 1203.8 712.9",
+    "setang 35.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 4.8 209.4 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw table 40 kg",
+    "setpos -1024.6 1170.1 712.9",
+    "setang 23.4 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 6.1 207.2 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw wood bin 30 kg",
+    "setpos -1584.7 1214.4 712.9",
+    "setang 31.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 3.0 340.7 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk orc in the lower room",
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "setpos -1250 1340 412",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "echo rb_tk throw barrel 80 kg",
+    "setpos -1236.9 1576.3 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 7.6 265.2 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw barrel 80 kg",
+    "setpos -1277.7 1581.2 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.0
+    },
+    "setang 7.3 279.8 0",
+    {
+      "wait": 1.2
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    }
+  ]
+}

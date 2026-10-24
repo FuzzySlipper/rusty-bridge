@@ -1,0 +1,598 @@
+{
+  "description": "Telekinesis by mass class (#10164): every skill, god, notarget, the level's NPCs removed. Before each grab two belt slots are drunk (twelve mana potions, 50 each, given in the setup: mana is the build's 100) and telekinesis deployed again (Deploy_Spell_AIR_1; drinking puts the sword back in hand). Each grab holds console +attack 2.5 s, turns the view (10 degrees up, or at the orc), lets attack go (the object stays where it is held, in stasis) and presses it again: the throw (attack2 is the game's parry, and puts the spell away). l01_a's props where they stand: the jug (4 kg) and bread (1) on the upper hall's table, the table (40), a wood bin (30); the lower room's broom (5), two barrels (80) and a stool (40); the crate room's small crate (40) and two big crates (300, past Big_Object_Mass 120). Then an orc, spawned where the view meets the upper hall's floor, takes two stools, a table and a log thrown at it, and is grabbed and thrown itself. Each test is marked in the console with echo rb_tk. Masses are each model's .phy.",
+  "seconds": 300,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_tk jug 4 kg",
+    "setpos -1332.8 1183.1 712.9",
+    "setang 9.6 120.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 120.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk bread 1 kg",
+    "setpos -1295.5 1195.6 712.9",
+    "setang 12.1 120.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 120.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk table 40 kg",
+    "setpos -1326.0 1181.7 712.9",
+    "setang 18.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 90.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk wood bin 30 kg",
+    "setpos -1584.7 1214.4 712.9",
+    "setang 31.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 90.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk broom 5 kg",
+    "setpos -1362.8 1599.1 411.8",
+    "setang 43.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 90.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk barrel 80 kg",
+    "setpos -1236.9 1576.3 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 90.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk barrel 80 kg",
+    "setpos -1277.7 1581.2 411.8",
+    "setang 33.0 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 90.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk stool 40 kg",
+    "setpos -1260.7 1391.1 411.8",
+    "setang 37.1 270.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 270.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk crate 40 kg",
+    "setpos 633.9 1108.2 732.5",
+    "setang 30.4 180.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 180.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk crate 300 kg",
+    "setpos 496.0 1060.0 732.5",
+    "setang 29.0 270.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 270.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk crate 300 kg",
+    "setpos 500.0 1220.0 732.5",
+    "setang 29.0 270.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10.0 270.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk orc",
+    "setpos -1200 1000 712",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "echo rb_tk throw stool 40 kg at the orc",
+    "setpos -1043.6 1241.9 712.9",
+    "setang 35.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "setang 4.1 226.0 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk throw stool 40 kg at the orc",
+    "setpos -980.6 1203.8 712.9",
+    "setang 35.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "setang 3.6 209.4 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk throw table 40 kg at the orc",
+    "setpos -1024.6 1170.1 712.9",
+    "setang 23.4 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "setang 4.6 207.2 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk throw a log 7 kg at the orc",
+    "setpos -1578.8 1206.1 712.9",
+    "setang 32.3 90.0 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 1.5
+    },
+    "setang 2.3 341.6 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 2.5
+    },
+    "echo rb_tk grab the orc",
+    "setpos -1200 990 712",
+    "setang 13.1 90 0",
+    "usebelt1",
+    "usebelt2",
+    "usebelt3",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 2.5
+    },
+    "setang -10 90 0",
+    {
+      "wait": 0.5
+    },
+    "-attack",
+    {
+      "wait": 0.15
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "-attack",
+    {
+      "wait": 3
+    }
+  ]
+}

@@ -590,7 +590,45 @@ full. `hurtme N` took N.
   `RB_HEALTH=1` prints the donor player's health, maximum and skill levels through every recording; `RB_ITEMS=path`
   when a recording's `item_*` entities appear and go (a drunk potion's goes only when it was the last of its stack).
 - **Not measured:** poison (`poison_recovery`, the cure poison potion; nothing in l01_a poisons), the regeneration
-  ring (the settings' `life_time_regen` 2 is likely its), food eaten, and the mana potion (#10165). Falls: "Falls".
+  ring (the settings' `life_time_regen` 2 is likely its), food eaten, and the mana potion (#10165; "Mana"). Falls: "Falls".
+
+### Mana
+
+`Magic/PlayerMana.cs` (#10164), from `player_basic.qct`'s stat block:
+- **Maximum:** 10 × `player_intelligence_{extra_mana level + 1}` (2, 4, 7, 10): 20, 40, 70, 100. The factor is fitted:
+  every recording with `extra_mana` 0 had 20, every one with it at 3 had 100 (`RB_MANA=1` lists them).
+- **Regeneration:** `player_mana_recovery_module` (0.7) once a second with the `mana_recovery` module
+  (`mana_regeneration`'s), `player_mana_recovery_base` (0.1) without. Every recording with the module rose 0.7 every 66
+  or 68 ticks; none without it showed a rise (each sat full).
+- **Not yet:** spells besides telekinesis, mana potions on the belt (`give_mana` 50) and a replay held to the donor's
+  mana (#10165).
+
+### Telekinesis
+
+`Magic/Telekinesis.cs` and `Interaction/CubeInteraction.cs` (#10164; `l01_a-v18-telekinesis-mass` and `-throw`, docs/recording.md):
+
+| | The donor | The lab |
+| --- | --- | --- |
+| Gripping | attack held grips the body in view within `PlayerTelekinesisDist` (850 units); a small one (under `Small_Object_Mass`, 20 kg: the jug, bread, logs) rose in 0.27 s, a big one (the stool, table, crates) in 0.36, the barrels in 0.7 to 1.4 | E grips the arena body in view within 850 units, its tether reeling it to the hold |
+| Its mana | small 4 (`ManaCost_Small_Object`), big 15 (`ManaCost_Big_Object`, to `Big_Object_Mass` 120 kg), as it grips: 19 of 19 grips | the same, from `spells.txt`; refused, nothing spent, when the mana doesn't cover it |
+| Huge bodies | the 300 kg crates: nothing gripped, no mana spent (`ManaCost_Huge_Object` 9999; the skill's text: adrenaline lifts "massive objects") | refused |
+| The hold | its origin a median 54 units from the eye, small, 74 big (the table, held by its foot, 98) | 54 and 74 units ahead of the eye |
+| Letting go | the body stays where it was held | E drops it |
+| The throw | pressed again after letting go: up to 40 kg leaves at 1444 units/s (median of 9: 1432 to 1475, the 40 kg crate 1159); the barrels (80 kg) left at 37 to 365 | the mouse throws it at 1447 units/s |
+| Its damage | the game settings: from `PhysicsSpeedToDamageNPCs` (70 units/s), `Physics{Small,Medium,Big}DamagesTelekinesis` (8, 15, 50) by `PhysicsWeightToDamageNPCs*` (medium from 10 kg, big from 50); the frozen orc took 8 from each hit of the thrown jug and log (each hit twice) | a thrown body inside the orc's body, fast enough, takes its class's, once a throw |
+
+- **The donor's controls:** the spell in hand (`Deploy_Spell_AIR_1`), attack held grips; let go, it stays held; pressed
+  again, it's thrown. The lab has no spell in hand yet (#10165), so it keeps E and the mouse.
+- **Not measured:** a thrown medium or big body's damage (the hall's orc died before the stool reached it, and the
+  barrels left too slowly to hurt), the barrels' throw (80 kg, past `PlayerThrowMassClamp` 100?), what a body swung
+  while held does (a held table swung into the orc took the settings' 5, `PhysicsMediumDamages`, not telekinesis'), how
+  the rise depends on mass, adrenaline's NPC and huge grips (`ManaCost_Small_NPC` 15, `fearfactor`) and
+  `mm_telekinesis_coeff_damage` (0).
+- **The smoke:** in the arena the jug grips for 4, held 54 units off, thrown at 1432 units/s; a 40 kg crate for 15; the
+  300 kg crate refused, and a crate with 10 mana; a thrown crate takes the settings' 15 from the orc. Against the
+  recordings: every grip's cost by its model's `.phy` mass (dm-import writes it, docs/import.md), no mana for a press that
+  gripped nothing, the throw speed's median within 10%, every small hit 8. `RB_TK=path` prints each grab
+  (`RB_TKTRACE=1`, `RB_TKHITS=1`, `RB_TKMODEL=part:from-to`, `RB_TKNPCS=1` add traces).
 
 ### Ladders
 
@@ -877,7 +915,8 @@ level's other NPCs removed (docs/recording.md; `PerceptionCalibration`; the l05_
   does (#10148).
 - **Against the recordings** (the smoke): the lab's rule, run on each recorded approach's path, gaits and the orc's
   facing, notices when the donor's orc did (within 0.6 s where the Wire shows when it could), and not otherwise: 47
-  of 47, 34 of them in l05_a (17 seen, 17 not).
+  of 47, 34 of them in l05_a (17 seen, 17 not). A scenario that froze its orcs (`ai_disable` in its log:
+  `telekinesis-throw`) is left out.
 - **Calls for help** (R10154-1, `call-l05`): two spawned orcs facing the same way, the second beside or beyond the
   first, put in one squad (Source's `SetSquad` input, which Dark Messiah handles). An orc that saw the player brought its
   squad-mate 300 units off 2.4 s later (searching from 1.6 s), and one 600 off never; one struck from behind brought
@@ -1140,6 +1179,7 @@ lab/
     Sword/                 PlayerSword (the moves), PlayerStamina, FirstPerson (arms, sword, blade trace), Rig, CombatTuning
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
+    Magic/                 PlayerMana, Telekinesis (the spell's rules; Interaction/CubeInteraction grips and throws)
     Calibration/           SwordCalibration against recordings
     Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)
     Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below); Player/CharacterBuild is the lab's
@@ -1177,13 +1217,14 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 **Copied as they were** (renamed namespace, product id, `lab.*` commands):
 - `Player/`: `PlayerController`, `PlayerTuning`, `PlayerRecovery`, `BodyEvents`, `InputDiagnostics`;
 - `Time/WorldTime`;
-- `Interaction/CubeInteraction`;
 - `Content/Authored`;
 - `Scene/`: `LabScene`, `LabDefinition`, `LabGeometry`;
 - `src/ui/`: `main.js`, `pause.js`, `developer.js`.
 
 **Adapted:**
 - `LabProduct` (from `FpTesterProduct`): the fight replaces the action model's use;
+- `Interaction/CubeInteraction`: telekinesis' mana, reach, hold and throw, and thrown bodies' damage, replace the
+  authored reach, hold and throw (#10164);
 - `Developer/LabDeveloper` and `LabTunables`: fight commands and the Sword and Orc groups replace the action ones;
 - `Ui/LabHud` and `LabObservation`: the fight's readouts;
 - `main.js`: the HUD and help;

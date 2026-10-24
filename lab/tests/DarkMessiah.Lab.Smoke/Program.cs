@@ -466,6 +466,41 @@ if (Environment.GetEnvironmentVariable("RB_HEALTH") == "1")
     return 0;
 }
 
+// RB_MANA=1 prints the donor player's mana through each recording (#10164): its maximum by the skills, and how it rises.
+if (Environment.GetEnvironmentVariable("RB_MANA") == "1")
+{
+    foreach (var path in Directory.GetFiles(Path.Combine(repo, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories).Order())
+    {
+        float? last = null, max = null;
+        int extra = -1, regen = -1, recovery = -1, lastTick = 0;
+        var rises = new List<(float By, int Ticks)>();
+        var events = new List<string>();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            foreach (var f in RecordingReader.Frames(stream))
+            {
+                if (f.Version < 15 || f.Stats.Valid == 0) continue;
+                if (f.Version >= 16) { extra = f.Stats.SkillLevel("extra_mana"); regen = f.Stats.SkillLevel("mana_regeneration"); }
+                recovery = f.Stats.Modules.HasFlag(SkillModules.ManaRecovery) ? 1 : 0;
+                if (max != f.Stats.MaxMana) events.Add(FormattableString.Invariant($"max {f.Stats.MaxMana:0.##}@{f.Tick} (extra_mana {extra})"));
+                max = f.Stats.MaxMana;
+                if (last is float was && f.Stats.Mana != was)
+                {
+                    if (f.Stats.Mana > was) { rises.Add((f.Stats.Mana - was, f.Tick - lastTick)); lastTick = f.Tick; }
+                    else if (events.Count < 40) events.Add(FormattableString.Invariant($"-{was - f.Stats.Mana:0.##}@{f.Tick}"));
+                }
+                last = f.Stats.Mana;
+            }
+        }
+        catch (Exception e) { events.Add("error " + e.Message); }
+        if (max is null) continue;
+        string steps = string.Join(" ", rises.GroupBy(r => (MathF.Round(r.By, 2), r.Ticks)).OrderByDescending(g => g.Count()).Take(4).Select(g => FormattableString.Invariant($"+{g.Key.Item1}/{g.Key.Item2}t×{g.Count()}")));
+        Console.WriteLine(FormattableString.Invariant($"MANA {Path.GetFileName(path)} extra_mana {extra} mana_regeneration {regen} mana_recovery {recovery} max {max} rises {steps}: {string.Join(" ", events.Take(12))}"));
+    }
+    return 0;
+}
+
 string labContent = Path.Combine(repo, "lab", "content");
 var content = Directory.GetFiles(labContent).ToDictionary(f => Path.GetFileName(f), f => (ReadOnlyMemory<byte>)File.ReadAllBytes(f));
 using EngineTestHost host = EngineTestHost.Create(new EngineTestHostOptions { Content = content });
@@ -732,6 +767,12 @@ host.Call(engine =>
                     if (d[i].Time >= double.Parse(fromText, System.Globalization.CultureInfo.InvariantCulture) && d[i].Time <= double.Parse(toText, System.Globalization.CultureInfo.InvariantCulture))
                         Console.WriteLine(FormattableString.Invariant($"MT {d[i].Time:0.000} {d[i].Command} jump {d[i].JumpPressed} donor {d[i].X:0.0},{d[i].Y:0.0},{d[i].Z:0.0} lab {l[i].X:0.0},{l[i].Y:0.0},{l[i].Z:0.0} blocked {l[i].Blocked}"));
         }
+        return;
+    }
+    // RB_TK=path prints each telekinesis press: what it gripped, its mana, hold and throw (#10164).
+    if (Environment.GetEnvironmentVariable("RB_TK") is { Length: > 0 } tkPath)
+    {
+        foreach (var grab in TelekinesisCalibration.Measure(tkPath)) Console.WriteLine($"TK {grab}");
         return;
     }
     // RB_FALL=path prints each fall's drop, landing speed and the health the landing took (R10159-1).
@@ -1072,6 +1113,108 @@ host.Call(engine =>
         Check(falls.Zip(recorded).All(x => MathF.Abs(x.First.Taken - x.Second) <= 2.5f),
             FormattableString.Invariant($"a fall takes the donor's health from 300 units: {string.Join(", ", falls.Zip(recorded).Select(x => $"{x.First.Drop:0} units {x.First.Taken:0.#} (the donor's {x.Second})"))}"));
     }
+    // Telekinesis (#10164): a grip costs its mass class's mana (the jug 4, a 40 kg crate 15), the 300 kg crate is refused,
+    // and so is a grip the mana doesn't cover; held where the donor holds (54 units from the eye, small), thrown at its
+    // 1447 units/s, and a thrown 40 kg crate takes the settings' 15 from the orc it meets.
+    {
+        var tkP = product.Player;
+        var tkTk = product.Cubes;
+        var tkScene = product.Scene;
+        var tkRules = combat.Telekinesis;
+        bool tkWasHeld = combat.Orc.Hold;
+        DarkMessiah.Lab.Scene.LabCube tkCube(string label) => tkScene.Cubes.First(tkC => tkC.Definition.Label == label);
+        Vector3 tkAt(DarkMessiah.Lab.Scene.LabCube tkC) => tkScene.Pose(tkC).Translation;
+        float tkUnits(float metres) => metres / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        // Stands 1.5 m south of the body (its centre level with the eye's line), looking at it.
+        void tkFace(DarkMessiah.Lab.Scene.LabCube tkC, float tkFrom = 1.5f)
+        {
+            var tkTarget = tkAt(tkC);
+            var tkFeet = new Vector3(tkTarget.X, 0, tkTarget.Z - tkFrom);
+            tkP.Place(tkFeet + Vector3.UnitY * (tkP.Tuning.Height / 2 + tkP.Config.Shape.ContactSkin), 0);
+            Advance(2);
+            var tkLook = Vector3.Normalize(tkTarget - tkP.Eye);
+            tkP.Face(MathF.Atan2(tkLook.X, -tkLook.Z), MathF.Asin(Math.Clamp(tkLook.Y, -1, 1)));
+            // The interaction's focus settles on what's in view over a few updates.
+            Advance(10);
+        }
+        combat.Mana.Fill();
+        var tkJug = tkCube("jug / 4kg");
+        tkFace(tkJug);
+        float tkBefore = combat.Mana.Value;
+        tkTk.Use();
+        if (Environment.GetEnvironmentVariable("RB_TKONLY") == "1") Console.WriteLine($"  jug: {tkTk.Message}; focus {tkTk.TargetLabel}; at {tkAt(tkJug)}, eye {tkP.Eye}, forward {tkP.Forward}");
+        bool tkJugHeld = tkTk.Held == tkJug;
+        float tkJugCost = tkBefore - combat.Mana.Value;
+        // Held a second looking level, then thrown: its speed over the first steps.
+        tkP.Face(tkP.LookState.YawRadians, 0);
+        Advance(60);
+        float tkHeld = tkUnits(Vector3.Distance(tkAt(tkJug), tkP.Eye));
+        tkTk.Throw();
+        Advance(2);
+        var tkAfter = tkAt(tkJug);
+        Advance(2);
+        float tkThrown = tkUnits(Vector3.Distance(tkAt(tkJug), tkAfter)) / (2 * Tick);
+        var tkCrate = tkCube("crate / 40kg");
+        tkFace(tkCrate);
+        tkBefore = combat.Mana.Value;
+        tkTk.Use();
+        float tkCrateCost = tkBefore - combat.Mana.Value;
+        bool tkCrateHeld = tkTk.Held?.Definition.Mass == 40;
+        tkTk.Use();
+        var tkBig = tkCube("big crate / 300kg");
+        tkFace(tkBig, 2);
+        tkBefore = combat.Mana.Value;
+        tkTk.Use();
+        bool tkHugeRefused = tkTk.Held is null && combat.Mana.Value == tkBefore && tkTk.Refusals == 1;
+        combat.Mana.Set(10);
+        var tkOther = tkScene.Cubes.Last(tkC => tkC.Definition.Label == "crate / 40kg");
+        tkFace(tkOther);
+        tkTk.Use();
+        bool tkPoorRefused = tkTk.Held is null && combat.Mana.Value == 10 && tkTk.Refusals == 2;
+        // at the orc: it stands 3 m north of the crate, held; the crate is thrown straight at its body.
+        combat.Mana.Fill();
+        combat.Orc.Hold = true;
+        tkFace(tkOther);
+        tkTk.Use();
+        Advance(40);
+        var tkOrcFeet = new Vector3(tkAt(tkOther).X, 0, tkAt(tkOther).Z + 3);
+        combat.Orc.PlaceAt(tkOrcFeet);
+        var tkAim = Vector3.Normalize(tkOrcFeet + Vector3.UnitY * .9f - tkP.Eye);
+        tkP.Face(MathF.Atan2(tkAim.X, -tkAim.Z), MathF.Asin(Math.Clamp(tkAim.Y, -1, 1)));
+        Advance(20);
+        float tkOrcBefore = combat.Orc.Health;
+        tkTk.Throw();
+        for (int i = 0; i < 90 && tkTk.Hits == 0; i++) Advance(1);
+        float tkOrcTaken = tkOrcBefore - combat.Orc.Health;
+        uint tkHits = tkTk.Hits;
+        combat.Orc.Hold = tkWasHeld;
+        ((IReplayBody)product).Begin();
+        Check(tkJugHeld && tkJugCost == tkRules.SmallCost && MathF.Abs(tkHeld - tkRules.HoldSmallUnits) <= tkRules.HoldSmallUnits * .25f && MathF.Abs(tkThrown - tkRules.ThrowUnits) <= tkRules.ThrowUnits * .1f
+            && tkCrateHeld && tkCrateCost == tkRules.BigCost && tkHugeRefused && tkPoorRefused && tkHits == 1 && tkOrcTaken == tkRules.MediumDamage,
+            FormattableString.Invariant($"telekinesis: the jug gripped for {tkJugCost:0} mana (the donor's {tkRules.SmallCost:0}), held {tkHeld:0} units from the eye ({tkRules.HoldSmallUnits:0}), thrown at {tkThrown:0} units/s ({tkRules.ThrowUnits:0}); a 40 kg crate for {tkCrateCost:0} ({tkRules.BigCost:0}); the 300 kg crate refused ({tkHugeRefused}), and a crate with 10 mana ({tkPoorRefused}); a thrown crate takes {tkOrcTaken:0.#} from the orc (the settings' {tkRules.MediumDamage:0}; {tkHits} hit)"));
+        // And against the donor (l01_a-v18-telekinesis-mass and -throw): every grip cost its body's class (its model's
+        // .phy mass), a press that gripped nothing spent nothing, bodies under 50 kg left at the throw speed (the median
+        // within 10%), and each hit of a thrown small body took the settings' 8 from the orc.
+        var tkRecordings = new[] { "mass", "throw" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", $"l01_a-v18-telekinesis-{n}.rbrec")).Where(File.Exists).ToList();
+        if (tkRecordings.Count == 2)
+        {
+            var tkGrabs = tkRecordings.SelectMany(TelekinesisCalibration.Measure).ToList();
+            foreach (var grab in tkGrabs) Console.WriteLine($"  telekinesis {grab}");
+            var tkKnown = tkGrabs.Where(g => g.Model is { } m && product.Donor.Mass(m) is not null).Select(g => (Grab: g, Kg: product.Donor.Mass(g.Model!)!.Value)).ToList();
+            int tkCostAgree = tkKnown.Count(x => x.Grab.ManaCost == tkRules.Cost(x.Kg));
+            bool tkNothingFree = tkGrabs.Where(g => g.Model is null).All(g => g.ManaCost == 0);
+            var tkSpeeds = tkKnown.Where(x => x.Grab.Thrown && x.Kg < 50 && x.Grab.ThrowSpeed > 100).Select(x => x.Grab.ThrowSpeed).ToList();
+            float tkSpeed = tkSpeeds.Count > 0 ? MovementMeasure.Median(tkSpeeds) : 0;
+            var tkSmallHits = tkKnown.Where(x => x.Grab.Thrown && tkRules.Impact(x.Kg) == DarkMessiah.Lab.Magic.ImpactClass.Small)
+                .SelectMany(x => x.Grab.Hits).Where(h => h.Taken > 0).ToList();
+            Check(tkKnown.Count >= 15 && tkCostAgree == tkKnown.Count && tkNothingFree && tkSpeeds.Count >= 6 && MathF.Abs(tkSpeed - tkRules.ThrowUnits) <= .1f * tkRules.ThrowUnits
+                    && tkSmallHits.Count >= 4 && tkSmallHits.All(h => h.Taken == tkRules.SmallDamage),
+                FormattableString.Invariant($"the donor's telekinesis: {tkCostAgree} of {tkKnown.Count} grips cost their class's mana, presses that gripped nothing spent none ({tkNothingFree}), bodies under 50 kg thrown at {tkSpeed:0} units/s (median of {tkSpeeds.Count}; the lab's {tkRules.ThrowUnits:0}), small bodies' hits on the orc took {string.Join(", ", tkSmallHits.Select(h => h.Taken.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} (the settings' {tkRules.SmallDamage:0})"));
+        }
+        else Console.WriteLine("skip the donor's telekinesis: no local/recordings/experiments/l01_a-v18-telekinesis-mass.rbrec and -throw.rbrec");
+        // RB_TKONLY=1 stops the smoke here.
+        if (Environment.GetEnvironmentVariable("RB_TKONLY") == "1") Environment.Exit(0);
+    }
     // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     {
         var head = combat.FirstPerson.Head;
@@ -1280,8 +1423,12 @@ host.Call(engine =>
     {
         // The arena's recordings and local/perception's (#10154: l05_a's sight and calls, kept apart from the fights the
         // other calibrations read; docs/recording.md).
+        // Not a scenario that froze its orcs (ai_disable in its log: telekinesis-throw's, #10164): a frozen orc notices no one.
+        static bool Frozen(string recording) => Path.ChangeExtension(recording, ".log") is var log && File.Exists(log)
+            && File.ReadLines(log).Any(l => l.Contains("exec ai_disable", StringComparison.Ordinal));
         var perceptionRecordings = Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories)
-            .Concat(Directory.Exists(Path.Combine(repo!, "local", "perception")) ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "perception"), "*.rbrec") : []).ToList();
+            .Concat(Directory.Exists(Path.Combine(repo!, "local", "perception")) ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "perception"), "*.rbrec") : [])
+            .Where(r => !Frozen(r)).ToList();
         var approaches = PerceptionCalibration.Measure(perceptionRecordings, orc.Perception.Data);
         foreach (var a in approaches)
             Console.WriteLine(FormattableString.Invariant($"  approach {a.Recording} {a.Orc} {a.Gaits}{(a.InSight ? ", in sight" : "")}{(a.Hidden ? ", hidden" : "")}, closest {a.Closest:0}: donor {(a.Donor is double d ? $"noticed at {d:0.00} s" : "never")}{(a.Rise is { } rise ? $" ({rise.Distance:0} units, {rise.Angle:0}°)" : "")}{(float.IsNaN(a.Unseen) ? "" : $", unseen still {a.Unseen:0} units {a.UnseenAngle:0}°")}, lab {(a.Lab is double l ? $"at {l:0.00} s" : "never")}"));

@@ -1,6 +1,7 @@
 using System.Numerics;
 using DarkMessiah.Combat;
 using DarkMessiah.Lab.Donor;
+using DarkMessiah.Lab.Magic;
 using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Sword;
@@ -58,6 +59,7 @@ internal sealed class LabCombat : IDisposable
     readonly IEngineContext engine;
     readonly DonorContent donor;
     readonly StaminaRules staminaRules;
+    readonly ManaRules manaRules;
     readonly HealthRules healthRules;
     readonly SpatialSession session;
     readonly HitSweep sweep;
@@ -92,6 +94,9 @@ internal sealed class LabCombat : IDisposable
         Stamina = new PlayerStamina(staminaRules);
         healthRules = HealthRules.From(donor);
         Health = new PlayerHealth(healthRules);
+        manaRules = ManaRules.From(donor);
+        Mana = new PlayerMana(manaRules);
+        Telekinesis = TelekinesisRules.From(donor);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -112,6 +117,7 @@ internal sealed class LabCombat : IDisposable
         Build = build;
         Stamina.Retune(staminaRules.For(build));
         Health.Retune(healthRules.For(build));
+        Mana.Retune(manaRules.For(build));
         if (build.Belt is { } belt) Belt.Fill(donor, belt);
         Wear(ShieldOf(build));
         if (arm && LabWeapon.ClassOf(build.Weapon) is not null) Arm(build.Weapon, draw);
@@ -243,6 +249,28 @@ internal sealed class LabCombat : IDisposable
     internal DonorContent Donor => donor;
     /// <summary>The player's health (#10162): its maximum and regeneration from the build.</summary>
     internal PlayerHealth Health { get; }
+    /// <summary>The player's mana (#10164): the build's maximum, its regeneration, what telekinesis spends.</summary>
+    internal PlayerMana Mana { get; }
+    /// <summary>Telekinesis' numbers (#10164): mana by mass class, reach, the hold and throw, thrown bodies' damage.</summary>
+    internal TelekinesisRules Telekinesis { get; }
+
+    /// <summary>
+    /// A body thrown by telekinesis, of <paramref name="kg"/>, at <paramref name="at"/> moving <paramref name="velocity"/>
+    /// (m/s): when it's inside the orc's body and fast enough (<see cref="TelekinesisRules.Damage"/>), the orc takes its
+    /// class's damage, once a throw (the caller stops asking). True when it hit.
+    /// </summary>
+    internal bool Thrown(float kg, Vector3 at, Vector3 velocity, float radius)
+    {
+        if (!Orc.Alive || Orc.Following) return false;
+        var (centre, half) = Orc.Hull;
+        var nearest = Vector3.Clamp(at, centre - half, centre + half);
+        if (Vector3.Distance(nearest, at) > radius) return false;
+        float damage = Telekinesis.Damage(kg, velocity.Length() / SourceSpace.MetresPerUnit);
+        if (damage <= 0) return false;
+        Orc.Damage(damage);
+        Message = FormattableString.Invariant($"The thrown body hits the orc for {damage:0.#}");
+        return true;
+    }
     /// <summary>What the belt holds, used by its keys (#10162).</summary>
     internal PlayerBelt Belt { get; } = new();
     internal float PlayerHealth => Health.Value;
@@ -375,6 +403,7 @@ internal sealed class LabCombat : IDisposable
         foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward, Orc);
         foreach (var blow in mateBlows) OrcStrikes(tick, blow, feet, forward, Mate!);
         Health.Step(seconds);
+        Mana.Step(seconds);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { Health.Fill(); deadSeconds = 0; Message = "Back on your feet"; }
     }
 
@@ -887,6 +916,7 @@ internal sealed class LabCombat : IDisposable
         Mate?.Reseed();
         Mate?.Spawn();
         Health.Fill();
+        Mana.Fill();
         if (Build?.Belt is { } belt) Belt.Fill(donor, belt);
         recent.Clear();
         Player = default;

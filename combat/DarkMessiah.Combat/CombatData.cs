@@ -232,6 +232,23 @@ public sealed class CombatData
 
     GameSettings? _settings;
 
+    KeyValues? _game;
+    bool _gameRead;
+
+    /// <summary>
+    /// Any number in `scripts/mm_game_settings.txt`, by key, depth first (the telekinesis and physics damage rules,
+    /// #10164: <c>PlayerTelekinesisDist</c>, <c>PhysicsSpeedToDamageNPCs</c>...); null when absent.
+    /// </summary>
+    public float? Setting(string key)
+    {
+        if (!_gameRead)
+        {
+            _gameRead = true;
+            _game = _read("scripts/mm_game_settings.txt") is byte[] bytes ? KeyValues.ParseAll(bytes).FirstOrDefault() : null;
+        }
+        return _game is null ? null : Deep(_game, key);
+    }
+
     /// <summary>The melee routine's settings, read once from `scripts/mm_game_settings.txt`.</summary>
     public GameSettings Settings => _settings ??= ReadSettings();
 

@@ -213,6 +213,31 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
     }
 
     [Fact]
+    public void PropsCarryTheirPhysicsMass()
+    {
+        if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }
+        var files = new DonorFiles(new RustyBridge.Wire.Donor.VpkIndex(vpks));
+        // Telekinesis sorts props by mass (#10164): small under 20 kg, big under 120, huge past it.
+        foreach (var (model, kg, surface) in new[] { ("models/props/tools/humans/jug/jug01.mdl", 4.03f, "Small_Pottery"),
+                     ("models/props/furnitures/humans/barrel01.mdl", 80f, "Wood_Crate"), ("models/props/tools/humans/crates/cratea_new.mdl", 300f, "Wood_Crate") })
+        {
+            var (mass, prop) = PhysicsModel.Properties(files.Read(Path.ChangeExtension(model, ".phy"))!);
+            Assert.Equal(kg, mass!.Value, 2);
+            Assert.Equal(surface, prop);
+        }
+        var log = new ImportLog();
+        string dir = Directory.CreateTempSubdirectory("dm-import-").FullName;
+        try
+        {
+            var result = new ModelImport(files, new Materials(files, log), log).Import("models/props/furnitures/humans/barrel01.mdl", Path.Combine(dir, "barrel.glb"));
+            var glb = File.ReadAllBytes(result.File);
+            var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
+            Assert.Equal(80f, json["asset"]!["extras"]!["collision"]!["mass"]!.GetValue<float>(), 2);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void OrcClipsFollowTheWiresSequenceNumbering()
     {
         if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }

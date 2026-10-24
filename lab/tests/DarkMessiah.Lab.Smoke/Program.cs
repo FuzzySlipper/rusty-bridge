@@ -769,6 +769,12 @@ host.Call(engine =>
         }
         return;
     }
+    // RB_SPELL=path:class prints each spell projectile of that class (spell_fire_3, the fireball; #10165).
+    if (Environment.GetEnvironmentVariable("RB_SPELL") is { Length: > 0 } spellArg && spellArg.LastIndexOf(':') is int colon and > 0)
+    {
+        foreach (var shot in SpellCalibration.Measure(spellArg[..colon], spellArg[(colon + 1)..])) Console.WriteLine($"SPELL {shot}");
+        return;
+    }
     // RB_TK=path prints each telekinesis press: what it gripped, its mana, hold and throw (#10164).
     if (Environment.GetEnvironmentVariable("RB_TK") is { Length: > 0 } tkPath)
     {
@@ -1142,7 +1148,7 @@ host.Call(engine =>
         tkFace(tkJug);
         float tkBefore = combat.Mana.Value;
         tkTk.Use();
-        if (Environment.GetEnvironmentVariable("RB_TKONLY") == "1") Console.WriteLine($"  jug: {tkTk.Message}; focus {tkTk.TargetLabel}; at {tkAt(tkJug)}, eye {tkP.Eye}, forward {tkP.Forward}");
+        if (Environment.GetEnvironmentVariable("RB_MAGICONLY") == "1") Console.WriteLine($"  jug: {tkTk.Message}; focus {tkTk.TargetLabel}; at {tkAt(tkJug)}, eye {tkP.Eye}, forward {tkP.Forward}");
         bool tkJugHeld = tkTk.Held == tkJug;
         float tkJugCost = tkBefore - combat.Mana.Value;
         // Held a second looking level, then thrown: its speed over the first steps.
@@ -1212,9 +1218,86 @@ host.Call(engine =>
                 FormattableString.Invariant($"the donor's telekinesis: {tkCostAgree} of {tkKnown.Count} grips cost their class's mana, presses that gripped nothing spent none ({tkNothingFree}), bodies under 50 kg thrown at {tkSpeed:0} units/s (median of {tkSpeeds.Count}; the lab's {tkRules.ThrowUnits:0}), small bodies' hits on the orc took {string.Join(", ", tkSmallHits.Select(h => h.Taken.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} (the settings' {tkRules.SmallDamage:0})"));
         }
         else Console.WriteLine("skip the donor's telekinesis: no local/recordings/experiments/l01_a-v18-telekinesis-mass.rbrec and -throw.rbrec");
-        // RB_TKONLY=1 stops the smoke here.
-        if (Environment.GetEnvironmentVariable("RB_TKONLY") == "1") Environment.Exit(0);
     }
+    // The fireball (#10165): belt slot 3 puts it in hand; a press casts it for its 8 mana, the arms playing the donor's
+    // cast; it forms at the hand for 0.57 s and flies at 725 units/s; struck, the orc takes its 12, and off the floor short
+    // of it the share its distance leaves (Source's falloff over explosion_radius 120); with too little mana nothing is cast,
+    // and a mana potion gives 50. Against l01_a-v18-fireball: each cast's cost, forming and speed, and each hit's damage.
+    {
+        var fb = combat.Fireball;
+        bool fbWasHeld = combat.Orc.Hold;
+        combat.Orc.Hold = true;
+        combat.Mana.Fill();
+        combat.UseBelt(2);
+        bool fbInHand = combat.SpellInHand == DarkMessiah.Lab.Magic.FireballRules.Spell;
+        // The orc 200 units north of the eye, in the arena's open middle.
+        var fbEye = new Vector3(12, 1.6f, 6);
+        var fbOrc = new Vector3(12, 0, 6 + 200 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+        combat.Orc.PlaceAt(fbOrc);
+        Vector3 Toward(Vector3 at) => Vector3.Normalize(at - fbEye);
+        // One cast at aim: pressed one step, held a few, then run until it's gone off or 3 s have passed.
+        (float Cost, float Formed, float Speed, float Taken, string? Clip) CastAt(Vector3 aim)
+        {
+            float manaBefore = combat.Mana.Value, healthBefore = combat.Orc.Health, formed = float.NaN, speed = 0, cost = 0;
+            string? clip = null;
+            Vector3? last = null;
+            for (int i = 0; i < 180; i++)
+            {
+                combat.Step(Tick, step++, i < 3, false, false, fbEye, Toward(aim), fbEye - Vector3.UnitY * 1.6f);
+                if (i == 0) cost = manaBefore - combat.Mana.Value;
+                if (i == 1) clip = combat.FirstPerson.Spell?.Cast;
+                if (combat.Fireballs.FirstOrDefault() is { } ball)
+                {
+                    if (ball.Flying && float.IsNaN(formed)) formed = ball.Age;
+                    if (ball.Flying && last is Vector3 was && ball.Exploded is null) speed = Vector3.Distance(ball.Position, was) / Tick / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+                    last = ball.Position;
+                }
+                else if (i > 3) break;
+            }
+            return (cost, formed, speed, healthBefore - combat.Orc.Health, clip);
+        }
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(fbOrc);
+        var fbDirect = CastAt(fbOrc + Vector3.UnitY * 1.1f);
+        float fbDirectOff = combat.LastFireball?.Distance ?? float.NaN;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(fbOrc);
+        var fbFloor = CastAt(new Vector3(12, 0, fbOrc.Z - 100 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit));
+        float fbFloorOff = combat.LastFireball?.Distance ?? float.NaN;
+        combat.Mana.Set(5);
+        var fbPoor = CastAt(fbOrc + Vector3.UnitY * 1.1f);
+        bool fbRefused = fbPoor.Cost == 0 && combat.Spells.Refused == 1;
+        combat.UseBelt(3);
+        float fbPotion = combat.Mana.Value - 5;
+        combat.UseBelt(2);
+        bool fbAway = combat.SpellInHand is null;
+        combat.Orc.Hold = fbWasHeld;
+        ((IReplayBody)product).Begin();
+        Check(fbInHand && fbAway && fbDirect.Cost == fb.Cost && fbDirect.Clip == DarkMessiah.Lab.Magic.FireballRules.CastClip && MathF.Abs(fbDirect.Formed - fb.FormSeconds) <= 1.5f * Tick
+            && MathF.Abs(fbDirect.Speed - fb.SpeedUnits) <= .03f * fb.SpeedUnits && MathF.Abs(fbDirect.Taken - fb.Effect) < .01f && fbDirectOff < .5f
+            && fbFloorOff is > 30 and < 110 && MathF.Abs(fbFloor.Taken - fb.Damage(fbFloorOff)) < .01f && fbRefused && fbPotion == MathF.Min(50, combat.Mana.Max - 5),
+            FormattableString.Invariant($"the fireball: in hand from belt slot 3 ({fbInHand}), cast for {fbDirect.Cost:0} mana ({fb.Cost:0}) with {fbDirect.Clip}, formed {fbDirect.Formed:0.00} s ({fb.FormSeconds:0.00}), flew at {fbDirect.Speed:0} units/s ({fb.SpeedUnits:0}); struck, the orc took {fbDirect.Taken:0.#} ({fb.Effect:0}, {fbDirectOff:0.##} units off); off the floor {fbFloorOff:0} units short of it, {fbFloor.Taken:0.##} ({fb.Damage(fbFloorOff):0.##}); with 5 mana none cast ({fbRefused}); a mana potion gave {fbPotion:0}; the key again, the weapon back ({fbAway})"));
+        var fbRecording = Path.Combine(repo!, "local", "recordings", "experiments", "l01_a-v18-fireball.rbrec");
+        if (File.Exists(fbRecording))
+        {
+            var (fbHalf, fbHeight) = (combat.Orc.Hull.HalfExtents.X / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit, 2 * combat.Orc.Hull.HalfExtents.Y / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+            var fbShots = SpellCalibration.Measure(fbRecording, "spell_fire_3", fbHalf, fbHeight);
+            foreach (var shot in fbShots) Console.WriteLine($"  fireball {shot}");
+            // Each struck orc's health, its immediate share and the trickle after it, against the lab's 12. One that went off
+            // short of the body is printed, not held to the falloff: one shot doesn't settle it (docs/lab.md, "The fireball").
+            var fbHits = fbShots.Where(x => x.Hits.Count > 0 && x.Hits.Min(h => h.BodyDistance) == 0).Select(x => (Taken: x.Hits.Sum(h => h.Taken) + x.Burn.Sum(b => b.Taken), Rule: fb.Damage(0))).ToList();
+            var fbFast = fbShots.Where(x => x.Hits.Count > 0 || x.Life < 1).ToList();
+            Check(fbShots.Count >= 6 && fbShots.All(x => x.ManaCost == fb.Cost && MathF.Abs(x.Forming - fb.FormSeconds) <= .03f)
+                && fbFast.All(x => MathF.Abs(x.Speed - fb.SpeedUnits) <= .03f * fb.SpeedUnits) && fbHits.Count >= 3 && fbHits.All(h => MathF.Abs(h.Taken - h.Rule) <= MathF.Max(1, .1f * h.Rule)),
+                FormattableString.Invariant($"the donor's fireballs: {fbShots.Count} cast for {fb.Cost:0} mana each, formed in {string.Join(", ", fbShots.Select(x => x.Forming.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Distinct())} s, flew at {string.Join(", ", fbFast.Select(x => x.Speed.ToString("0", System.Globalization.CultureInfo.InvariantCulture)))} units/s; struck, the orc took {string.Join(", ", fbHits.Select(h => $"{h.Taken:0.#} (the lab's {h.Rule:0.#})"))}"));
+            var fbReplayed = CombatReplay.Run(combat, fbRecording, product);
+            Check(fbReplayed.Mana is { } m && m.Near >= m.Ticks * 97 / 100,
+                FormattableString.Invariant($"{fbReplayed.Name}: the lab's mana follows the donor's within {CombatReplay.ManaTolerance} on {fbReplayed.Mana?.Near} of {fbReplayed.Mana?.Ticks} ticks (worst {fbReplayed.Mana?.Worst:0.##}), through 7 casts"));
+        }
+        else Console.WriteLine("skip the donor's fireballs: no local/recordings/experiments/l01_a-v18-fireball.rbrec");
+    }
+    // RB_MAGICONLY=1 stops the smoke after the telekinesis and fireball checks.
+    if (Environment.GetEnvironmentVariable("RB_MAGICONLY") == "1") Environment.Exit(0);
     // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     {
         var head = combat.FirstPerson.Head;

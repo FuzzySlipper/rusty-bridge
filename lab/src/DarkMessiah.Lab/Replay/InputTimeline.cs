@@ -30,7 +30,7 @@ namespace DarkMessiah.Lab.Replay;
 internal sealed record ReplayTick(int Tick, double Time, float Seconds, InputButtons Held, bool Kick, Vector3 Eye, Vector3 Forward,
     Vector3 Feet, OrcPose? Orc, Vector2 Move = default, bool Jump = false, bool Use = false, bool KickHeld = false, bool Sprint = false,
     bool Armed = true, float? Adrenaline = null, float AdrenalineMax = 0, Calibration.MoveCommand? Command = null, float? Stamina = null,
-    DonorCamera? Camera = null, (float Value, float Max)? Health = null);
+    DonorCamera? Camera = null, (float Value, float Max)? Health = null, float? Mana = null);
 
 /// <summary>
 /// The camera the donor's client drew with (Wire v9, its <c>CViewSetup</c>), in lab space: where it was and its forward
@@ -262,7 +262,8 @@ internal sealed class InputTimeline
                 }
                 ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
                     f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command,
-                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view), HealthOf(f)));
+                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view), HealthOf(f),
+                    f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Mana : null));
             }
         FightCases fight;
         using (var stream = File.OpenRead(path)) fight = Blows.Read(Path.GetFileName(path), stream);

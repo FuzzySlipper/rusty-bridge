@@ -160,9 +160,11 @@ internal sealed class FirstPerson : IDisposable
     /// moved to that side, the view rolled.</param>
     internal void Pose(PlayerSword move, float seconds, Vector3 eye, Vector3 forward, bool airborne = false, Vector3 velocity = default, float lean = 0)
     {
-        var idle = arms.Model.Clip(move.Clips.Idle.Clip);
+        // A spell in hand (#10165): its ready loop, and the cast over it while one forms; the sword away.
+        var idle = arms.Model.Clip(Spell is { } spell ? spell.Ready : move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
-        if (move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
+        if (Spell is { Cast: { } cast } casting) arms.Play(idle.Name, idleCycle, (cast, casting.Cycle, 1));
+        else if (Spell is not null || move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
         // The head turns the view (#10161); the arms stand at the eye, turned with it, and the camera above it.
         if (move.Move == SwordMove.Away && lastMove != SwordMove.Away) head.Grabbed();
@@ -209,9 +211,19 @@ internal sealed class FirstPerson : IDisposable
         return (eye, eye + (toward.LengthSquared() > 1e-6f ? Vector3.Normalize(toward) : Vector3.UnitZ) * Range);
     }
 
+    /// <summary>
+    /// The spell in hand, for the arms (#10165): its ready loop, and the cast clip at its cycle while one forms; null
+    /// for the weapon.
+    /// </summary>
+    internal (string Ready, string? Cast, float Cycle)? Spell { get; set; }
+
+    /// <summary>A clip's length in seconds on the arms (0 when the model lacks it).</summary>
+    internal float ClipSeconds(string clip) => arms.Model.Clip(clip).Seconds;
+
     internal IEnumerable<AppearanceFact> Facts()
     {
         yield return arms.Fact(Arms);
+        if (Spell is not null) yield break;
         yield return sword.Fact(Sword);
         if (offHand is not null && OffHand is { } left) yield return offHand.Fact(left);
         if (shield is not null && ShieldAt is { } arm) yield return shield.Fact(arm);

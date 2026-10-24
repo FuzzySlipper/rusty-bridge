@@ -600,8 +600,36 @@ full. `hurtme N` took N.
 - **Regeneration:** `player_mana_recovery_module` (0.7) once a second with the `mana_recovery` module
   (`mana_regeneration`'s), `player_mana_recovery_base` (0.1) without. Every recording with the module rose 0.7 every 66
   or 68 ticks; none without it showed a rise (each sat full).
-- **Not yet:** spells besides telekinesis, mana potions on the belt (`give_mana` 50) and a replay held to the donor's
-  mana (#10165).
+- **The regeneration's tick:** once more than `mm_player_time_to_add_mana` (1 s) has passed in the game's 15 ms ticks:
+  every 67 ticks, 1.005 s, as stamina's (#10160); the streamed mana rose every 66 or 68 ticks, 67 on average (the stats
+  stream every other tick).
+- **Mana potions** (#10165): on the belt, `give_mana` (50) at once, up to the maximum.
+- **Replayed** (#10165): the lab's mana from the donor's at the start, regenerating on its own clock (the donor's phase
+  from its first rise of one step), the donor's casts (a fall) and potions (a rise past a step) taken as they come:
+  `fireball` within 0.3 on 11806 of 12001 ticks (the smoke asks 97%).
+
+### The fireball
+
+`Magic/Fireball.cs` (#10165; `l01_a-v18-fireball`, docs/recording.md), the spell core's first spell:
+
+| | The donor | The lab |
+| --- | --- | --- |
+| In hand | `Deploy_Spell_FIRE_3`, or its belt slot | `build.json`'s belt slot 3 (`{"spell": "fire_3"}`, the build's `spells`); its key again, the weapon back; the arms play `layer_spellcasting_ready_fire_3` and the sword isn't drawn |
+| Casting | a press: `cost` (8) from mana at once, 7 of 7; the arms play `layer_spellcasting_cast_in_fire_3` | the same; with too little mana nothing is cast |
+| Its flight | it forms at the hand for 0.57 s (7 of 7), then flies at 722 to 730 units/s; the ball held on (cast and hold guides it) flew 501 | 0.57 s at the hand, then 725 units/s along the view, going off where it meets the orc's body or the arena, or after `timetolive` (5 s) |
+| Its damage | struck, the orc took 10.8 to 10.9 at once and 0.6 to 1.1 over the next 2 s: 11.6 to 11.9 of `effect` 12; off the floor 100 units from its body, 3 and 1.2 more | `CombatModel.SpellDamage`: `effect` falling off to none at `explosion_radius` (120 units) by the distance to the body, times the victim's `Vulnerabilities_spells` (the orc's fire 1) |
+| Burning | none: the orcs' health took no `Fire_damage_per_second_for_npc` (3/s) | none |
+| Adrenaline | `adrenaline_add` (3) a hit: the gauge rose to 12 over 4 | the same |
+
+- **Not measured:** the falloff (one shot off the body took 4.2 where the rule gives 2; its distance is from the
+  projectile's last sample, 0.06 s apart), the 0.9 of the immediate share, guiding (held, the ball steered with the
+  view and flew slower), the adrenaline effect (`effect_adrenaline` 200), the other spells (#10166, #10167) and the
+  selection by the mouse wheel (`mm_previtem`/`mm_nextitem`).
+- **The smoke:** in the arena the slot puts it in hand; a cast costs 8 with the donor's clip, forms in 0.58 s, flies at
+  725 units/s; struck, the orc takes 12, off the floor short of it its share; with 5 mana nothing is cast; a mana potion
+  gives its 50 up to the maximum. Against the recording: each cast's cost and forming, the speed of those that went off
+  within a second, each struck orc's health within 1 of 12, and the replayed mana. `RB_SPELL=path:spell_fire_3` prints
+  each projectile (`RB_SPELLTRACE=n` the n-th one's samples).
 
 ### Telekinesis
 
@@ -916,7 +944,8 @@ level's other NPCs removed (docs/recording.md; `PerceptionCalibration`; the l05_
 - **Against the recordings** (the smoke): the lab's rule, run on each recorded approach's path, gaits and the orc's
   facing, notices when the donor's orc did (within 0.6 s where the Wire shows when it could), and not otherwise: 47
   of 47, 34 of them in l05_a (17 seen, 17 not). A scenario that froze its orcs (`ai_disable` in its log:
-  `telekinesis-throw`) is left out.
+  `telekinesis-throw`) is left out, and so is an approach while a spell was out (its `fearfactor` alerts NPCs: the
+  `fireball` scenario's orcs rose as the ball came; not modelled, #10165) as one the player struck is.
 - **Calls for help** (R10154-1, `call-l05`): two spawned orcs facing the same way, the second beside or beyond the
   first, put in one squad (Source's `SetSquad` input, which Dark Messiah handles). An orc that saw the player brought its
   squad-mate 300 units off 2.4 s later (searching from 1.6 s), and one 600 off never; one struck from behind brought
@@ -1179,7 +1208,7 @@ lab/
     Sword/                 PlayerSword (the moves), PlayerStamina, FirstPerson (arms, sword, blade trace), Rig, CombatTuning
     Npc/Orc.cs             the orc: walk in, attack, parry, react, fall and come back
     Combat/LabCombat.cs    the fight: traces, verdicts, damage, the orc's blows, the overlay
-    Magic/                 PlayerMana, Telekinesis (the spell's rules; Interaction/CubeInteraction grips and throws)
+    Magic/                 PlayerMana, Telekinesis (its rules; Interaction/CubeInteraction grips and throws), Fireball (its rules and flight; LabCombat casts)
     Calibration/           SwordCalibration against recordings
     Replay/                InputTimeline (a v12 recording's input and orcs), CombatReplay (the run and its report)
     Player/ Scene/ Time/ Developer/ Ui/ Interaction/   from rusty-fptester (below); Player/CharacterBuild is the lab's

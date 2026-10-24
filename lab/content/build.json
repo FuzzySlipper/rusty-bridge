@@ -30,9 +30,11 @@
   },
   "weapon": "models/items/weapons/sword_short/sword_short.mdl",
   "offHand": null,
-  "spells": [],
+  "spells": ["fire_3"],
   "belt": [
     { "item": "models/items/provisions/potions/life_potion.mdl", "count": 3 },
-    { "item": "models/items/provisions/potions/full_life_potion.mdl", "count": 1 }
+    { "item": "models/items/provisions/potions/full_life_potion.mdl", "count": 1 },
+    { "spell": "fire_3", "count": 0 },
+    { "item": "models/items/provisions/potions/mana_potion.mdl", "count": 2 }
   ]
 }

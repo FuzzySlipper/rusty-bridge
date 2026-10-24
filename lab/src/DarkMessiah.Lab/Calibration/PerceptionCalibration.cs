@@ -33,7 +33,7 @@ internal sealed record CallCase(string Recording, string Caller, string Mate, fl
 
 /// <summary>
 /// The donor's orcs noticing the player against the lab's rule (#10154): every <c>npc_orc_sword</c> in a Wire v18
-/// recording that began unaware and wasn't struck before its alert level rose.
+/// recording that began unaware and wasn't struck, nor a spell out (its fearfactor alerts NPCs), before its alert level rose.
 /// </summary>
 internal static class PerceptionCalibration
 {
@@ -83,6 +83,10 @@ internal static class PerceptionCalibration
                     // A setpos jumps the player: no steps (faster than 15 m/s is no gait).
                     var gait = speed > 15 ? PlayerGait.Still : OrcPerception.GaitOf(speed, crouched, sprinting);
                     var struck = f.Damage.Where(d => d.Damage > 0).Select(d => (d.Victim, d.VictimSerial)).ToHashSet();
+                    // A spell out (its projectile off the world's origin, where it waits in hand): its fearfactor alerts NPCs
+                    // (the fireball's 50), which the lab's perception doesn't model yet (#10165): left out like a blow.
+                    bool spellOut = f.Entities.Values.Any(x => f.Classes.GetValueOrDefault(x.ClassId, "").StartsWith("spell_", StringComparison.Ordinal)
+                        && (x.OriginX != 0 || x.OriginY != 0 || x.OriginZ != 0));
                     foreach (var (index, e) in f.Entities)
                     {
                         if (f.Classes.GetValueOrDefault(e.ClassId) != Replay.InputTimeline.OrcClass || !e.Flags.HasFlag(WireEntityFlags.HasAlert)) continue;
@@ -103,7 +107,7 @@ internal static class PerceptionCalibration
                         if (MathF.Abs(player.OriginX - o.StillX) > 5 || MathF.Abs(player.OriginY - o.StillY) > 5) (o.StillSince, o.StillX, o.StillY) = (time, player.OriginX, player.OriginY);
                         if (o.Rose is null)
                         {
-                            if (struck.Contains(key)) o.Struck = true;
+                            if (struck.Contains(key) || spellOut) o.Struck = true;
                             if (e.Alert > 0)
                             {
                                 o.Rose = time - o.Start;

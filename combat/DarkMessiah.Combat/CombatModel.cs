@@ -160,6 +160,15 @@ public sealed class CombatModel(CombatData data)
     /// on an NPC whose alert level is at most `_level` and whose state isn't 3 (alert levels on the Wire from v11).</item>
     /// </list>
     /// </summary>
+    /// <summary>
+    /// A spell's damage on <paramref name="victim"/> (#10165): its <paramref name="effect"/> falling off to none at
+    /// <paramref name="radius"/> over <paramref name="distance"/> (to the victim's body, Source's radius damage; 0 struck),
+    /// times the victim's vulnerability to <paramref name="spell"/> (<c>Vulnerabilities_spells</c>). Not doubled by
+    /// criticals nor by the unaware ×3: the recorded fireballs on unaware orcs took their effect.
+    /// </summary>
+    public float SpellDamage(string spell, float effect, float radius, float distance, string victim) =>
+        effect * (radius > 0 ? MathF.Max(0, 1 - distance / radius) : distance <= 0 ? 1 : 0) * (Data.Character(victim)?.SpellVulnerability(spell) ?? 1);
+
     public float? Damage(DamageCase c)
     {
         if (c.Defended) return 0;

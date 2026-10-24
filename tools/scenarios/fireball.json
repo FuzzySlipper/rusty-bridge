@@ -1,0 +1,248 @@
+{
+  "description": "The fireball (#10165): every skill, god, notarget, the level's NPCs removed, Deploy_Spell_FIRE_3 (fire_3, Fireball). Before each cast the last orc is removed and a new one spawned in the start courtyard at (0, -2300) (where the view meets the floor). Casts (console +attack, a 0.1 s click): at its chest from 200 units south (twice) and east; at the floor 60, 100 and 150 units short of it (explosion_radius 120); one held 1.5 s with the view turned 10 degrees left after 0.3 s (cast and hold guides it). 7 s after each for its burning (Fire_Time_Ignite 5). Marked in the console with echo rb_fb.",
+  "seconds": 180,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_fb at the orc from 200 units south",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb at the orc from 200 units south",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb at the orc from 200 units east",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 200 -2300 -12",
+    "setang 4.6 180.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb at the floor 60 units short of the orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 23.5 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb at the floor 100 units short of the orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 31.4 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb at the floor 150 units short of the orc",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2550 -12",
+    "setang 31.4 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 7
+    },
+    "echo rb_fb held 1.5 s, turned 10 degrees left after 0.3 s",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90.0 0",
+    "Deploy_Spell_FIRE_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.3
+    },
+    "setang 4.6 100.0 0",
+    {
+      "wait": 1.5
+    },
+    "-attack",
+    {
+      "wait": 7
+    }
+  ]
+}

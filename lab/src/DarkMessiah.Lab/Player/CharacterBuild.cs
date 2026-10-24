@@ -14,7 +14,7 @@ namespace DarkMessiah.Lab.Player;
 /// <see cref="CharacterBuild.From"/>.
 /// </summary>
 /// <param name="OffHand">Null for none, or a shield's model path.</param>
-/// <param name="Belt">The belt's slots 1 to 9 in order (#10162): each an item's model path and how many.</param>
+/// <param name="Belt">The belt's slots 1 to 9 in order (#10162): each an item's model path and how many, or a known spell (#10165).</param>
 internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, string? OffHand, string[] Spells, BeltSlot[] Belt)
 {
     internal const string Path = "build.json";
@@ -22,8 +22,8 @@ internal sealed record BuildFile(Dictionary<string, int> Skills, string Weapon, 
     internal static BuildFile Load(IEngineContext engine) => Authored.Read(engine, Path, BuildJson.Default.BuildFile);
 }
 
-/// <summary>A belt slot as authored: an item's model path and how many it holds.</summary>
-internal sealed record BeltSlot(string Item, int Count);
+/// <summary>A belt slot as authored: an item's model path and how many it holds, or a spell its key puts in hand (#10165).</summary>
+internal sealed record BeltSlot(string? Item = null, int Count = 0, string? Spell = null);
 
 /// <summary>
 /// What the player can do, as the game decides it (docs/lab.md, "Builds"): the skill modules learned, the weapon and
@@ -96,7 +96,13 @@ internal sealed record CharacterBuild(IReadOnlySet<string> Modules, string Weapo
         Authored.Require(file.Belt.Length <= PlayerBelt.Slots, P, "belt", $"has {PlayerBelt.Slots} slots; found {file.Belt.Length}.");
         for (int i = 0; i < file.Belt.Length; i++)
         {
-            Authored.Require(isItem(file.Belt[i].Item), P, $"belt[{i}].item", $"{file.Belt[i].Item} isn't an imported item (no .qct).");
+            if (file.Belt[i].Spell is { } spell)
+            {
+                Authored.Require(file.Belt[i].Item is null, P, $"belt[{i}]", "holds an item or a spell, not both.");
+                Authored.Require(file.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase), P, $"belt[{i}].spell", $"{spell} isn't one of the build's spells.");
+                continue;
+            }
+            Authored.Require(file.Belt[i].Item is { } item && isItem(item), P, $"belt[{i}].item", $"{file.Belt[i].Item} isn't an imported item (no .qct).");
             Authored.Require(file.Belt[i].Count >= 0, P, $"belt[{i}].count", $"must be 0 or more; found {file.Belt[i].Count}.");
         }
         return new CharacterBuild(modules, VpkIndex.Normalize(file.Weapon), file.OffHand is null ? null : VpkIndex.Normalize(file.OffHand), file.Spells, P,

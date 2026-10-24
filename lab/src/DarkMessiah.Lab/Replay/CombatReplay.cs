@@ -49,13 +49,16 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyList<(int Tick, bool ByPlayer, string Class)>? Excluded = null, string? Build = null, (int Near, int Ticks)? Adrenaline = null,
     IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
     (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null,
-    (int Near, int Ticks, float Worst, int MaxAgree)? Health = null, (int Near, int Ticks, float Median, float Worst)? CameraPlace = null)
+    (int Near, int Ticks, float Worst, int MaxAgree)? Health = null, (int Near, int Ticks, float Median, float Worst)? CameraPlace = null,
+    (int Near, int Ticks, float Worst)? Mana = null)
 {
     internal IEnumerable<string> Lines()
     {
         yield return FormattableString.Invariant($"{Name}: {Ticks} ticks replayed ({Seconds:0.0} s), {Skipped} recorded frames without input");
         if (Health is var (healthNear, healthTicks, healthWorst, maxAgree))
             yield return FormattableString.Invariant($"  health: the lab's within {CombatReplay.HealthTolerance} of the donor's on {healthNear} of {healthTicks} ticks (worst {healthWorst:0.##}), its maximum the donor's on {maxAgree}");
+        if (Mana is var (manaNear, manaTicks, manaWorst))
+            yield return FormattableString.Invariant($"  mana: the lab's within {CombatReplay.ManaTolerance} of the donor's on {manaNear} of {manaTicks} ticks (worst {manaWorst:0.##})");
         if (Camera is var (near, turned, median))
             yield return FormattableString.Invariant($"  camera: where the donor's head turned it ({turned} ticks), the lab's within {CombatReplay.CameraTolerance}° on {near} (median {median:0.0}°)");
         if (CameraPlace is var (placedNear, placed, placeMedian, placeWorst))
@@ -215,6 +218,8 @@ internal static class CombatReplay
     internal const float CameraPlaceTolerance = 1;
     /// <summary>The lab's health agrees with the donor's this close (#10162): its regeneration steps 0.25.</summary>
     internal const float HealthTolerance = .3f;
+    /// <summary>How near the lab's mana must be to the donor's streamed one (#10165).</summary>
+    internal const float ManaTolerance = .3f;
 
     /// <summary>A donor blow and a lab blow this far apart in time pair up, seconds.</summary>
     internal const double Window = .3;
@@ -242,7 +247,10 @@ internal static class CombatReplay
         var donorTrace = new List<Calibration.MovementSample>();
         int staminaTicks = 0, staminaNear = 0, cameraTicks = 0, cameraNear = 0, healthTicks = 0, healthNear = 0, maxAgree = 0;
         float healthWorst = 0;
-        float? lastDonorHealth = null;
+        float? lastDonorHealth = null, lastDonorMana = null;
+        int manaTicks = 0, manaNear = 0;
+        float manaWorst = 0;
+        bool manaSet = false, manaSynced = false;
         bool healthSet = false, regenSynced = false, staminaSynced = false;
         float? lastDonorStamina = null;
         int hurtAt = 0, drunkAt = 0;
@@ -412,6 +420,25 @@ internal static class CombatReplay
                     if (Environment.GetEnvironmentVariable("RB_STAMINA_TRACE") is { Length: > 0 } span && span.Split('-') is [var traceFrom, var traceTo]
                         && t.Tick >= int.Parse(traceFrom!) && t.Tick <= int.Parse(traceTo!))
                         Console.WriteLine(FormattableString.Invariant($"STAM {t.Tick} donor {donorStamina:0.000} lab {combat.Stamina.Value:0.000} sprinting {combat.Stamina.Sprinting} asked {t.Sprint} move {t.Move.Length():0.00}"));
+                }
+                // The lab's mana against the donor's streamed one (Wire v15; #10165): from the donor's at the start, its
+                // regeneration on the lab's clock (the donor's phase from its first rise of one step), the donor's casts
+                // (a fall) and mana potions (a rise past a step) taken as they come.
+                if (t.Mana is float donorMana)
+                {
+                    if (!manaSet) { combat.Mana.Set(donorMana); manaSet = true; }
+                    else if (lastDonorMana is float was)
+                    {
+                        float change = donorMana - was;
+                        if (!manaSynced && MathF.Abs(change - combat.Mana.Rules.Recovery) < .01f) { combat.Mana.Sync(); combat.Mana.Set(donorMana); manaSynced = true; }
+                        else if (change < -.5f) combat.Mana.Spend(MathF.Min(-change, combat.Mana.Value));
+                        else if (change > combat.Mana.Rules.Recovery + .05f) combat.Mana.Restore(change);
+                    }
+                    lastDonorMana = donorMana;
+                    float off = MathF.Abs(combat.Mana.Value - donorMana);
+                    manaTicks++;
+                    if (off <= ManaTolerance) manaNear++;
+                    manaWorst = MathF.Max(manaWorst, off);
                 }
                 if (Trace is var (from, to) && t.Tick >= from && t.Tick <= to)
                     Console.WriteLine($"  trace {t.Tick} held {t.Held} grounded {grounded} move {combat.Sword.Move} {combat.Sword.Clip.Clip}@{combat.Sword.Cycle:0.00} donor feet y {t.Feet.Y:0.00}");
@@ -602,7 +629,8 @@ internal static class CombatReplay
             shadow is null ? null : (shadowNear, shadowTicks), applied, shieldWear, staminaTicks > 0 ? (staminaNear, staminaTicks, staminaWorst) : null,
             cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null,
             healthTicks > 0 ? (healthNear, healthTicks, healthWorst, maxAgree) : null,
-            placeOffs.Count > 0 ? (placeOffs.Count(o => o <= CameraPlaceTolerance), placeOffs.Count, placeOffs.Order().ElementAt(placeOffs.Count / 2), placeOffs.Max()) : null);
+            placeOffs.Count > 0 ? (placeOffs.Count(o => o <= CameraPlaceTolerance), placeOffs.Count, placeOffs.Order().ElementAt(placeOffs.Count / 2), placeOffs.Max()) : null,
+            manaTicks > 0 ? (manaNear, manaTicks, manaWorst) : null);
     }
 
     /// <summary>

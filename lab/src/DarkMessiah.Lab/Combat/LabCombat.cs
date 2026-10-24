@@ -97,6 +97,7 @@ internal sealed class LabCombat : IDisposable
         manaRules = ManaRules.From(donor);
         Mana = new PlayerMana(manaRules);
         Telekinesis = TelekinesisRules.From(donor);
+        Fireball = FireballRules.From(donor);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -251,6 +252,117 @@ internal sealed class LabCombat : IDisposable
     internal PlayerHealth Health { get; }
     /// <summary>The player's mana (#10164): the build's maximum, its regeneration, what telekinesis spends.</summary>
     internal PlayerMana Mana { get; }
+    /// <summary>The fireball's numbers (#10165).</summary>
+    internal FireballRules Fireball { get; }
+    /// <summary>The spell in hand (its <c>spells.txt</c> id), or null for the weapon (#10165): the belt puts it there.</summary>
+    internal string? SpellInHand { get; private set; }
+    bool spellAttackHeld;
+    readonly List<LabFireball> fireballs = [];
+    /// <summary>The fireballs in the air or forming, for drawing.</summary>
+    internal IReadOnlyList<LabFireball> Fireballs => fireballs;
+    /// <summary>Casts so far, and fireballs that went off.</summary>
+    internal (int Casts, int Explosions, int Refused) Spells { get; private set; }
+    /// <summary>
+    /// The world's geometry for a fireball's flight: the first point on the segment from the first point to the second
+    /// that meets the arena, or null (the product sets it to its scene's ray cast; none, and only the orc stops one).
+    /// </summary>
+    internal Func<Vector3, Vector3, Vector3?>? WorldRay { get; set; }
+
+    /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
+    internal void ToggleSpell(string spell)
+    {
+        if (SpellInHand == spell) { SpellInHand = null; Message = "Weapon in hand"; return; }
+        if (Build is { } build && !build.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase)) { Message = $"{spell} isn't known"; return; }
+        if (!spell.Equals(FireballRules.Spell, StringComparison.OrdinalIgnoreCase)) { Message = $"{spell} isn't played yet"; return; }
+        SpellInHand = FireballRules.Spell;
+        spellAttackHeld = false;
+        Message = "Fireball in hand";
+    }
+
+    /// <summary>Casts the spell in hand: its cost from mana, or nothing when the mana doesn't cover it.</summary>
+    void Cast(Vector3 eye, Vector3 forward)
+    {
+        if (!Mana.Spend(Fireball.Cost))
+        {
+            Spells = Spells with { Refused = Spells.Refused + 1 };
+            Message = FormattableString.Invariant($"Not enough mana for the fireball ({Fireball.Cost:0})");
+            return;
+        }
+        fireballs.Add(new LabFireball(Hand(eye, forward)));
+        Spells = Spells with { Casts = Spells.Casts + 1 };
+    }
+
+    /// <summary>Where a fireball forms: half a metre ahead of the eye, a little down and to the right (the casting hand).</summary>
+    static Vector3 Hand(Vector3 eye, Vector3 forward)
+    {
+        var right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
+        return eye + forward * .5f + right * .15f - Vector3.UnitY * .15f;
+    }
+
+    void StepFireballs(float seconds, Vector3 eye, Vector3 forward)
+    {
+        foreach (var ball in fireballs)
+        {
+            ball.Step(seconds, Fireball, Hand(eye, forward), forward, Meets);
+            if (ball.Exploded is Vector3 at) Explode(at);
+        }
+        fireballs.RemoveAll(b => b.Exploded is not null);
+    }
+
+    /// <summary>A fireball's size, units: it meets the orc's body this far from it.</summary>
+    const float BallUnits = 5;
+
+    /// <summary>Where a fireball's step meets the orc's body (a sphere of its 5 units against the body's box) or the world.</summary>
+    Vector3? Meets(Vector3 from, Vector3 to)
+    {
+        Vector3? world = WorldRay?.Invoke(from, to);
+        if (Orc.Alive && !Orc.Following)
+        {
+            var (centre, half) = Orc.Hull;
+            var grown = half + new Vector3(BallUnits * SourceSpace.MetresPerUnit);
+            if (SegmentEntersBox(from, to, centre - grown, centre + grown) is float t
+                && (world is not Vector3 w || t * Vector3.Distance(from, to) <= Vector3.Distance(from, w)))
+                return Vector3.Lerp(from, to, t);
+        }
+        return world;
+    }
+
+    /// <summary>The fraction along the segment where it enters the box, or null if it doesn't.</summary>
+    static float? SegmentEntersBox(Vector3 from, Vector3 to, Vector3 min, Vector3 max)
+    {
+        float t0 = 0, t1 = 1;
+        var d = to - from;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float o = from[axis], v = d[axis], lo = min[axis], hi = max[axis];
+            if (MathF.Abs(v) < 1e-9f) { if (o < lo || o > hi) return null; continue; }
+            float a = (lo - o) / v, b = (hi - o) / v;
+            if (a > b) (a, b) = (b, a);
+            t0 = MathF.Max(t0, a);
+            t1 = MathF.Min(t1, b);
+            if (t0 > t1) return null;
+        }
+        return t0;
+    }
+
+    /// <summary>A fireball goes off: the orc takes its share by its distance (to its body's nearest point), and adrenaline its gain.</summary>
+    void Explode(Vector3 at)
+    {
+        Spells = Spells with { Explosions = Spells.Explosions + 1 };
+        if (!Orc.Alive || Orc.Following) return;
+        var (centre, half) = Orc.Hull;
+        // From the ball's edge: one that struck the body is 0 off.
+        float distance = MathF.Max(0, Vector3.Distance(at, Vector3.Clamp(at, centre - half, centre + half)) / SourceSpace.MetresPerUnit - BallUnits);
+        float damage = model.SpellDamage(FireballRules.Spell, Fireball.Effect, Fireball.RadiusUnits, distance, Npc.Orc.Model);
+        if (damage <= 0) return;
+        Orc.Damage(damage);
+        Adrenaline.Gain(Fireball.AdrenalineAdd);
+        LastFireball = (distance, damage);
+        Message = FormattableString.Invariant($"The fireball hits the orc for {damage:0.#} ({distance:0} units off)");
+    }
+
+    /// <summary>The last fireball that hurt the orc: its distance (units) and the damage.</summary>
+    internal (float Distance, float Damage)? LastFireball { get; private set; }
     /// <summary>Telekinesis' numbers (#10164): mana by mass class, reach, the hold and throw, thrown bodies' damage.</summary>
     internal TelekinesisRules Telekinesis { get; }
 
@@ -282,7 +394,10 @@ internal sealed class LabCombat : IDisposable
     internal void UseBelt(int slot)
     {
         if (PlayerHealth <= 0) return;
-        if (Belt.Use(slot, Health) is { } item) Message = FormattableString.Invariant($"{item.Name}: health {PlayerHealth:0.#} of {Health.Max:0}");
+        // A spell's slot puts it in hand, or the weapon back (#10165).
+        if (Belt.SpellAt(slot) is { } spell) { ToggleSpell(spell); return; }
+        if (Belt.Use(slot, Health, Mana) is { } item)
+            Message = FormattableString.Invariant($"{item.Name}: health {PlayerHealth:0.#} of {Health.Max:0}, mana {Mana.Value:0.#} of {Mana.Max:0}");
     }
     internal bool God { get; set; }
     /// <summary>The orc's blows kick the player's view (#10161); a replay kicks it with the donor's blows instead.</summary>
@@ -369,6 +484,14 @@ internal sealed class LabCombat : IDisposable
         FatalityLanded = false;
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
+        // A spell in hand takes attack: a press casts it (#10165), and the sword doesn't swing.
+        if (SpellInHand is not null)
+        {
+            if (attackHeld && !spellAttackHeld) Cast(eye, forward);
+            spellAttackHeld = attackHeld;
+            attackHeld = blockHeld = false;
+        }
+        StepFireballs(seconds, eye, forward);
         Sword.Fatal = canFatality && Adrenaline.Full;
         Sword.BackstabReady = BackstabReady(forward, feet, orcPose);
         Sword.Step(seconds, attackHeld, blockHeld, kickHeld, move, grounded && Stamina.MayKick, airborne: !grounded, sprinting: Stamina.Sprinting, crouched: crouched);
@@ -382,6 +505,10 @@ internal sealed class LabCombat : IDisposable
         // The body's velocity for the head's fall (#10161).
         var bodyVelocity = poseFeet is { } was && seconds > 0 ? (feet - was) / seconds : Vector3.Zero;
         poseFeet = feet;
+        // A spell in hand poses the arms its own way: the cast clip while the newest fireball forms (#10165).
+        FirstPerson.Spell = SpellInHand is null ? null : fireballs.LastOrDefault(b => !b.Flying) is { } forming
+            ? (FireballRules.ReadyClip, FireballRules.CastClip, Math.Clamp(forming.Age / MathF.Max(.01f, FirstPerson.ClipSeconds(FireballRules.CastClip)), 0, 1))
+            : (FireballRules.ReadyClip, null, 0);
         FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity, lean);
         var gait = Gait(seconds, feet, sprinting, crouched);
         var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
@@ -917,6 +1044,10 @@ internal sealed class LabCombat : IDisposable
         Mate?.Spawn();
         Health.Fill();
         Mana.Fill();
+        fireballs.Clear();
+        SpellInHand = null;
+        LastFireball = null;
+        Spells = default;
         if (Build?.Belt is { } belt) Belt.Fill(donor, belt);
         recent.Clear();
         Player = default;

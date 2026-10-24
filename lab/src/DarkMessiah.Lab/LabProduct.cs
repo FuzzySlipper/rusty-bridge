@@ -35,6 +35,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private readonly InputDiagnostics diagnostics = new();
     private readonly LabDeveloper developer;
     private readonly UiStream hud;
+    // The fireballs' look (#10165): a small glowing box each, drawn where it is.
+    private readonly Appearance fireballLook;
+    private readonly List<EntityId> fireballIds = [];
     private ulong generation;
     private double worldSeconds;
     private string notice = "";
@@ -58,6 +61,17 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player.Ladders = scene.Definition.Ladders.Select(LabScene.Ladder).ToArray();
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
         cubes = new CubeInteraction(engine, scene, player, combat);
+        // A fireball meets the arena where a ray along its step does (the player's body aside).
+        combat.WorldRay = (from, to) =>
+        {
+            var step = to - from;
+            float length = step.Length();
+            if (length < 1e-6f) return null;
+            var hit = engine.Spatial.CastRay(new SpatialRaycastRequest(scene.Session, from, step / length, length, new SpatialQueryFilter(uint.MaxValue, uint.MaxValue),
+                scene.Colliders(), new[] { scene.PlayerEntity.Value }, ReadOnlyMemory<SpatialEntityCollider>.Empty));
+            return hit.Present ? from + step / length * (float)hit.Distance : null;
+        };
+        fireballLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(1f, .55f, .15f, 1)));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
         if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
@@ -186,6 +200,15 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     public void Shutdown() => Dispose();
 
+    /// <summary>Each fireball as a 0.25 m glowing box where it is.</summary>
+    private IEnumerable<AppearanceFact> FireballFacts()
+    {
+        var balls = combat.Fireballs;
+        while (fireballIds.Count < balls.Count) fireballIds.Add(scene.Entities.Create());
+        for (int i = 0; i < balls.Count; i++)
+            yield return new AppearanceFact(fireballIds[i].Value, false, 0, new Transform(balls[i].Position, Quaternion.Identity, new Vector3(.25f)), fireballLook, true, RenderLayer.Scene);
+    }
+
     public void Dispose()
     {
         if (disposed) return;
@@ -194,6 +217,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player.Dispose();
         // The scene publishes an empty snapshot first, so the fight's appearances leave it before they're released.
         scene.Dispose();
+        fireballLook.Dispose();
         combat.Dispose();
         hud.Dispose();
         donor.Dispose();
@@ -290,7 +314,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private void Publish()
     {
         player.Publish(worldSeconds);
-        scene.Publish(combat.Facts());
+        scene.Publish(combat.Facts().Concat(FireballFacts()));
         engine.Ui.PublishProjection(new UiProjection(hud, LabHud.Create(Observation())));
     }
 

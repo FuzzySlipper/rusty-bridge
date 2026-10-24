@@ -8,9 +8,11 @@ namespace DarkMessiah.Lab.Magic;
 /// <list type="bullet">
 /// <item>the maximum: <see cref="PerIntelligence"/> (10) times <c>player_intelligence_{extra_mana level + 1}</c> (2, 4, 7,
 /// 10): 20, 40, 70, 100. The factor is fitted: every recording with <c>extra_mana</c> 0 had 20, with it at 3 100;</item>
-/// <item>the regeneration, once each <see cref="Interval"/>: <c>player_mana_recovery_module</c> (0.7) with the
-/// <c>mana_recovery</c> module (<c>mana_regeneration</c>'s), else <c>player_mana_recovery_base</c> (0.1). Every recording
-/// with the module rose 0.7 every 66 or 68 ticks; none without it showed a rise (each sat full).</item>
+/// <item>the regeneration: <c>player_mana_recovery_module</c> (0.7) with the <c>mana_recovery</c> module
+/// (<c>mana_regeneration</c>'s), else <c>player_mana_recovery_base</c> (0.1), once more than <see cref="Interval"/>
+/// (<c>mm_player_time_to_add_mana</c>, 1 s) has passed in the game's 15 ms ticks: every 67 ticks, 1.005 s, as stamina's
+/// (#10160). Every recording with the module rose 0.7 every 66 or 68 ticks, 67 on average (its stats stream every other
+/// tick); none without it showed a rise (each sat full).</item>
 /// </list>
 /// </summary>
 internal sealed record ManaRules(float Max, float Recovery, float BaseRecovery = .1f, float ModuleRecovery = .7f, float Interval = 1,
@@ -48,6 +50,9 @@ internal sealed class PlayerMana(ManaRules rules)
     float clock;
 
     internal ManaRules Rules { get; private set; } = rules;
+
+    /// <summary>The regeneration's real interval: the first whole game tick past <see cref="ManaRules.Interval"/>.</summary>
+    float Interval => (MathF.Floor(Rules.Interval / Sword.PlayerStamina.GameTick + 1e-3f) + 1) * Sword.PlayerStamina.GameTick;
     internal float Value { get; private set; } = rules.Max;
     internal float Max => Rules.Max;
 
@@ -84,7 +89,7 @@ internal sealed class PlayerMana(ManaRules rules)
 
     internal void Step(float seconds)
     {
-        for (clock += seconds; clock >= Rules.Interval; clock -= Rules.Interval)
+        for (clock += seconds; clock >= Interval; clock -= Interval)
             if (Rules.Recovery > 0) Restore(Rules.Recovery);
     }
 }

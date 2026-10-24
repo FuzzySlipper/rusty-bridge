@@ -54,6 +54,17 @@ public sealed record AttackData(string Name, IReadOnlyList<AttackEvent> Events);
 public sealed record CharacterData(string Model, float Strength, IReadOnlyDictionary<int, float> HitGroups, IReadOnlyDictionary<string, AttackData> Attacks,
     float BaseAttackLength = CharacterData.DefaultBaseAttackLength)
 {
+    /// <summary>
+    /// The spell damage multipliers of its <c>Vulnerabilities_spells</c> block (#10165): by spell family or id (<c>fire</c>,
+    /// <c>air_3</c>, <c>shock_water</c>); 0 immune, 2 double. The orc's fire is 1, its lightning 2.
+    /// </summary>
+    public IReadOnlyDictionary<string, float> SpellVulnerabilities { get; init; } = new Dictionary<string, float>();
+
+    /// <summary>The multiplier for <paramref name="spell"/> (<c>fire_3</c>): its id's, else its family's (<c>fire</c>), else 1.</summary>
+    public float SpellVulnerability(string spell) =>
+        SpellVulnerabilities.TryGetValue(spell, out float own) ? own
+        : spell.IndexOf('_') is int cut and > 0 && SpellVulnerabilities.TryGetValue(spell[..cut], out float family) ? family : 1;
+
     /// <summary>An unarmed attack's sweep length when entity_data gives none: the loader's default, 50 (server.dll+0x3B16D7).</summary>
     public const float DefaultBaseAttackLength = 50;
 
@@ -309,7 +320,15 @@ public sealed class CombatData
                 var events = (parts.Count > 0 ? parts : [attack]).Select(Event).ToList();
                 attacks.TryAdd(attack.Name, new AttackData(attack.Name, events));
             }
-            data = new CharacterData(model, strength, groups, attacks, entity?.Number("baseattacklength") ?? CharacterData.DefaultBaseAttackLength);
+            var vulnerabilities = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+            if (keyvalues?.Find("Vulnerabilities_spells") is KeyValues spells)
+                foreach (var (key, value) in spells.Values)
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float scale))
+                        vulnerabilities[key] = scale;
+            data = new CharacterData(model, strength, groups, attacks, entity?.Number("baseattacklength") ?? CharacterData.DefaultBaseAttackLength)
+            {
+                SpellVulnerabilities = vulnerabilities,
+            };
         }
         return _characters[model] = data;
     }

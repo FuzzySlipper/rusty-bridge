@@ -19,7 +19,9 @@ static class GameData
             {
              "entity_data" { "strength" "1" // Npc' strength.
                "level_1" { "strength" "4" }
-               "hitboxes_modifier" { "1" "3" "2" "1.0" } }
+               "hitboxes_modifier" { "1" "3" "2" "1.0" }
+               "Vulnerabilities_spells" { "fire" "1" // Immune to fire 0. Damage multiplier 2.
+                 "air_3" "2" } }
             "combatmovedatas"
             {
             attack_Right { "HitPow" "1" "breakparade" "0" "AttackMove" "1" "range" "70" }
@@ -121,6 +123,21 @@ public sealed class ModelTests
         Assert.Equal(DefenseResult.Parry, CombatModel.Verdict(Blow(Struck.Weapon, Orc())));
         Assert.Equal(DefenseResult.Shield, CombatModel.Verdict(Blow(Struck.OffHand, Orc())));
         Assert.Equal(DefenseResult.Hit, CombatModel.Verdict(Blow(Struck.Body, Orc("Combatmove_left_small"))));
+    }
+
+    /// <summary>
+    /// A spell's damage (#10165): its effect, falling off over its radius, times the victim's vulnerability. The orc's
+    /// .qct takes fire at 1 and lightning (air_3) at 2.
+    /// </summary>
+    [Fact]
+    public void SpellsHurtByTheVictimsVulnerability()
+    {
+        Assert.Equal(1, Model.Data.Character(OrcModel)!.SpellVulnerability("fire_3"));
+        Assert.Equal(2, Model.Data.Character(OrcModel)!.SpellVulnerability("air_3"));
+        Assert.Equal(12, Model.SpellDamage("fire_3", 12, 120, 0, OrcModel), 3);
+        Assert.Equal(6, Model.SpellDamage("fire_3", 12, 120, 60, OrcModel), 3);
+        Assert.Equal(0, Model.SpellDamage("fire_3", 12, 120, 130, OrcModel), 3);
+        Assert.Equal(30, Model.SpellDamage("air_3", 15, 0, 0, OrcModel), 3);
     }
 
     /// <summary>A dodge can't be touched from its 2133 to its 2145, or its 2134 when that comes first (#10198).</summary>

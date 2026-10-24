@@ -231,7 +231,17 @@ internal static class MovementCalibration
                 if (SpanSpeed(i - 2) > 40 && SpanSpeed(i) < SpanSpeed(i - 2) / 4) return true;
             return false;
         }
-        float LabSpeedBefore(int i) => i < 1 ? 0 : new Vector2(lab[i].X - lab[i - 1].X, lab[i].Y - lab[i - 1].Y).Length() / MathF.Max(.015f, (float)(lab[i].Time - lab[i - 1].Time));
+        // The lab's body's speed before the command at i: its samples are taken after each step, so the last step before
+        // it ends at i - 1 (R10159-3).
+        float LabSpeedBefore(int i) => i < 2 ? 0 : new Vector2(lab[i - 1].X - lab[i - 2].X, lab[i - 1].Y - lab[i - 2].Y).Length() / MathF.Max(.015f, (float)(lab[i - 1].Time - lab[i - 2].Time));
+        // Where the movement leading into the run at i began: a diagonal's second key, or sprint, goes down a tick or two
+        // after the first, so the body is already moving on the run's own first tick.
+        int Onset(int i)
+        {
+            int onset = i;
+            while (onset > 0 && donor[onset - 1].Command is not null && donor[i].Time - donor[onset - 1].Time <= .1) onset--;
+            return onset;
+        }
         int Within(int from, double seconds) { int i = from; while (i + 1 < donor.Count && donor[i + 1].Time - donor[from].Time <= seconds) i++; return i; }
         var labSteady = l.Steady.ToDictionary(x => x.Tick, x => x.Speed);
         foreach (var run in d.Steady.GroupBy(x => (x.Run, x.Command)))
@@ -265,7 +275,7 @@ internal static class MovementCalibration
             cases.Add(new(recording, "start", c.ToString(), time, seconds, found ? labStart.Seconds : null, .15f, false,
                 TeleportIn(run - 1, Within(run, seconds + .2)) ? "a scenario's setpos moved the donor in it"
                 : BlockedIn(run, Within(run, seconds + .2)) ? "the lab's body met its arena's wall as it started"
-                : LabSpeedBefore(run) > 10 ? FormattableString.Invariant($"the lab's body wasn't at rest as it began ({LabSpeedBefore(run):0} units/s)") : null));
+                : LabSpeedBefore(Onset(run)) > 10 ? FormattableString.Invariant($"the lab's body wasn't at rest as it began ({LabSpeedBefore(Onset(run)):0} units/s)") : null));
         }
         foreach (var (run, seconds, slide, from) in d.Stops.Where(x => x.From is >= 160 and <= 200))
         {

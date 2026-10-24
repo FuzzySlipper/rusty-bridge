@@ -500,10 +500,11 @@ scenarios (docs/recording.md):
   left out only with its evidence, printed: the lab's body against its arena's wall (the Engine's wall block flag), a
   scenario's `setpos` in it (the donor's origin faster than 2000 units/s across, 450 up or 800 down), the donor's body
   held (under half the lab's speed), stopped dead (to under a quarter of 40 units/s or more in 0.03 s), or jumping
-  from a slope (more than 4 units in the 0.2 s before), the lab's body not at rest as a start began, and a sprint
+  from a slope (more than 4 units in the 0.2 s before), the lab's body not at rest as a start's movement began (before its first key: a diagonal's second key and sprint
+  come a tick or two after; R10159-3), and a sprint
   either side's stamina didn't admit (the lab's own since the replay began; v14 has no stamina on the Wire). Every
   compared case agrees on `movement`, `jump-hold`, `sprint`, `sprint-double` and the three v14 arena fights, and the
-  scenarios compare each kind (the run, walk, `+walk`, crouch, back, strafe, diagonal and sprint speeds, starts, stops,
+  scenarios compare each kind (the run, walk, `+walk`, crouch, back, strafe, diagonal and sprint speeds and starts, stops,
   slides, rises, times in the air) twice or more. `RB_MOVECASES=a,b` prints every case of the recordings whose names
   hold a or b (`RB_MOVETRACE=from-to` the paired traces); `RB_MOVE=1` prints the donor's measures; `RB_MOVEFIT=1`,
   `RB_JUMPFIT`, `RB_MOVEFIT_CROUCH` and `RB_MOVEFIT_RELEASE` run the lab's body through the fitting runs.

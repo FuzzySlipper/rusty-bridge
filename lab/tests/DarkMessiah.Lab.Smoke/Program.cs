@@ -1032,7 +1032,6 @@ host.Call(engine =>
             && MathF.Abs(upSpeed - 80) < 4 && offAtTop && remounted && MathF.Abs(downSpeed - 80) < 4 && offAtFoot && jumpedOff,
             FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): got on walking into it ({stepsToMount} steps) in {mountSteps * Tick:0.00} s not climbing, climbed at {upSpeed:0} units/s (the donor's 80), got off onto the loft in {exitSteps * Tick:0.00} s (feet {onLoft.X:0.00}, {onLoft.Y:0.00}); on again backing off its top ({remounted}), down at {downSpeed:0}, off at its foot ({offAtFoot}); a jump lets go ({jumpedOff})"));
     }
-    // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     // Falls (R10159-1): the donor's landings from l01_a-v18-fall-1 and -2 took none under 300 units and Source's fall
     // damage above, 10 after 316 units, 24 after 371, 51 after 517 and 61 after 575.
     {
@@ -1073,6 +1072,7 @@ host.Call(engine =>
             FormattableString.Invariant($"the landing dips the view {full:0.0}° at landingDip 1 (player.json's), {half:0.0}° at 0.5, {none:0.0}° at 0"));
     }
     // Health (#10162): 50 and 10 an extra_health level; fast_metabolism regains 0.25 a second; the belt's potions give
+    // The landing's dip at player.json's comfort scale (R10161-1): the donor's 7.9° at 1, half at 0.5, none at 0.
     // their give_health up to the maximum, one fewer each use; keys 1 to 9 are its slots.
     {
         Check(combat.Health.Max == 50 && combat.Belt[0] is { Count: 3 } firstSlot && firstSlot.Item.GiveHealth == 10 && combat.Belt[1] is { Count: 1 } secondSlot
@@ -2266,12 +2266,12 @@ host.Call(engine =>
                 FormattableString.Invariant($"{healthReplay.Name}: the lab's health follows the donor's within {CombatReplay.HealthTolerance} on {healthReplay.Health?.Near} of {healthReplay.Health?.Ticks} ticks, its maximum on {healthReplay.Health?.MaxAgree}"));
         }
         // And they cover each: the run, walk (+speed), crouch, backing, strafe, diagonal and sprint's speeds, a start from
-        // rest each way, stops and slides from a run, and jumps' rise and time in the air, two compared cases at least.
+        // rest each of those ways (R10159-3), stops and slides from a run, and jumps' rise and time in the air, two compared cases at least.
         if (scenarioCases.Count > 0)
         {
             var covered = new[] { ("speed", "forward 1000"), ("speed", "forward 1000 speed"), ("speed", "forward 1000 walk"), ("speed", "forward 1000 crouched"), ("speed", "back 150"),
-                    ("speed", "strafe 1000"), ("speed", "diagonal 1400"), ("speed", "forward 1000 sprint"), ("start", "back 150"), ("start", "forward 1000 crouched"),
-                    ("start", "forward 1000 speed"), ("stop", "from a run"), ("slide", "from a run"), ("rise", "none"), ("air", "none") }
+                    ("speed", "strafe 1000"), ("speed", "diagonal 1400"), ("speed", "forward 1000 sprint"), ("start", "forward 1000"), ("start", "strafe 1000"), ("start", "diagonal 1400"),
+                    ("start", "back 150"), ("start", "forward 1000 crouched"), ("start", "forward 1000 speed"), ("start", "forward 1000 walk"), ("start", "forward 1000 sprint"), ("stop", "from a run"), ("slide", "from a run"), ("rise", "none"), ("air", "none") }
                 .Select(k => (Case: $"{k.Item1} {k.Item2}", Count: scenarioCases.Count(c => c.Compared && c.Kind == k.Item1 && c.Label == k.Item2))).ToList();
             Check(covered.All(k => k.Count >= 2),
                 $"the movement scenarios compare every kind of movement twice or more ({string.Join(", ", covered.Select(k => $"{k.Case} {k.Count}"))})");

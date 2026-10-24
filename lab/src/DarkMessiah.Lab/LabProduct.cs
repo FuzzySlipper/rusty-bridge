@@ -75,6 +75,33 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 scene.Colliders(), new[] { scene.PlayerEntity.Value }, ReadOnlyMemory<SpatialEntityCollider>.Empty));
             return hit.Present ? from + step / length * (float)hit.Distance : null;
         };
+        // An arrow meets it the same way, with the surface's normal, which a bounce reflects off (#10168). The arena's
+        // colliders report no normal: then it's the plane through the hit and two rays 2 cm beside it.
+        combat.WorldSurface = (from, to) =>
+        {
+            var step = to - from;
+            float length = step.Length();
+            if (length < 1e-6f) return null;
+            var along = step / length;
+            Vector3? Cast(Vector3 start)
+            {
+                var hit = engine.Spatial.CastRay(new SpatialRaycastRequest(scene.Session, start, along, length + 2, new SpatialQueryFilter(uint.MaxValue, uint.MaxValue),
+                    scene.Colliders(), new[] { scene.PlayerEntity.Value }, ReadOnlyMemory<SpatialEntityCollider>.Empty));
+                return hit.Present ? start + along * (float)hit.Distance : null;
+            }
+            var first = engine.Spatial.CastRay(new SpatialRaycastRequest(scene.Session, from, along, length, new SpatialQueryFilter(uint.MaxValue, uint.MaxValue),
+                scene.Colliders(), new[] { scene.PlayerEntity.Value }, ReadOnlyMemory<SpatialEntityCollider>.Empty));
+            if (!first.Present) return null;
+            var point = from + along * (float)first.Distance;
+            if (first.Normal.LengthSquared() > .25f) return (point, Vector3.Normalize(first.Normal));
+            var side = Vector3.Normalize(Vector3.Cross(along, MathF.Abs(along.Y) < .9f ? Vector3.UnitY : Vector3.UnitX));
+            var up = Vector3.Cross(side, along);
+            if (Cast(from + side * .02f) is not Vector3 a || Cast(from + up * .02f) is not Vector3 b) return (point, -along);
+            var normal = Vector3.Cross(a - point, b - point);
+            if (normal.LengthSquared() < 1e-12f) return (point, -along);
+            normal = Vector3.Normalize(normal);
+            return (point, Vector3.Dot(normal, along) > 0 ? -normal : normal);
+        };
         fireballLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(1f, .55f, .15f, 1)));
         arrowLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(.45f, .32f, .2f, 1)));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).

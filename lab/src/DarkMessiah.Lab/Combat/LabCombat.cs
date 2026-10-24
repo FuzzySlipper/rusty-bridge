@@ -272,6 +272,12 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     internal Func<Vector3, Vector3, Vector3?>? WorldRay { get; set; }
 
+    /// <summary>
+    /// The world's geometry for an arrow (#10168): <see cref="WorldRay"/>'s point and the surface's normal there, which
+    /// a bounce reflects off. Unset, the arrows take <see cref="WorldRay"/>'s point facing back along their way.
+    /// </summary>
+    internal Func<Vector3, Vector3, (Vector3 Point, Vector3 Normal)?>? WorldSurface { get; set; }
+
     /// <summary>The attack spells' numbers (#10166).</summary>
     internal LightningRules Lightning { get; }
     internal FreezeRules Freeze { get; }
@@ -458,7 +464,7 @@ internal sealed class LabCombat : IDisposable
     {
         if (Bow is { } held && held.Rules.Model == VpkIndex.Normalize(model)) { Bow = null; Message = "Weapon in hand"; return; }
         SpellInHand = null;
-        Bow = new LabBow(arrowRules = BowRules.Of(donor, model), FirstPerson.ClipSeconds);
+        Bow = new LabBow(BowRules.Of(donor, model), FirstPerson.ClipSeconds);
         Zoom = 0;
         Message = $"{Path.GetFileNameWithoutExtension(model)} in hand";
     }
@@ -467,13 +473,16 @@ internal sealed class LabCombat : IDisposable
     /// The bow this step: its cycle, an arrow leaving along the view from the eye, the zoom held (<c>bow_zoom</c>), and
     /// the arrows in flight (#10168).
     /// </summary>
-    void StepBow(ulong tick, float seconds, bool attack, bool parry, bool zoom, Vector3 eye, Vector3 forward)
+    void StepBow(ulong tick, float seconds, bool attack, bool parry, bool zoom, Vector3 eye, Vector3 forward, bool grounded)
     {
+        // In the air, and for the bow's landing clip once down, no draw begins.
+        bowLanding = !grounded ? float.PositiveInfinity
+            : float.IsPositiveInfinity(bowLanding) ? FirstPerson.ClipSeconds(LabBow.LandingClip) : MathF.Max(0, bowLanding - seconds);
         if (Bow is { } bow)
         {
-            if (bow.Step(seconds, attack, parry, Build?.Has("bow_reload") == true))
+            if (bow.Step(seconds, attack, parry, Build?.Has("bow_reload") == true, landing: bowLanding > 0))
             {
-                arrows.Add(new LabArrow(eye, bow.Rules.Launch(forward)));
+                arrows.Add(new LabArrow(eye, bow.Rules.Launch(forward), bow.Rules));
                 Archery = Archery with { Shot = Archery.Shot + 1 };
             }
             bool zooming = zoom && Build?.Has("bow_zoom") == true && (bow.Aiming || Zoom > 0);
@@ -483,8 +492,17 @@ internal sealed class LabCombat : IDisposable
         foreach (var arrow in arrows)
         {
             arrowHit = null;
-            arrow.Step(seconds, arrowRules, ArrowMeets);
-            if (arrowHit is { } hit) ArrowStrikes(tick, hit.Orc, hit.Contact, hit.Targets);
+            int impacts = arrow.Impacts.Count;
+            arrow.Step(seconds, ArrowMeets);
+            if (arrowHit is { } hit)
+            {
+                ArrowStrikes(tick, arrow, hit.Orc, hit.Contact, hit.Targets);
+                if (arrow.Rules.Explosive) Blast(arrow.Rules, hit.Contact.Point);
+            }
+            // The explosive bow's blast at each impact on the world, a bounce's too (R10168-1).
+            if (arrow.Rules.Explosive) foreach (var at in arrow.Impacts.Skip(impacts)) Blast(arrow.Rules, at);
+            // The rope bow's arrow sticks where it stops in the world: a rope's anchor (R10168-2).
+            if (arrow.Rules.Rope && arrow.Stopped is Vector3 stuck && arrowHit is null && arrow.Impacts.Count > impacts) RopeAnchors.Add(stuck);
         }
         arrows.RemoveAll(a => a.Stopped is not null);
     }
@@ -507,9 +525,8 @@ internal sealed class LabCombat : IDisposable
         return (BowRules.HeadSway, held / MathF.Max(.01f, head.ClipSeconds(BowRules.HeadSway)) % 1, weight);
     }
 
-    // The last bow's rules, which its arrows fly and strike by once it's put away (every bow's flight is the same).
-    BowRules arrowRules = new(BowRules.Classic, 30);
     (Orc Orc, HitContact Contact, List<PosedTarget> Targets)? arrowHit;
+    float bowLanding;
 
     /// <summary>The arrow's radius against the orc's hit boxes, metres: 1 unit.</summary>
     const float ArrowRadius = 1 * SourceSpace.MetresPerUnit;
@@ -518,9 +535,11 @@ internal sealed class LabCombat : IDisposable
     /// Where an arrow's step meets the nearest live orc's hit boxes on its way, or the world. It passes the orcs' cleaver
     /// and shield hulls (no recorded arrow met one).
     /// </summary>
-    Vector3? ArrowMeets(Vector3 from, Vector3 to)
+    (Vector3 Point, Vector3 Normal, bool World)? ArrowMeets(Vector3 from, Vector3 to)
     {
-        Vector3? met = WorldRay?.Invoke(from, to);
+        (Vector3 Point, Vector3 Normal)? world = WorldSurface?.Invoke(from, to)
+            ?? (WorldRay?.Invoke(from, to) is Vector3 p ? (p, Vector3.Normalize(from - to)) : null);
+        Vector3? met = world?.Point;
         float nearest = met is Vector3 w ? Vector3.Distance(from, w) : float.PositiveInfinity;
         foreach (var orc in Orcs.Where(o => o.Alive && !o.Following))
         {
@@ -534,23 +553,46 @@ internal sealed class LabCombat : IDisposable
                 arrowHit = (orc, contacts[0], targets);
             }
         }
-        // The world nearer than every orc: the arrow stops there.
+        // The world nearer than every orc: the arrow meets it there.
         if (arrowHit is { } hit && met != hit.Contact.Point) arrowHit = null;
-        return met;
+        return arrowHit is { } struck ? (struck.Contact.Point, Vector3.Normalize(from - to), false) : world is { } surface ? (surface.Point, surface.Normal, true) : null;
+    }
+
+    /// <summary>Where the rope bow's arrows stuck in the world (R10168-2): the anchors a rope will hang from (its climbing is #10330's).</summary>
+    internal List<Vector3> RopeAnchors { get; } = [];
+
+    /// <summary>The last explosive blast's victims: each orc and what it took.</summary>
+    internal List<(Orc Orc, float Taken)> LastBlast { get; } = [];
+
+    /// <summary>
+    /// An explosive arrow's blast at <paramref name="at"/> (R10168-1): the bow's <c>explosive_damage</c>, a fire spell's
+    /// (<c>fire_1</c>, which the donor casts there), on every live orc whose feet are within its <c>explosive_radius</c>.
+    /// </summary>
+    void Blast(BowRules rules, Vector3 at)
+    {
+        LastBlast.Clear();
+        foreach (var orc in Orcs.Where(o => o.Alive && !o.Following).ToList())
+        {
+            if (Vector3.Distance(at, orc.Feet) / SourceSpace.MetresPerUnit > rules.ExplosiveRadius) continue;
+            float damage = model.SpellDamage("fire_1", rules.ExplosiveDamage, 0, 0, Npc.Orc.Model);
+            orc.Damage(damage);
+            LastBlast.Add((orc, damage));
+            Message = FormattableString.Invariant($"The blast takes {damage:0.#} from the orc");
+        }
     }
 
     /// <summary>
-    /// An arrow strikes an orc (#10168): on its body, a player blow of the bow's shoot clip with the bow's <c>WDmg</c> on
+    /// An arrow strikes an orc (#10168): on its body, a player blow of the bow's shoot clip with the <c>WDmg</c> of the bow that shot it on
     /// the hit group struck (the not-alerted ×3 and the rest as any blow), and the clip's <c>adrenalineadd</c>; on its
     /// cleaver or shield, nothing.
     /// </summary>
-    void ArrowStrikes(ulong tick, Orc orc, HitContact c, List<PosedTarget> targets)
+    void ArrowStrikes(ulong tick, LabArrow arrow, Orc orc, HitContact c, List<PosedTarget> targets)
     {
         if (c.Target != 0) { Message = "The arrow glances off"; return; }
         hitOrc = orc;
         int group = targets[0].Model.Hitboxes[c.Hitbox].Group;
         var player = new Party("player", "", [BowRules.Shoot], 0, "#1", PlayerModel);
-        float asked = Asked(tick, player, orc.Party(), group, Bow?.Rules.Model ?? arrowRules.Model);
+        float asked = Asked(tick, player, orc.Party(), group, arrow.Rules.Model);
         var shot = model.EventOf(player);
         Adrenaline.Gain(shot?.Adrenaline ?? 0);
         orc.Damage(asked);
@@ -824,7 +866,7 @@ internal sealed class LabCombat : IDisposable
         StepFireballs(seconds, eye, forward);
         StepBolts(seconds);
         // The bow in hand takes attack and parry (#10168); the sword is away, and doesn't kick.
-        StepBow(tick, seconds, Bow is not null && attackHeld, Bow is not null && blockHeld, zoomHeld, eye, forward);
+        StepBow(tick, seconds, Bow is not null && attackHeld, Bow is not null && blockHeld, zoomHeld, eye, forward, grounded);
         if (Bow is not null) attackHeld = blockHeld = kickHeld = false;
         Sword.Fatal = canFatality && Adrenaline.Full;
         Sword.BackstabReady = BackstabReady(forward, feet, orcPose);
@@ -1389,6 +1431,8 @@ internal sealed class LabCombat : IDisposable
         LastSpellHit = null;
         Bow = null;
         arrows.Clear();
+        RopeAnchors.Clear();
+        LastBlast.Clear();
         Archery = default;
         LastArrow = null;
         Zoom = 0;

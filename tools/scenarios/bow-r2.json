@@ -1,0 +1,325 @@
+{
+  "description": "The bow's round 2 (#10168, R10168-1 to -3): every skill, god, notarget, the level's NPCs removed. The explosive bow at the floor 30, 60 and 15 units short of a fresh orc from 300 units (its blast apart from a direct hit). The classic bow at three fresh orcs coming at the player: notarget off, two 2.2 s draws each along the line they run in from 600 units. The rope bow up at l01_a's wooden beams' undersides (z 140) from 60 units north of each. Marked with echo rb_bow.",
+  "seconds": 127,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_bow explosive at the floor",
+    "give weapon_mm_bow_explosive",
+    {
+      "wait": 0.5
+    },
+    "use weapon_mm_bow_explosive",
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2600 -12",
+    "setang 13.3 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow explosive arrow at the floor 30 units short of the orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2600 -12",
+    "setang 14.9 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow explosive arrow at the floor 60 units short of the orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2600 -12",
+    "setang 12.7 90 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow explosive arrow at the floor 15 units short of the orc",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 5
+    },
+    "echo rb_bow moving orcs",
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2.5
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2900 -12",
+    "setang 1.0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow moving orc 1, first",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "echo rb_bow moving orc 1, second",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "notarget",
+    {
+      "wait": 1
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2900 -12",
+    "setang 1.0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow moving orc 2, first",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "echo rb_bow moving orc 2, second",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "notarget",
+    {
+      "wait": 1
+    },
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2900 -12",
+    "setang 1.0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "echo rb_bow moving orc 3, first",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "echo rb_bow moving orc 3, second",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.4
+    },
+    "notarget",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrows at the beams",
+    "give weapon_arxcrossbowrope",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbowrope",
+    {
+      "wait": 2.5
+    },
+    "setpos 433 -2921 -12",
+    "setang -57.7 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow up at the beam at (433, -2981)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    },
+    "setpos 210 -2858 -12",
+    "setang -57.7 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow up at the beam at (210, -2918)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    },
+    "setpos 362 -3107 -12",
+    "setang -57.7 270 0",
+    {
+      "wait": 1
+    },
+    "echo rb_bow rope arrow up at the beam at (362, -3167)",
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 6
+    }
+  ]
+}

@@ -25,11 +25,25 @@ namespace DarkMessiah.Lab.Ranged;
 /// out, draw and fast reload came 0.24, 0.54, 0.51, 2.01 and 1.02 s apart for clips of 0.23, 0.53, 0.50, 2.00 and 1.00
 /// (frames 2 ticks apart).</item>
 /// <item><see cref="RestDelay"/>: a press held while the bow lowered draws 0.03 s after it's at rest.</item>
+/// <item><see cref="BounceBelowDegrees"/> and <see cref="Restitution"/>: an arrow meeting the world at a grazing angle
+/// (the recorded ones met the floor at 6° to 12°) bounces once, its speed ×0.56 (0.53 to 0.59 over 40 bounces, less
+/// the steeper), and its next impact stops it; steeper, it stops (R10168-1).</item>
 /// </list>
 /// </summary>
 internal sealed record BowRules(string Model, int Ammo, float SpeedUnits = 2100, float GravityUnits = 600, float RaiseDegrees = 2.8f,
-    float DrawDelay = .12f, float LeaveDelay = .03f, float RestDelay = .03f, float Settle = .015f)
+    float DrawDelay = .12f, float LeaveDelay = .03f, float RestDelay = .03f, float Settle = .015f,
+    float ExplosiveDamage = 0, float ExplosiveRadius = 0, float BounceBelowDegrees = 15, float Restitution = .56f)
 {
+    /// <summary>
+    /// The explosive bow's <c>explosive_damage</c> (15) and <c>explosive_radius</c> (30 units, R10168-1): each of its arrow's
+    /// impacts casts a blast (the donor's <c>weapon_MMDummyCaster</c> and <c>spell_fire_1</c> there) that takes
+    /// <see cref="ExplosiveDamage"/> from every NPC whose origin is within <see cref="ExplosiveRadius"/> of it
+    /// (<c>l01_a-v18-bow-r2</c>: 15 from the orc 25.6 units from the second impact; none from impacts 51 and 72 off).
+    /// </summary>
+    internal bool Explosive => ExplosiveDamage > 0;
+    /// <summary>The rope bow (<c>bow_ropearrow</c>): its arrow sticks where it stops, a rope's anchor (R10168-2).</summary>
+    internal bool Rope => Model.Contains("/bow_ropearrow/", StringComparison.Ordinal);
+
     internal const string Classic = "models/items/weapons/bow_classic/bow_classic.mdl";
 
     /// <summary>The arms' clips (<c>first_basic.mdl</c>), each played for its own length.</summary>
@@ -55,7 +69,8 @@ internal sealed record BowRules(string Model, int Ammo, float SpeedUnits = 2100,
     internal static readonly float ZoomedDegrees = 2 * MathF.Atan(MathF.Tan(22.5f * MathF.PI / 180) * 3 / 4) * 180 / MathF.PI;
 
     internal static BowRules Of(DonorContent donor, string model) =>
-        new(VpkIndex.Normalize(model), (int)(donor.Number(model, "entity_data", "ammo") ?? 30));
+        new(VpkIndex.Normalize(model), (int)(donor.Number(model, "entity_data", "ammo") ?? 30),
+            ExplosiveDamage: donor.Number(model, "entity_data", "explosive_damage") ?? 0, ExplosiveRadius: donor.Number(model, "entity_data", "explosive_radius") ?? 0);
 
     /// <summary>Whether a model path is a bow's: its folder under <c>models/items/weapons</c> is <c>bow_*</c>.</summary>
     internal static bool IsBow(string model)
@@ -159,17 +174,23 @@ internal sealed class LabBow(BowRules rules, Func<string, float> clipSeconds)
         DrawAge = float.NaN;
     }
 
+    /// <summary>The arms' landing with the bow (<c>jump_out_bow</c>), during which no draw begins.</summary>
+    internal const string LandingClip = "jump_out_bow";
+
     /// <summary>
     /// One step: <paramref name="attack"/> held, <paramref name="parry"/> held, <paramref name="fastReload"/> the build's
-    /// <c>bow_reload</c>. True on the step the arrow leaves the hand.
+    /// <c>bow_reload</c>, <paramref name="landing"/> the body in the air or landing (a press then draws once it's down: the
+    /// donor's three presses during <c>jump_out_bow</c> drew at its end, 0.12 to 0.24 s late). True on the step the arrow
+    /// leaves the hand.
     /// </summary>
-    internal bool Step(float seconds, bool attack, bool parry, bool fastReload)
+    internal bool Step(float seconds, bool attack, bool parry, bool fastReload, bool landing = false)
     {
         Age += seconds;
         if (!float.IsNaN(DrawAge)) DrawAge += seconds;
         if (attack && !wasAttack) { pressAge = 0; pressedAtRest = State is BowState.Rest or BowState.Pressed; }
         else if (!float.IsNaN(pressAge)) pressAge += seconds;
-        bool parried = parry && !wasParry;
+        // A parry pressed, or a jump or fall, puts a drawn arrow down (a fall while drawn, bow-r4, then a new draw).
+        bool parried = parry && !wasParry || landing && State is BowState.Drawing or BowState.Drawn or BowState.FastReload;
         wasAttack = attack;
         wasParry = parry;
         bool left = false;
@@ -180,6 +201,7 @@ internal sealed class LabBow(BowRules rules, Func<string, float> clipSeconds)
                 // A press at rest draws once its delay has passed, held or not; one made while the bow lowered draws if
                 // it's still held at rest, the delay counted from the press, and no sooner than RestDelay after it.
                 if (float.IsNaN(pressAge) || Arrows <= 0 || !attack && !pressedAtRest) { pressAge = float.NaN; Enter(BowState.Rest); break; }
+                if (landing) { if (State == BowState.Rest) Enter(BowState.Pressed); break; }
                 float wait = MathF.Max(Rules.DrawDelay - pressAge, pressedAtRest ? 0 : Rules.RestDelay - Age);
                 if (wait > 1e-4f) { if (State == BowState.Rest && pressedAtRest) Enter(BowState.Pressed); break; }
                 Age = MathF.Max(0, -wait);
@@ -206,6 +228,7 @@ internal sealed class LabBow(BowRules rules, Func<string, float> clipSeconds)
                 else if (Over(Phase(BowRules.FastIdle))) Next(BowState.FastOut, Phase(BowRules.FastIdle));
                 break;
             case BowState.FastReload:
+                if (parried) { Enter(BowState.Rest); DrawAge = float.NaN; break; }
                 if (Over(Phase(BowRules.FastReload)))
                 {
                     // Nocked again: the head's sway goes on as after a draw (not recorded: the reloads were shot at once).
@@ -241,9 +264,14 @@ internal sealed class LabBow(BowRules rules, Func<string, float> clipSeconds)
     }
 }
 
-/// <summary>One arrow in flight: it falls under the bow's gravity until it meets something.</summary>
-internal sealed class LabArrow(Vector3 at, Vector3 velocity)
+/// <summary>
+/// One arrow in flight: it falls under the bow's gravity until it meets something, and strikes by the bow that shot it
+/// (<see cref="Rules"/>), whatever is in hand by then (R10168-4).
+/// </summary>
+internal sealed class LabArrow(Vector3 at, Vector3 velocity, BowRules rules)
 {
+    /// <summary>The bow that shot it: its model (its <c>WDmg</c>) and its flight.</summary>
+    internal BowRules Rules { get; } = rules;
     /// <summary>Its velocity as it left, m/s.</summary>
     internal Vector3 Launched { get; } = velocity;
     internal Vector3 Position { get; private set; } = at;
@@ -251,22 +279,44 @@ internal sealed class LabArrow(Vector3 at, Vector3 velocity)
     internal float Age { get; private set; }
     /// <summary>Where it stopped, once it has.</summary>
     internal Vector3? Stopped { get; private set; }
+    /// <summary>It has bounced off the world once.</summary>
+    internal bool Bounced { get; private set; }
+    /// <summary>Its impacts on the world: where, in order (a bounce's, then where it stopped).</summary>
+    internal List<Vector3> Impacts { get; } = [];
 
     /// <summary>The longest an arrow flies before it's dropped, s (the recorded ones met the world within 3.3 s).</summary>
     internal const float LifeSeconds = 5;
 
     /// <summary>
-    /// One step: it moves along its velocity, which gravity bends, and stops where <paramref name="meets"/> finds
-    /// something on that step's segment (the point), or when its time is up.
+    /// One step: it moves along its velocity, which gravity bends. Where <paramref name="meets"/> finds something on the
+    /// step's segment (the point, the surface's normal, and whether it's the world) it stops, unless it's the world met at
+    /// a grazing angle for the first time: then it bounces (<see cref="BowRules.Restitution"/>). It stops anyway when its
+    /// time is up.
     /// </summary>
-    internal void Step(float seconds, BowRules rules, Func<Vector3, Vector3, Vector3?> meets)
+    internal void Step(float seconds, Func<Vector3, Vector3, (Vector3 Point, Vector3 Normal, bool World)?> meets)
     {
         if (Stopped is not null) return;
         Age += seconds;
-        var velocity = Velocity - Vector3.UnitY * rules.GravityMetres * seconds;
+        var velocity = Velocity - Vector3.UnitY * Rules.GravityMetres * seconds;
         var next = Position + (Velocity + velocity) / 2 * seconds;
         Velocity = velocity;
-        if (meets(Position, next) is Vector3 hit) { Position = hit; Stopped = hit; return; }
+        if (meets(Position, next) is { } hit)
+        {
+            Position = hit.Point;
+            if (hit.World) Impacts.Add(hit.Point);
+            var normal = hit.Normal.LengthSquared() > 1e-6f ? Vector3.Normalize(hit.Normal) : -Vector3.Normalize(velocity);
+            float grazing = MathF.Asin(Math.Clamp(-Vector3.Dot(Vector3.Normalize(velocity), normal), -1, 1)) * 180 / MathF.PI;
+            if (hit.World && !Bounced && grazing < Rules.BounceBelowDegrees)
+            {
+                Bounced = true;
+                Velocity = (velocity - 2 * Vector3.Dot(velocity, normal) * normal) * Rules.Restitution;
+                // Off the surface a hair, so the next step doesn't meet it again at once.
+                Position = hit.Point + normal * .005f;
+                return;
+            }
+            Stopped = hit.Point;
+            return;
+        }
         Position = next;
         if (Age >= LifeSeconds) Stopped = Position;
     }

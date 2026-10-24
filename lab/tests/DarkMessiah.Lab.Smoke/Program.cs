@@ -1805,10 +1805,12 @@ host.Call(engine =>
                 Check(steadyOff <= .6f && unsteadyOff <= .6f && crossed > 1,
                     FormattableString.Invariant($"the donor's sway through a 6 s hold: the lab's head is {steadyOff:0.00}° (RMS) off its camera with stability and {unsteadyOff:0.00}° without; without stability against the lab's steady head, {crossed:0.00}°"));
             }
-            // Arrows into an orc running in (R10168-3): the struck orc moved over 20 units in the 0.3 s before the blow. The
-            // lab's arrow from the donor's start, along its heading and the view, against the orc's box (the lab orc's, 15.7
-            // units each way and 70.9 high) moved along its recorded origin: it meets it when the donor's struck (within 2.5
-            // ticks), and asks the donor's damage.
+            // Arrows into an orc running in (R10168-3, R10168-5): the struck orc moved over 20 units in the 0.3 s before the
+            // blow. Through the lab's own bow and impact path: the shot's bow and strength in hand, drawn and let go at the
+            // donor's start along its heading and view, and the lab orc (posed by its own clips, its hit boxes swept as any
+            // arrow's) put at the recorded orc's origin each step, facing the archer, alert as the donor's. Its blow lands
+            // when the donor's did (within 2.5 ticks), on its hit group, and asks its damage. The donor's courtyard isn't the
+            // arena, so the arena's world is off for it.
             static Vector3 TargetAt(IReadOnlyList<(double Time, Vector3 At)> track, double time)
             {
                 int k = 0;
@@ -1823,36 +1825,49 @@ host.Call(engine =>
             var movingNotes = new List<string>();
             foreach (var (rec, shot) in movingShots)
             {
+                var h = shot.Hit!.Value;
                 var heading = Vector2.Normalize(new Vector2(shot.Flight[2].At.X - shot.Flight[0].At.X, shot.Flight[2].At.Y - shot.Flight[0].At.Y));
                 float vp = -shot.ViewPitch * MathF.PI / 180;
                 var look = RustyBridge.Wire.Donor.SourceSpace.Direction(new Vector3(heading.X * MathF.Cos(vp), heading.Y * MathF.Cos(vp), MathF.Sin(vp)));
-                var arrow = new DarkMessiah.Lab.Ranged.LabArrow(RustyBridge.Wire.Donor.SourceSpace.Position(shot.Flight[0].At), bowRules.Launch(look), bowRules);
-                double t = shot.Left, met = double.NaN;
-                for (int k = 0; k < 200 && double.IsNaN(met); k++)
+                var from = RustyBridge.Wire.Donor.SourceSpace.Position(shot.Flight[0].At);
+                var built = Archer(3) with { Skills = new Dictionary<string, int>(Archer(3).Skills) { ["extra_damage"] = shot.ExtraDamage }, Belt = [.. Archer(3).Belt, new BeltSlot(Bow: shot.Bow)] };
+                combat.Rebuild(built);
+                // The belt's key takes the bow out if it's in hand already: once more puts it back.
+                combat.UseBelt(built.Belt.Length - 1);
+                if (combat.Bow is null) combat.UseBelt(built.Belt.Length - 1);
+                var (worldRay, worldSurface) = (combat.WorldRay, combat.WorldSurface);
+                (combat.WorldRay, combat.WorldSurface) = (null, null);
+                combat.RecordedAlert = _ => h.Alert is int level ? (level, h.NpcState) : (99, 3);
+                combat.Orc.Spawn();
+                void PutOrc(double time)
                 {
-                    double next = t + rec.TickSeconds;
-                    var origin = TargetAt(shot.Target, next);
-                    var min = RustyBridge.Wire.Donor.SourceSpace.Position(origin - new Vector3(15.7f, 15.7f, 0));
-                    var max = RustyBridge.Wire.Donor.SourceSpace.Position(origin + new Vector3(15.7f, 15.7f, 70.9f));
-                    var (lo, hi) = (Vector3.Min(min, max), Vector3.Max(min, max));
-                    arrow.Step((float)rec.TickSeconds, (from, to) =>
-                    {
-                        for (int q = 0; q <= 10; q++) { var p = Vector3.Lerp(from, to, q / 10f); if (Vector3.Clamp(p, lo, hi) == p) return (p, Vector3.Normalize(from - to), false); }
-                        return null;
-                    });
-                    t = next;
-                    if (arrow.Stopped is not null) met = t;
+                    var feet = RustyBridge.Wire.Donor.SourceSpace.Position(TargetAt(shot.Target, time));
+                    combat.Orc.PlaceAt(feet);
+                    combat.Orc.Face(from - feet);
+                    combat.Mate?.PlaceAt(feet + new Vector3(0, 0, 4000 * bmpu));
                 }
-                var h = shot.Hit!.Value;
-                float lab = combat.PlayerAsks(new DarkMessiah.Combat.Party("player", "", [DarkMessiah.Lab.Ranged.BowRules.Shoot], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel),
-                    orcParty, h.Group, false, 100, combat.Model.Data.PlayerStrength(shot.ExtraDamage), weapon: shot.Bow, alert: h.Alert is int lv ? (lv, h.NpcState) : (99, 3));
+                int struckBefore = combat.Archery.Struck;
+                int drawn = (int)(3 / Tick), left = -1;
+                double met = double.NaN;
+                (DarkMessiah.Lab.Npc.Orc Orc, int? Group, float Asked)? landed = null;
+                for (int i = 0; i < drawn + 400 && double.IsNaN(met); i++)
+                {
+                    // Before the arrow leaves, the orc stands at the donor's start of flight; after, where it was at the step's end.
+                    PutOrc(left < 0 ? shot.Left : shot.Left + (i - left + 1) * Tick);
+                    combat.Step(Tick, step++, i < drawn, false, false, from, look, from - Vector3.UnitY * 1.6f);
+                    if (left < 0 && (combat.ArrowsInFlight.Count > 0 || combat.Archery.Struck > struckBefore)) left = i;
+                    if (combat.Archery.Struck > struckBefore) { landed = combat.LastArrow; met = shot.Left + (i - left + 1) * Tick; }
+                    else if (left >= 0 && combat.ArrowsInFlight.Count == 0) break;
+                }
+                (combat.WorldRay, combat.WorldSurface) = (worldRay, worldSurface);
+                combat.RecordedAlert = null;
                 if (Math.Abs(met - shot.HitAt) <= 2.5 * rec.TickSeconds) movingTimed++;
-                if (MathF.Abs(lab - h.Asked) < .01f) movingAsked++;
-                movingNotes.Add(FormattableString.Invariant($"{shot.Left:0.00} s: the orc {Vector3.Distance(TargetAt(shot.Target, shot.HitAt - .3), TargetAt(shot.Target, shot.HitAt)):0} units in 0.3 s, struck {shot.HitAt - shot.Left:0.000} s on (the lab's {met - shot.Left:0.000}), {h.Asked:0.##} (the lab's {lab:0.##})"));
+                if (landed is { } s && s.Group == h.Group && MathF.Abs(s.Asked - h.Asked) < .01f) movingAsked++;
+                movingNotes.Add(FormattableString.Invariant($"{shot.Left:0.00} s: the orc {Vector3.Distance(TargetAt(shot.Target, shot.HitAt - .3), TargetAt(shot.Target, shot.HitAt)):0} units in 0.3 s, struck {shot.HitAt - shot.Left:0.000} s on (the lab's {met - shot.Left:0.000}), hit group {h.Group} for {h.Asked:0.##} (the lab's {(landed?.Group is int lg ? lg : "-")} for {(landed?.Asked ?? 0):0.##})"));
             }
             foreach (var n in movingNotes) Console.WriteLine($"  moving {n}");
             Check(movingShots.Count >= 3 && movingTimed == movingShots.Count && movingAsked == movingShots.Count,
-                FormattableString.Invariant($"the donor's arrows into a running orc (R10168-3): {movingShots.Count} struck an orc moving 20 units or more in 0.3 s; the lab's arrow met its box when the donor's struck on {movingTimed} (within 2.5 ticks) and asked its damage on {movingAsked}"));
+                FormattableString.Invariant($"the donor's arrows into a running orc (R10168-3): {movingShots.Count} struck an orc moving 20 units or more in 0.3 s; through the lab's bow and hit boxes the arrow struck the lab orc on its track when the donor's struck on {movingTimed} (within 2.5 ticks), and on its hit group for its damage on {movingAsked}"));
             // The donor's blasts (R10168-1): each explosive impact's caster took 15 from an orc within 30 units of it, none from
             // one farther; its bounces (0.6 of the speed, then stopped at the next impact); and the rope made (R10168-2).
             var blasts = recorded.Values.SelectMany(r => r.Blasts).ToList();

@@ -45,7 +45,10 @@
       "attack_bottom": [43, 83],
       "attack_left": [53, 81],
       "attack_right": [62, 86],
-      "attack_top": [56, 86]
+      "attack_top": [56, 86],
+      "attack_wounded_1": [22, 78],
+      "attack_wounded_2": [2, 64],
+      "attack_wounded_3": [9, 89]
     }
   },
   "swingArcs": {

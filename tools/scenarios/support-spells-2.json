@@ -1,0 +1,316 @@
+{
+  "description": "Support spells, a second pass (#10167): every skill, notarget, the level's NPCs removed, sixteen mana potions. Cure wounds (air_2) three times from a set health (ent_fire !player addoutput \"health N\"): 10 and deployed (it casts), 10 and tapped, 44 and tapped, 10 s each. Weaken (air_4) at a new orc, then god on and notarget off 25 s (its blows through the 15 s and after) and the sword three times from 5 s; the sword three times on a new orc not weakened. Charm (water_4) at a new orc with a second beside it, god on and notarget off 30 s. Marked with echo rb_sp2.",
+  "seconds": 160,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_sp2 cure wounds: health 10, deployed (it casts)",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "ent_fire !player addoutput \"health 10\"",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_AIR_2",
+    {
+      "wait": 10
+    },
+    "echo rb_sp2 cure wounds: health 10, tapped",
+    "ent_fire !player addoutput \"health 10\"",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 10
+    },
+    "echo rb_sp2 cure wounds: health 44, tapped",
+    "ent_fire !player addoutput \"health 44\"",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 10
+    },
+    "echo rb_sp2 weaken at the orc, god on and notarget off 25 s: its blows; the sword on it at 5 s",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "Deploy_Spell_AIR_4",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    "god",
+    {
+      "wait": 0.3
+    },
+    "notarget",
+    {
+      "wait": 4
+    },
+    "use weapon_arx_short_sword",
+    {
+      "wait": 1.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 17
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "god",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp2 the sword on an orc not weakened",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "god",
+    {
+      "wait": 0.3
+    },
+    "notarget",
+    {
+      "wait": 3
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 2
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "god",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sp2 charm at the orc, a second beside it, god on and notarget off 30 s",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "setpos 150 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_WATER_4",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "god",
+    {
+      "wait": 0.3
+    },
+    "notarget",
+    {
+      "wait": 30
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "god",
+    {
+      "wait": 0.5
+    }
+  ]
+}

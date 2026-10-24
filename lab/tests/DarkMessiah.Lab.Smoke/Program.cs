@@ -1487,6 +1487,161 @@ host.Call(engine =>
         }
         else Console.WriteLine("skip the donor's attack spells: no local/recordings/experiments/l01_a-v18-attack-spells.rbrec");
     }
+    // The support spells (#10167; docs/lab.md, "Support spells"), on a belt of their own. Cure wounds is cast as its key
+    // puts it in hand, for 10 mana: 5 at once, the other 10 a point at a time over 2.6 s. Weaken, pressed at the orc,
+    // costs 15 and leaves it wounded 15 s, striking only with its wounded attacks (HitPow 0.5: the cleaver's 8 asks 4).
+    // Charm costs 15 and turns the orc on its squad-mate, and the mate on it, for 25 s: neither strikes the player.
+    // Against l01_a-v18-support-spells and -2.
+    {
+        float ssmpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var support = file with
+        {
+            Skills = new Dictionary<string, int>(file.Skills) { ["focus"] = 1, ["extra_mana"] = 3 },
+            Belt = [new BeltSlot(Spell: DarkMessiah.Lab.Magic.CureRules.Spell), new BeltSlot(Spell: DarkMessiah.Lab.Magic.WeakenRules.Spell), new BeltSlot(Spell: DarkMessiah.Lab.Magic.CharmRules.Spell)],
+        };
+        bool ssWasHeld = combat.Orc.Hold, ssWasGod = combat.God;
+        var ssEye = new Vector3(12, 1.6f, 6);
+        var ssOrc = new Vector3(12, 0, 6 + 200 * ssmpu);
+        var ssFar = new Vector3(12, 0, 6 + 4000 * ssmpu);
+        var ssFeet = ssEye - Vector3.UnitY * 1.6f;
+        combat.Rebuild(support);
+        // Cure wounds at 10 health, the orc held far off: the heal at once, and each point after it.
+        combat.Orc.Hold = true;
+        combat.Orc.Spawn();
+        combat.Health.Set(10);
+        combat.Mana.Fill();
+        float cureMana = combat.Mana.Value;
+        combat.UseBelt(0);
+        float cureAtOnce = combat.PlayerHealth - 10, cureCost = cureMana - combat.Mana.Value;
+        bool cureLeftHand = combat.SpellInHand is null;
+        var curePoints = new List<float>();
+        float cureLast = combat.PlayerHealth;
+        for (int i = 0; i < (int)(4 / Tick); i++)
+        {
+            combat.Orc.PlaceAt(ssFar);
+            combat.Step(Tick, step++, false, false, false, ssEye, Vector3.UnitZ, ssFeet);
+            if (combat.PlayerHealth > cureLast + .5f) curePoints.Add((i + 1) * Tick);
+            cureLast = combat.PlayerHealth;
+        }
+        var cr = combat.Cure;
+        float cureTotal = combat.PlayerHealth - 10;
+        bool cureOnTime = curePoints.Count == DarkMessiah.Lab.Magic.CureRules.PointSeconds.Length
+            && curePoints.Zip(DarkMessiah.Lab.Magic.CureRules.PointSeconds).All(p => p.First - p.Second is >= 0 and <= 1.01f * Tick);
+        Check(cureLeftHand && MathF.Abs(cureCost - cr.Cost) < .05f && MathF.Abs(cureAtOnce - cr.AtOnce) < .01f && MathF.Abs(cureTotal - cr.Effect) < .01f && cureOnTime,
+            FormattableString.Invariant($"cure wounds: cast from belt slot 1 as it's put in hand (the hand keeps its weapon: {cureLeftHand}), {cureCost:0.#} mana ({cr.Cost:0}); {cureAtOnce:0.#} at once and {cureTotal:0.#} in all ({cr.Effect:0}), a point at {string.Join(", ", curePoints.Select(p => p.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s"));
+        // Weaken at the orc 200 units off, then 20 s of its fight against the player (god: the blows asked, none taken).
+        combat.God = true;
+        combat.Orc.Hold = false;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ssOrc);
+        combat.Mana.Fill();
+        combat.UseBelt(1);
+        bool weakenInHand = combat.SpellInHand == DarkMessiah.Lab.Magic.WeakenRules.Spell;
+        float weakenMana = combat.Mana.Value;
+        combat.Log = [];
+        var wr = combat.Weaken;
+        var weakenedAttacks = new List<(float At, string Clip)>();
+        bool walkedHurt = false;
+        float weakenCost = float.NaN, weakenedFor = float.NaN;
+        for (int i = 0; i < (int)(25 / Tick); i++)
+        {
+            var was = (combat.Orc.State, combat.Orc.Clip);
+            combat.Step(Tick, step++, i < 1, false, false, ssEye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY * 1.1f - ssEye), ssFeet);
+            if (i == 0) { weakenCost = weakenMana - combat.Mana.Value; weakenedFor = combat.Orc.WeakenedFor; }
+            if (combat.Orc.State == DarkMessiah.Lab.Npc.OrcState.Attack && (was.State != DarkMessiah.Lab.Npc.OrcState.Attack || was.Clip != combat.Orc.Clip))
+                weakenedAttacks.Add(((i + 1) * Tick, combat.Orc.Clip));
+            walkedHurt |= combat.Orc.WeakenedFor > 0 && combat.Orc.Clip == "Hurtwalk";
+        }
+        var weakenBlows = combat.Log.Select(e => (At: (float)(e.Tick - (ulong)(step - (int)(25 / Tick))) * Tick, e.Move, e.Damage)).ToList();
+        combat.Log = null;
+        var duringWeaken = weakenedAttacks.Where(a => a.At < wr.Seconds).ToList();
+        var afterWeaken = weakenedAttacks.Where(a => a.At > wr.Seconds + 1).ToList();
+        float WoundedAsk(string clip) => combat.Model.Damage(new DarkMessiah.Combat.DamageCase(0, new DarkMessiah.Combat.Party("player", "", [], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel),
+            new DarkMessiah.Combat.Party("npc_orc_sword", clip, [], .5f, "#2", DarkMessiah.Lab.Npc.Orc.Model), "weapon_arxorccleaver", null, 0x4, 0, 0, 50, 50, false, 0, DarkMessiah.Lab.Npc.Orc.Cleaver)) ?? float.NaN;
+        Check(weakenInHand && MathF.Abs(weakenCost - wr.Cost) < .05f && MathF.Abs(weakenedFor - wr.Seconds) < .05f && walkedHurt && duringWeaken.Count >= 2
+                && duringWeaken.All(a => DarkMessiah.Lab.Npc.OrcMindData.IsWounded(a.Clip)) && afterWeaken.All(a => !DarkMessiah.Lab.Npc.OrcMindData.IsWounded(a.Clip)) && afterWeaken.Count >= 1
+                && weakenBlows.Where(b => b.At < wr.Seconds).All(b => MathF.Abs(b.Damage - 4) < .01f) && weakenBlows.Any(b => b.At < wr.Seconds),
+            FormattableString.Invariant($"weaken: in hand from belt slot 2 ({weakenInHand}), {weakenCost:0.#} mana at the press ({wr.Cost:0}); the orc weakened {weakenedFor:0.#} s ({wr.Seconds:0}), walking in Hurtwalk ({walkedHurt}), its attacks {string.Join(" ", duringWeaken.Select(a => a.Clip))} then {string.Join(" ", afterWeaken.Select(a => a.Clip))}; its blows while weakened asked {string.Join(", ", weakenBlows.Where(b => b.At < wr.Seconds).Select(b => b.Damage.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} (attack_wounded_2 asks {WoundedAsk("attack_wounded_2"):0.#})"));
+        // Charm at the orc with its squad-mate beside it, 30 s: they fight each other for 25 s, the player left alone.
+        var ssTuning = combat.Tuning;
+        var ssMateAt = ssOrc + Vector3.UnitX * 1.5f;
+        combat.Retune(ssTuning with { Orc = ssTuning.Orc with { SquadMate = [ssMateAt.X, ssMateAt.Y, ssMateAt.Z] } });
+        combat.Reset();
+        combat.Rebuild(support);
+        combat.God = true;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ssOrc);
+        combat.Mate!.Spawn();
+        combat.Mate.PlaceAt(ssMateAt);
+        combat.Mana.Fill();
+        combat.UseBelt(2);
+        bool charmInHand = combat.SpellInHand == DarkMessiah.Lab.Magic.CharmRules.Spell;
+        float charmMana = combat.Mana.Value, charmCost = float.NaN, charmedFor = float.NaN;
+        var chr = combat.Charm;
+        int playerBlowsCharmed = 0, playerBlowsAfter = 0;
+        float charmEnded = float.NaN;
+        for (int i = 0; i < (int)(35 / Tick); i++)
+        {
+            int blowsBefore = combat.OrcStats.Blows;
+            combat.Step(Tick, step++, i < 1, false, false, ssEye, Vector3.Normalize(ssOrc + Vector3.UnitY * 1.1f - ssEye), ssFeet);
+            if (i == 0) { charmCost = charmMana - combat.Mana.Value; charmedFor = combat.Orc.CharmedFor; }
+            if (float.IsNaN(charmEnded) && i > 0 && combat.Orc.CharmedFor <= 0) charmEnded = (i + 1) * Tick;
+            if (float.IsNaN(charmEnded)) playerBlowsCharmed += combat.OrcStats.Blows - blowsBefore;
+            else playerBlowsAfter += combat.OrcStats.Blows - blowsBefore;
+        }
+        var fights = combat.OrcFights;
+        Check(charmInHand && MathF.Abs(charmCost - chr.Cost) < .05f && MathF.Abs(charmedFor - chr.Seconds) < .05f && MathF.Abs(charmEnded - chr.Seconds) <= 2 * Tick
+                && playerBlowsCharmed == 0 && fights.Landed >= 1 && fights.Dealt > 0 && playerBlowsAfter >= 1,
+            FormattableString.Invariant($"charm: in hand from belt slot 3 ({charmInHand}), {charmCost:0.#} mana at the press ({chr.Cost:0}); the orc charmed {charmedFor:0.#} s, to {charmEnded:0.00} s ({chr.Seconds:0}); meanwhile the orcs struck each other {fights.Blows} times, {fights.Landed} landing for {fights.Dealt:0.#}, and the player {playerBlowsCharmed} times; after, the player {playerBlowsAfter}"));
+        combat.Retune(ssTuning);
+        combat.Reset();
+        combat.Rebuild(file);
+        combat.God = ssWasGod;
+        combat.Orc.Hold = ssWasHeld;
+        ((IReplayBody)product).Begin();
+
+        var supportRecordings = new[] { "l01_a-v18-support-spells", "l01_a-v18-support-spells-2" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", n + ".rbrec")).Where(File.Exists).ToList();
+        if (supportRecordings.Count == 2)
+        {
+            var measured = supportRecordings.Select(SupportSpellCalibration.Measure).ToList();
+            var cures = measured.SelectMany(m => m.Cures).ToList();
+            var supportCasts = measured.SelectMany(m => m.Casts).ToList();
+            foreach (var c in cures) Console.WriteLine($"  {c}");
+            foreach (var c in supportCasts) Console.WriteLine($"  {c}");
+            // Cures: 10 mana and 5 at once, then each point at the rules' times (within 1.5 ticks).
+            bool curesRight = cures.All(c => MathF.Abs(c.Mana - cr.Cost) <= .5f && MathF.Abs(c.Heals[0].Amount - cr.AtOnce) < .01f && c.Heals.Count >= 9
+                && c.Heals.Skip(1).Select((h, k) => (h, k)).All(x => MathF.Abs(x.h.Amount - 1) < .01f && Math.Abs(x.h.After - DarkMessiah.Lab.Magic.CureRules.PointSeconds[x.k]) <= .0225));
+            // Weaken: 15 mana; the orc's blows on the player in its 15 s were wounded attacks asking the model's (4), after it
+            // the others (8, 12); its wounded clips ran past 15 s, none begun after 16.
+            float OrcAsks(SpellBlowAfter b) => combat.Model.Damage(new DarkMessiah.Combat.DamageCase(0,
+                b.OnPlayer ? new DarkMessiah.Combat.Party("player", "", [], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel) : new DarkMessiah.Combat.Party("npc_orc_sword", "idle", [], 0, "#3", DarkMessiah.Lab.Npc.Orc.Model),
+                new DarkMessiah.Combat.Party("npc_orc_sword", b.Clip, [], b.Cycle, "#2", DarkMessiah.Lab.Npc.Orc.Model), "weapon_arxorccleaver", null, b.Type, 0, 0, 50, 50, false, 0, DarkMessiah.Lab.Npc.Orc.Cleaver)) ?? float.NaN;
+            var weakens = supportCasts.Where(c => c.Spell == DarkMessiah.Lab.Magic.WeakenRules.Spell).ToList();
+            static bool WoundedClip(string clip) => clip.Contains("ounded", StringComparison.Ordinal) || clip == "Hurtwalk";
+            var weakenedBlows = weakens.SelectMany(c => c.Blows.Where(b => b.OnPlayer && b.After < wr.Seconds)).ToList();
+            // After it, its attacks' blows (one landed as it walked on, CombatWalk, which the model reads by its last attack: not asked here).
+            var laterBlows = weakens.SelectMany(c => c.Blows.Where(b => b.OnPlayer && b.After > wr.Seconds + 1 && b.Clip.StartsWith("attack", StringComparison.Ordinal))).ToList();
+            bool weakensRight = weakens.Count == 2 && weakens.All(c => MathF.Abs(c.Mana - wr.Cost) <= .5f) && weakenedBlows.Count >= 4
+                && weakenedBlows.All(b => DarkMessiah.Lab.Npc.OrcMindData.IsWounded(b.Clip) && MathF.Abs(b.Asked - OrcAsks(b)) < .01f && b.Asked == 4)
+                && laterBlows.Count >= 3 && laterBlows.All(b => !DarkMessiah.Lab.Npc.OrcMindData.IsWounded(b.Clip) && MathF.Abs(b.Asked - OrcAsks(b)) < .01f);
+            var lastWounded = weakens.Select(c => c.Last(WoundedClip)).Where(t => !double.IsNaN(t)).ToList();
+            // The player's sword on the weakened orc (-2) asked what it asks of any orc: weaken_reduction_factor 1.
+            var swordOnWeakened = DamageCalibration.Measure([supportRecordings[1]], combat, SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning));
+            foreach (var d in swordOnWeakened) Console.WriteLine($"  sword on the weakened orc: {d}");
+            // Charm: 15 mana; within its 25 s no orc struck the player, the other orc's blows were all on the charmed one, those
+            // in an attack clip asking the model's (one landed as it moved off, read by its last attack); the charmed orc
+            // idled again 25 s on (within half a second).
+            var charms = supportCasts.Where(c => c.Spell == DarkMessiah.Lab.Magic.CharmRules.Spell && c.Blows.Any(b => !b.OnPlayer)).ToList();
+            bool charmsRight = charms.Count >= 1 && charms.All(c => MathF.Abs(c.Mana - chr.Cost) <= .5f && !c.Blows.Any(b => b.OnPlayer && b.After < chr.Seconds)
+                && c.Blows.Where(b => !b.OnPlayer).All(b => b.Victim == c.Target && (!b.Clip.StartsWith("attack", StringComparison.Ordinal) || MathF.Abs(b.Asked - OrcAsks(b)) < .01f))
+                && c.Blows.Any(b => !b.OnPlayer && b.Clip.StartsWith("attack", StringComparison.Ordinal))
+                && Math.Abs(c.First(5, k => k.StartsWith("idle", StringComparison.Ordinal)) - chr.Seconds) <= .5);
+            Check(cures.Count >= 2 && curesRight && weakensRight && lastWounded.Count >= 1 && lastWounded.All(t => t >= wr.Seconds - 1 && t <= wr.Seconds + 1) && charmsRight
+                    && swordOnWeakened.Count >= 2 && swordOnWeakened.All(d => d.Agrees),
+                FormattableString.Invariant($"the donor's support spells: {cures.Count} cures took {cr.Cost:0} mana and gave {cr.AtOnce:0} at once, then a point at the rules' times; {weakens.Count} weakens cost {wr.Cost:0}, the orc's {weakenedBlows.Count} blows in their {wr.Seconds:0} s wounded attacks asking 4 (the model's), {laterBlows.Count} after the others, the wounded clips last begun {string.Join(", ", lastWounded.Select(t => t.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on, the player's {swordOnWeakened.Count} sword blows on it the lab's ({swordOnWeakened.Count(d => d.Agrees)} agree); {charms.Count} charm cost {chr.Cost:0}, no orc struck the player in its {chr.Seconds:0} s, the other orc's {charms.Sum(c => c.Blows.Count(b => !b.OnPlayer))} blows were on the charmed one, those struck in an attack clip asking the model's, and it idled again {string.Join(", ", charms.Select(c => c.First(5, k => k.StartsWith("idle", StringComparison.Ordinal)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on"));
+        }
+        else Console.WriteLine("skip the donor's support spells: no local/recordings/experiments/l01_a-v18-support-spells.rbrec and -2");
+    }
     // The bow (#10168; docs/lab.md, "The bow"): belt slot 5 puts the classic bow in hand. A press draws it after 0.12 s, the
     // draw plays its 2 s and the arrow leaves 0.03 s into the shot, along the view raised 2.8°, at 2100 units/s falling
     // 600/s²; it strikes the held orc's hit boxes for (strength + WDmg) × the shoot clip's HitPow 1.5 × the hit group, ×3

@@ -116,7 +116,7 @@ internal static class OrcCalibration
     /// <c>orc.attackLandings</c> are fitted to these.
     /// </summary>
     internal static Dictionary<string, (float Low, float High)> Landings(OrcBehaviour donor, OrcMindData data, int least = 10) =>
-        data.Attacks.Where(a => donor.AttackDistances.GetValueOrDefault(a.Clip) is { } d && d.Count >= least).ToDictionary(a => a.Clip, a =>
+        data.Attacks.Concat(data.Wounded ?? []).Where(a => donor.AttackDistances.GetValueOrDefault(a.Clip) is { } d && d.Count >= least).ToDictionary(a => a.Clip, a =>
         {
             var landed = donor.AttackDistances[a.Clip].Select(d => d - a.Travel).ToList();
             return (OrcBehaviour.Quantile(landed, .25f), OrcBehaviour.Quantile(landed, .75f));

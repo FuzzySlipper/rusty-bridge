@@ -664,6 +664,39 @@ core: each spell's belt slot puts it in hand (`build.json`'s `spells` and `belt`
   inferno's costs, blows and their spacing, every freeze's cost and the orc it froze standing 7 s from its bolt, and the
   deaths after a blow that left 1 (1.68 s after the bolt, 2.40 after the inferno's).
 
+### Support spells
+
+`Magic/SupportSpells.cs` (#10167; `l01_a-v18-support-spells`, `-support-spells-2`, docs/recording.md), on the attack
+spells' core: each one's numbers from `spells.txt`, `build.json`'s `spells` knowing them (the default belt keeps the
+attack spells: put them on it to play them).
+
+| | The donor | The lab |
+| --- | --- | --- |
+| Cure wounds (`air_2`) | cast as it's put in hand (`Deploy_Spell_AIR_2`; no clip), `cost` 10 then; a third of `effect` 15 at once (5, both casts), then the rest a point at a time at 0.09 to 0.12, 0.21, 0.30, 0.45, 0.60, 0.75, 0.99, 1.29, 1.71 and 2.61 s (the same in both); back to the weapon after, a press casting nothing (two taps; one press 2 s after a cast gave 5 more for no mana, once) | cast by its belt key, the hand keeping what it held; 5 at once, then a point at each of those times (`CureRules.PointSeconds`), up to the maximum |
+| Weaken (`air_4`) | in hand (`layer_spellcasting_*_air_4`), `cost` 15 at the press; the orc it's cast at plays its wounded clips (`Hurtwalk`, `Wounded_combatmove_*`) from 0.06 s and strikes only with its wounded attacks (`attack_wounded_1`–`3`, all 7 attacks over both casts), whose `HitPow` 0.5 makes the cleaver's 8 ask 4; its last wounded clip began 15.5 s on (`weaken_duration` 15), its own attacks from 17.1 s asking 8 and 12. The player's sword on it asked 5.6, as on any orc (`weaken_reduction_factor` 1) | the orc nearest the view within 10° and 2000 units (the lightning bolt's reach), weakened 15 s: wounded (its wounded clips, and the stun and fall chances that go with them) and choosing among its wounded attacks only, by their landing windows (`combat.json`, fitted to the recordings as its others); `weaken_damage_multiplicator` (0.5) multiplies nothing more: no recorded blow asked 2 |
+| Charm (`water_4`) | in hand with the drain's arm clips (`layer_spellcasting_*_earth_4`), `cost` 15 at the press; with the player in `god` and seen, neither orc struck the player; the other orc ran at the charmed one 8 s on and struck it twice (12 with `attack_Forward`, 8 with `attack_bottom`: what it asks of the player), the charmed one fought back and landed nothing; 25.2 s on it stood idle again (`effect` 25, "the duration in Magic code") | the orc in view charmed 25 s: it fights its squad-mate and the mate it, each taking the other for the player (the reach test against the victim's hull, the cleaver's damage, and a reaction as to the player's blow); with no mate left it stands; the player is left alone until it ends |
+
+- **Split off, and why** (the user's call):
+  - **shrink (`earth_3`, #10348):** `Deploy_Spell_EARTH_3` put nothing in hand from the console (no clip, no mana spent), and
+    the Wire carries no model scale to record a shrunk orc by;
+  - **magic reflection (`earth_2`, #10349):** it casts (`spell_earth_2`, `cost` 25, no clip), but nothing in l01_a casts a
+    spell at the player to reflect;
+  - **wizard eye (`water_1`, #10350):** it casts (`spell_Water_1` at the player, no mana), but the camera the Wire records
+    stayed with the player through the 3 s held: the eye's own view isn't on the Wire.
+- **Not measured:** cure wounds at full health and its `radius` 300 (on others), weaken's own `adrenaline_add` (2)
+  and the stun and fall chances of a weakened orc, charm on a lone orc, an orc charmed by the player striking it, and
+  whether a charmed orc's blows land on the other (the recorded one's didn't).
+- **The smoke:** on a belt of the three, cure wounds at 10 health costs 10 and gives 5 at once and a point at 0.12
+  to 2.62 s (each within a step of the rules' times), 15 in all, the hand keeping its weapon; weaken costs 15 at the
+  press and the orc 200 units off walks in `Hurtwalk` and strikes with `attack_wounded_1` and `_3` for 4 for its 15 s,
+  then with its own attacks; charm costs 15, and the orc and its squad-mate side by side strike each other (8 blows,
+  all landing) and not the player for its 25 s, then the player again. Against the recordings: both cures' cost, their
+  5 at once and each point within 1.5 ticks of the rules' times; both weakens' cost, the orc's 5 blows in their 15 s
+  wounded attacks asking the model's 4 and the 6 after its own attacks asking the model's, the last wounded clips begun
+  14.2 and 15.5 s on, and the player's 2 sword blows on the weakened orc the lab's; the charm's cost, no orc striking the
+  player in its 25 s, the other orc's blows all on the charmed one (the one struck in an attack clip asking the model's
+  12), and its idling again 25.2 s on.
+
 ### The bow
 
 `Ranged/Bow.cs` (#10168; `l01_a-v18-bow`, `-bow-basic`, `-bow-more`, `-bow-zoom`, `-bow-sway`, `-bow-rope`, `-bow-r2`,
@@ -836,7 +869,7 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
 | Wait between attacks (from one's end, R10151-1) | 1–4 s cool, 0–2 s berserk; wounded always cool | `AttackCoolMinTime`/`MaxTime`, `AttackBersekerMinTime`/`MaxTime`; server.dll stamps the time while the NPC attacks (+0x2DFD59) and picks the cool times for a wounded one (+0x2BBB72) |
 | Cool ↔ berserk | every 7–10 s; berserk after 2 s with no player attack | `AttackRythmMinTime`/`MaxTime`, `PlayerNoAttackDelayToGoBersekerMode` |
 | Each attack's travel to its strike | attack_Jump 96, attack_Forward 77, attack_right 28, KickSwing and KickBash 18–20, the uppercut, bash and fast attack 0–2 | the clip's root motion (`mstudiomovement_t`, which dm-import now writes; docs/import.md) |
-| Where each attack's strike lands | its middle half over the recordings, e.g. the uppercut 34–43, the side and top swings 53–86, the lunges 24–71 | `combat.json` `orc.attackLandings`, fitted (`OrcCalibration.Landings`; the smoke refits them) |
+| Where each attack's strike lands | its middle half over the recordings, e.g. the uppercut 34–43, the side and top swings 53–86, the lunges 24–71, the wounded ones (a weakened orc's only, #10167) 2–89 | `combat.json` `orc.attackLandings`, fitted (`OrcCalibration.Landings`; the smoke refits them) |
 | How near it comes | 32 units feet to feet | two human hulls; the donor's closest attacks began 33–37 off |
 | Walking in | 61 units a second | `combat.json` `orc.walkSpeed`, fitted: the donor's orcs' median between position updates (its CombatWalk's root motion would be 96; Source's navigator moves an NPC slower than the clip's feet) |
 

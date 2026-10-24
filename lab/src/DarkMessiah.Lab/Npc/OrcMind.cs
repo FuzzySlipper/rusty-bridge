@@ -32,9 +32,13 @@ internal sealed record OrcAttackChoice(string Clip, float Travel, float Range)
 /// dodge strikes, the wounded ones, the grab and the block's counter, with each one's travel and reach.</item>
 /// </list>
 /// </summary>
+/// <param name="Wounded">The wounded attacks (<c>attack_wounded_1</c>–<c>3</c>, #10167): a weakened orc's only ones.</param>
 internal sealed record OrcMindData(float CoolMin, float CoolMax, float BerserkMin, float BerserkMax, float RhythmMin, float RhythmMax,
-    float NoAttackToBerserk, float Red, float Green, float Yellow, float Health, IReadOnlyList<OrcAttackChoice> Attacks)
+    float NoAttackToBerserk, float Red, float Green, float Yellow, float Health, IReadOnlyList<OrcAttackChoice> Attacks,
+    IReadOnlyList<OrcAttackChoice>? Wounded = null)
 {
+    internal static bool IsWounded(string clip) => clip.StartsWith("attack_wounded", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Attacks the orc's own loop doesn't choose: turned strikes, dodges, wounded ones, the grab (#10185), counters, downward strikes.</summary>
     static bool Special(string clip) =>
         clip.StartsWith("Turn_strike", StringComparison.OrdinalIgnoreCase) || clip.StartsWith("Dodgestrike", StringComparison.OrdinalIgnoreCase)
@@ -47,19 +51,19 @@ internal sealed record OrcMindData(float CoolMin, float CoolMax, float BerserkMi
     internal static OrcMindData Read(DonorContent donor, string model, ModelInfo body, CombatData data)
     {
         float N(string key, float shipped) => donor.Number(model, "entity_data", key) ?? shipped;
-        var attacks = new List<OrcAttackChoice>();
+        List<OrcAttackChoice> attacks = [], wounded = [];
         foreach (var (name, attack) in data.Character(model)?.Attacks ?? new Dictionary<string, AttackData>())
         {
             // The .qct names its attacks in a case the model's clips may not share (attack_Right, attack_right).
             var clip = body.Clips.Values.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (clip is null || Special(clip.Name) || attack.Events.Count == 0) continue;
+            if (clip is null || Special(clip.Name) && !IsWounded(clip.Name) || attack.Events.Count == 0) continue;
             float strike = clip.At(2102).FirstOrDefault(float.NaN);
             if (float.IsNaN(strike)) continue;
-            attacks.Add(new OrcAttackChoice(clip.Name, clip.MovedAt(strike).X, attack.Events[0].Range));
+            (IsWounded(clip.Name) ? wounded : attacks).Add(new OrcAttackChoice(clip.Name, clip.MovedAt(strike).X, attack.Events[0].Range));
         }
         return new OrcMindData(N("AttackCoolMinTime", 1), N("AttackCoolMaxTime", 4), N("AttackBersekerMinTime", 0), N("AttackBersekerMaxTime", 2),
             N("AttackRythmMinTime", 7), N("AttackRythmMaxTime", 10), N("PlayerNoAttackDelayToGoBersekerMode", 2),
-            N("Red_zone", 10), N("Green_zone", 70), N("Yellow_zone", 140), N("npc_health", 35), attacks);
+            N("Red_zone", 10), N("Green_zone", 70), N("Yellow_zone", 140), N("npc_health", 35), attacks, wounded);
     }
 }
 
@@ -117,17 +121,20 @@ internal sealed class OrcMind(OrcMindData data, int seed = OrcMind.Seed)
 
     /// <summary>
     /// One of the attacks whose strike lands from <paramref name="distance"/> (Source units) inside its window, at
-    /// random; null for none. An attack with no window isn't chosen.
+    /// random; null for none. An attack with no window isn't chosen. Weakened, it chooses among its wounded attacks
+    /// only, as the weakened orcs did (all 7 of their attacks, #10167).
     /// </summary>
-    internal OrcAttackChoice? Choose(float distance, IReadOnlyDictionary<string, float[]> windows)
+    internal OrcAttackChoice? Choose(float distance, IReadOnlyDictionary<string, float[]> windows, bool weakened = false)
     {
-        var landing = data.Attacks.Where(a => windows.TryGetValue(a.Clip, out var w) && a.Lands(distance, w)).ToList();
+        var landing = Attacks(weakened).Where(a => windows.TryGetValue(a.Clip, out var w) && a.Lands(distance, w)).ToList();
         return landing.Count == 0 ? null : landing[random.Next(landing.Count)];
     }
 
+    IReadOnlyList<OrcAttackChoice> Attacks(bool weakened) => weakened && data.Wounded is { Count: > 0 } wounded ? wounded : data.Attacks;
+
     /// <summary>The nearest distance (Source units) any of its attacks can be chosen from: its window's low end plus its travel.</summary>
-    internal float Nearest(IReadOnlyDictionary<string, float[]> windows) =>
-        data.Attacks.Where(a => windows.ContainsKey(a.Clip)).Select(a => windows[a.Clip][0] + a.Travel).DefaultIfEmpty(0).Min();
+    internal float Nearest(IReadOnlyDictionary<string, float[]> windows, bool weakened = false) =>
+        Attacks(weakened).Where(a => windows.ContainsKey(a.Clip)).Select(a => windows[a.Clip][0] + a.Travel).DefaultIfEmpty(0).Min();
 
     /// <summary>A random pick, for its waiting moves.</summary>
     internal float Roll() => random.NextSingle();

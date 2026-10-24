@@ -102,6 +102,9 @@ internal sealed class LabCombat : IDisposable
         Lightning = LightningRules.From(donor);
         Freeze = FreezeRules.From(donor);
         Inferno = InfernoRules.From(donor);
+        Cure = CureRules.From(donor);
+        Weaken = WeakenRules.From(donor);
+        Charm = CharmRules.From(donor);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -282,11 +285,16 @@ internal sealed class LabCombat : IDisposable
     internal LightningRules Lightning { get; }
     internal FreezeRules Freeze { get; }
     internal InfernoRules Inferno { get; }
+    /// <summary>The support spells' numbers (#10167).</summary>
+    internal CureRules Cure { get; }
+    internal WeakenRules Weaken { get; }
+    internal CharmRules Charm { get; }
 
     /// <summary>The spells the lab plays: <c>spells.txt</c>'s id, and its name for the HUD.</summary>
     static readonly Dictionary<string, string> Played = new(StringComparer.OrdinalIgnoreCase)
     {
         [FireballRules.Spell] = "Fireball", [LightningRules.Spell] = "Lightning bolt", [FreezeRules.Spell] = "Freeze", [InfernoRules.Spell] = "Inferno",
+        [CureRules.Spell] = "Cure wounds", [WeakenRules.Spell] = "Weaken", [CharmRules.Spell] = "Charm",
     };
 
     /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
@@ -295,6 +303,8 @@ internal sealed class LabCombat : IDisposable
         if (SpellInHand is { } inHand && inHand.Equals(spell, StringComparison.OrdinalIgnoreCase)) { SpellInHand = null; EndSpell(); Message = "Weapon in hand"; return; }
         if (Build is { } build && !build.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase)) { Message = $"{spell} isn't known"; return; }
         if (!Played.TryGetValue(spell, out var name)) { Message = $"{spell} isn't played yet"; return; }
+        // Cure wounds is cast as it's put in hand, and the hand keeps what it held (#10167).
+        if (spell.Equals(CureRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastCure(); return; }
         Bow = null;
         EndSpell();
         SpellInHand = Played.Keys.First(k => k.Equals(spell, StringComparison.OrdinalIgnoreCase));
@@ -311,6 +321,44 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The last attack spell's blow on an orc: the spell and the damage it took (#10166).</summary>
     internal (string Spell, float Damage)? LastSpellHit { get; private set; }
 
+    /// <summary>The cures under way (#10167): the points each has still to give.</summary>
+    readonly List<LabCure> cures = [];
+    /// <summary>The last support spell cast and what it reached: the spell, and the orc it was cast at (none for a cure).</summary>
+    internal (string Spell, Orc? At)? LastSupport { get; private set; }
+
+    /// <summary>Cure wounds (#10167): its cost, a third of its effect at once, the rest a point at a time.</summary>
+    void CastCure()
+    {
+        if (!Mana.Spend(Cure.Cost)) { Refuse("cure wounds", Cure.Cost); return; }
+        Spells = Spells with { Casts = Spells.Casts + 1 };
+        float healed = Health.Heal(Cure.AtOnce);
+        cures.Add(new LabCure(Cure));
+        Adrenaline.Gain(Cure.AdrenalineAdd);
+        LastSupport = (CureRules.Spell, null);
+        Message = FormattableString.Invariant($"Cure wounds: {healed:0.#} now, {Cure.Effect - Cure.AtOnce:0} to come");
+    }
+
+    void StepCures(float seconds)
+    {
+        foreach (var cure in cures) if (cure.Step(seconds) is int due and > 0) Health.Heal(due);
+        cures.RemoveAll(c => c.Done);
+    }
+
+    /// <summary>Weaken or charm (#10167): its cost at the press, on the nearest orc in view.</summary>
+    void CastAt(string spell, float cost, float adrenaline, float rangeUnits, float coneDegrees, string clip, Action<Orc> effect)
+    {
+        if (!Mana.Spend(cost)) { Refuse(Played[spell].ToLowerInvariant(), cost); return; }
+        Spells = Spells with { Casts = Spells.Casts + 1 };
+        spellClip = (clip, 0, false);
+        var at = InView(eyeAt, forwardAt, rangeUnits, coneDegrees).FirstOrDefault();
+        LastSupport = (spell, at);
+        if (at is null) { Message = $"{Played[spell]}: nothing in view"; return; }
+        effect(at);
+        Adrenaline.Gain(adrenaline);
+        Message = $"{Played[spell]} on {(at == Orc ? "the orc" : "its mate")}";
+    }
+    Vector3 eyeAt, forwardAt;
+
     void EndSpell()
     {
         lightningAge = freezeAge = infernoAge = float.NaN;
@@ -325,8 +373,15 @@ internal sealed class LabCombat : IDisposable
     {
         if (spellClip is { } playing)
             spellClip = playing.Loop || playing.Age + seconds < FirstPerson.ClipSeconds(playing.Clip) ? playing with { Age = playing.Age + seconds } : null;
+        (eyeAt, forwardAt) = (eye, forward);
         switch (SpellInHand)
         {
+            case WeakenRules.Spell:
+                if (pressed) CastAt(WeakenRules.Spell, Weaken.Cost, Weaken.AdrenalineAdd, Weaken.RangeUnits, Weaken.ConeDegrees, WeakenRules.CastClip, o => o.Weaken(Weaken.Seconds));
+                break;
+            case CharmRules.Spell:
+                if (pressed) CastAt(CharmRules.Spell, Charm.Cost, Charm.AdrenalineAdd, Charm.RangeUnits, Charm.ConeDegrees, CharmRules.CastClip, o => o.Charm(Charm.Seconds));
+                break;
             case LightningRules.Spell:
                 if (pressed && float.IsNaN(lightningAge)) { lightningAge = 0; spellClip = (LightningRules.CastClip, 0, false); }
                 else if (!float.IsNaN(lightningAge) && (lightningAge += seconds) >= Lightning.FireSeconds)
@@ -713,6 +768,8 @@ internal sealed class LabCombat : IDisposable
         LightningRules.Spell => LightningRules.ReadyClip,
         FreezeRules.Spell => FreezeRules.ReadyClip,
         InfernoRules.Spell => InfernoRules.ReadyClip,
+        WeakenRules.Spell => WeakenRules.ReadyClip,
+        CharmRules.Spell => CharmRules.ReadyClip,
         _ => FireballRules.ReadyClip,
     };
 
@@ -896,9 +953,12 @@ internal sealed class LabCombat : IDisposable
             : (ReadyClipOf(inHandSpell), spellClip?.Clip, spellClip is { } c ? SpellCycle(c) : 0);
         FirstPerson.Pose(Sword, seconds, eye, forward, !grounded, bodyVelocity, lean);
         var gait = Gait(seconds, feet, sprinting, crouched);
-        var blows = orcPose is null ? Orc.Step(seconds, feet, Incoming(), Sword.Swing, gait) : Orc.Follow(orcPose, seconds);
+        // Charmed (#10167), an orc fights its squad-mate and the mate it, each in the other's place of the player.
+        var orcFoe = orcPose is null ? Foe(Orc) : null;
+        var blows = orcPose is null ? StepOrc(Orc, orcFoe, seconds, feet, gait) : Orc.Follow(orcPose, seconds);
         // Its squad-mate fights on its own, sees the player's swings as the first does, and takes the blows that reach it.
-        var mateBlows = Mate is { } mate && orcPose is null ? mate.Step(seconds, feet, Incoming(), Sword.Swing, gait) : [];
+        var mateFoe = Mate is { } m && orcPose is null ? Foe(m) : null;
+        var mateBlows = Mate is { } mate && orcPose is null ? StepOrc(mate, mateFoe, seconds, feet, gait) : [];
         Squad();
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
@@ -912,8 +972,9 @@ internal sealed class LabCombat : IDisposable
             decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
         }
-        foreach (var blow in blows) OrcStrikes(tick, blow, feet, forward, Orc);
-        foreach (var blow in mateBlows) OrcStrikes(tick, blow, feet, forward, Mate!);
+        foreach (var blow in blows) if (orcFoe is { } foe) OrcStrikesOrc(tick, blow, Orc, foe); else OrcStrikes(tick, blow, feet, forward, Orc);
+        foreach (var blow in mateBlows) if (mateFoe is { } foe) OrcStrikesOrc(tick, blow, Mate!, foe); else OrcStrikes(tick, blow, feet, forward, Mate!);
+        StepCures(seconds);
         Health.Step(seconds);
         Mana.Step(seconds);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { Health.Fill(); deadSeconds = 0; Message = "Back on your feet"; }
@@ -1306,6 +1367,59 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The player's strength, from the build's <c>extra_damage</c> level (<see cref="CombatData.PlayerStrength"/>).</summary>
     internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
 
+    /// <summary>
+    /// The orc <paramref name="orc"/> fights other than the player (#10167): charmed, its squad-mate while it lives; its
+    /// squad-mate charmed, that one. Null for the player. A charmed orc with no one left to fight is <see cref="Orc"/> itself.
+    /// </summary>
+    Orc? Foe(Orc orc)
+    {
+        var other = orc == Orc ? Mate : Orc;
+        if (orc.CharmedFor > 0) return other is { Alive: true } ? other : orc;
+        return other is { Alive: true, CharmedFor: > 0 } ? other : null;
+    }
+
+    /// <summary>One orc's step against its foe: the player, another orc, or (charmed, with none) itself, standing its ground.</summary>
+    List<OrcBlow> StepOrc(Orc orc, Orc? foe, float seconds, Vector3 feet, PlayerGait gait)
+    {
+        if (foe is null) return orc.Step(seconds, feet, Incoming(), Sword.Swing, gait);
+        bool held = orc.Hold;
+        if (foe == orc) orc.Hold = true;
+        var blows = orc.Step(seconds, foe == orc ? orc.Feet : foe.Feet, Incoming(), Sword.Swing, gait);
+        orc.Hold = held;
+        return foe == orc ? [] : blows;
+    }
+
+    /// <summary>Blows between orcs (#10167; a charmed one and its mate).</summary>
+    internal (int Blows, int Landed, float Dealt) OrcFights { get; private set; }
+
+    /// <summary>
+    /// An orc's blow on another (#10167): the donor's reach test against the victim's hull, and the cleaver's damage as
+    /// on the player (the recorded mate's on the charmed orc asked its 12 and 8), and the victim's reaction to it.
+    /// </summary>
+    void OrcStrikesOrc(ulong tick, OrcBlow blow, Orc striker, Orc victim)
+    {
+        OrcFights = OrcFights with { Blows = OrcFights.Blows + 1 };
+        Vector3 toVictim = (victim.Feet - striker.Feet) with { Y = 0 };
+        static Vector2 Source(Vector3 v) => new Vector2(v.Z, v.X) / SourceSpace.MetresPerUnit;
+        var reach = model.Reach(new ReachCase((int)tick, "npc_orc_sword", Npc.Orc.Model, blow.Attack, blow.Part, "npc_orc_sword",
+            Source(toVictim), Vector2.Normalize(Source(striker.Facing)), victim.Hull.HalfExtents.X / SourceSpace.MetresPerUnit, false));
+        if (!reach.Lands) return;
+        striker.Landed(blow);
+        var attacker = striker.Party() with { Cycle = blow.Cycle };
+        float asked = model.Damage(new DamageCase((int)tick, victim.Party(), attacker, "weapon_arxorccleaver", null, 0x4, 0, 0, victim.Health, victim.Health, false,
+            blow.Part, Npc.Orc.Cleaver)) ?? 0;
+        victim.Damage(asked);
+        OrcFights = OrcFights with { Landed = OrcFights.Landed + 1, Dealt = OrcFights.Dealt + asked };
+        // Its reaction as to the player's blow, by the striker's facing in its frame.
+        var facing = victim.Facing with { Y = 0 };
+        var left = new Vector3(facing.Z, 0, -facing.X);
+        float angle = toVictim.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f
+            ? MathF.Atan2(Vector3.Dot(toVictim, left), Vector3.Dot(toVictim, facing)) * 180 / MathF.PI : 180;
+        var reaction = OrcReactions.Pick(new ReactionBlow(model.EventOf(attacker), false, asked, false, null, angle), victim.State == OrcState.Stunned, victim.SinceSmallHit);
+        if (reaction.Clip is not null) victim.React(reaction, toVictim.LengthSquared() > 1e-6f ? Vector3.Normalize(toVictim) : -victim.Facing, 0);
+        Message = FormattableString.Invariant($"{(striker == Orc ? "The orc" : "Its mate")} strikes {(victim == Orc ? "the orc" : "its mate")} for {asked:0.#}");
+    }
+
     void OrcStrikes(ulong tick, OrcBlow blow, Vector3 feet, Vector3 forward, Orc striker)
     {
         OrcStats = OrcStats with { Blows = OrcStats.Blows + 1 };
@@ -1433,6 +1547,9 @@ internal sealed class LabCombat : IDisposable
         SpellInHand = null;
         LastFireball = LastMateFireball = null;
         EndSpell();
+        cures.Clear();
+        LastSupport = null;
+        OrcFights = default;
         bolts.Clear();
         LastSpellHit = null;
         Bow = null;

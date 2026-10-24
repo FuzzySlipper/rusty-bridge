@@ -303,6 +303,8 @@ internal sealed class Orc : IDisposable
         var blows = new List<OrcBlow>();
         // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
         if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
+        WeakenedFor = MathF.Max(0, WeakenedFor - seconds);
+        CharmedFor = MathF.Max(0, CharmedFor - seconds);
         // Frozen (#10166), it stands as it was: no thought, no clip, no blow.
         if (FrozenFor > 0) { FrozenFor = MathF.Max(0, FrozenFor - seconds); return blows; }
         // Its wait runs from its attack's end, however it ended (R10151-1: server.dll stamps NPC +0x2980 with the time
@@ -361,7 +363,7 @@ internal sealed class Orc : IDisposable
                 if (walkingAnswer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (walkingAnswer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
                 // It walks in to its green zone, or until an attack it may make lands from here.
-                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is not null) Play(OrcState.Ready, "combatidle");
+                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings, WeakenedFor > 0) is not null) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
                 // A swing it saw while busy it answers now, if it hasn't yet and the swing is still coming.
@@ -369,7 +371,7 @@ internal sealed class Orc : IDisposable
                 if (swing != IncomingSwing.None) answeredSwing = swingId;
                 if (answer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (answer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
-                else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings) is { } attack)
+                else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings, WeakenedFor > 0) is { } attack)
                 {
                     Play(OrcState.Attack, attack.Clip);
                     AttacksMade++;
@@ -379,7 +381,7 @@ internal sealed class Orc : IDisposable
                 // Ready and too close for any attack to land (pressed against the player at its hull's 32 units,
                 // nearer than the uppercut's 34): it steps back to fight again (R10150-1), as the donor's orcs began
                 // attacks out of Combatmove_backward_small.
-                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings) && Clip != Hurt("Combatmove_backward_small") && Clip != "Combatmove_backward_small")
+                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings, WeakenedFor > 0) && Clip != Hurt("Combatmove_backward_small") && Clip != "Combatmove_backward_small")
                     Play(OrcState.Ready, "Combatmove_backward_small");
                 else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
@@ -479,6 +481,28 @@ internal sealed class Orc : IDisposable
         FrozenFor = MathF.Max(FrozenFor, seconds);
     }
 
+    /// <summary>Seconds it stays weakened (the weaken spell, #10167): wounded, striking with its wounded attacks only; 0 when it isn't.</summary>
+    internal float WeakenedFor { get; private set; }
+
+    /// <summary>Weakens it for <paramref name="seconds"/>.</summary>
+    internal void Weaken(float seconds)
+    {
+        if (!Alive || Following) return;
+        perception.Struck();
+        WeakenedFor = MathF.Max(WeakenedFor, seconds);
+    }
+
+    /// <summary>Seconds it stays charmed (the charm spell, #10167): on the player's side, fighting its own squad; 0 when it isn't.</summary>
+    internal float CharmedFor { get; private set; }
+
+    /// <summary>Charms it for <paramref name="seconds"/>.</summary>
+    internal void Charm(float seconds)
+    {
+        if (!Alive || Following) return;
+        perception.Struck();
+        CharmedFor = MathF.Max(CharmedFor, seconds);
+    }
+
     /// <summary>It dies <paramref name="seconds"/> from now (a spell's blow left it at 1; #10166).</summary>
     internal void DieIn(float seconds)
     {
@@ -562,9 +586,10 @@ internal sealed class Orc : IDisposable
 
     /// <summary>
     /// Wounded, which makes stuns and falls likelier: below its <c>life_tohurt</c> share of its health, or out of
-    /// stamina (R10151-2: server.dll's one flag for both).
+    /// stamina (R10151-2: server.dll's one flag for both), or weakened (#10167: the weakened orcs walked, strafed and
+    /// struck in their wounded clips).
     /// </summary>
-    internal bool Wounded => Alive && (Health <= stagger.Data.HurtFraction * mind.Data.Health || stamina.Exhausted);
+    internal bool Wounded => Alive && (Health <= stagger.Data.HurtFraction * mind.Data.Health || stamina.Exhausted || WeakenedFor > 0);
 
     /// <summary>Its awareness of the player (#10154).</summary>
     internal OrcPerception Perception => perception;
@@ -813,7 +838,7 @@ internal sealed class Orc : IDisposable
         ReleaseRagdoll();
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
-        FrozenFor = dyingLeft = 0;
+        FrozenFor = dyingLeft = WeakenedFor = CharmedFor = 0;
         Layer = null;
         mind.Reset();
         stagger.Reset();

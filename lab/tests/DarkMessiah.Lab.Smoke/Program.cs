@@ -466,6 +466,19 @@ if (Environment.GetEnvironmentVariable("RB_HEALTH") == "1")
     return 0;
 }
 
+// RB_ARCHERY=1 prints the donor's archers through the npc-archery recordings (#10169) and stops.
+if (Environment.GetEnvironmentVariable("RB_ARCHERY") == "1")
+{
+    foreach (var path in Directory.GetFiles(Path.Combine(repo, "local", "recordings"), "*npc-archery*.rbrec", SearchOption.AllDirectories).Order())
+        foreach (var fight in NpcArcheryCalibration.Measure(path))
+        {
+            Console.WriteLine($"{Path.GetFileName(path)} {fight}");
+            foreach (var a in fight.Arrows) Console.WriteLine($"    {a}");
+            foreach (var b in fight.Blows.Take(4)) Console.WriteLine(FormattableString.Invariant($"    after: {b.Clip} at {b.Cycle:0.00} asked {b.Asked:0.##} ({b.Weapon})"));
+        }
+    return 0;
+}
+
 // RB_MANA=1 prints the donor player's mana through each recording (#10164): its maximum by the skills, and how it rises.
 if (Environment.GetEnvironmentVariable("RB_MANA") == "1")
 {
@@ -1641,6 +1654,141 @@ host.Call(engine =>
                 FormattableString.Invariant($"the donor's support spells: {cures.Count} cures took {cr.Cost:0} mana and gave {cr.AtOnce:0} at once, then a point at the rules' times; {weakens.Count} weakens cost {wr.Cost:0}, the orc's {weakenedBlows.Count} blows in their {wr.Seconds:0} s wounded attacks asking 4 (the model's), {laterBlows.Count} after the others, the wounded clips last begun {string.Join(", ", lastWounded.Select(t => t.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on, the player's {swordOnWeakened.Count} sword blows on it the lab's ({swordOnWeakened.Count(d => d.Agrees)} agree); {charms.Count} charm cost {chr.Cost:0}, no orc struck the player in its {chr.Seconds:0} s, the other orc's {charms.Sum(c => c.Blows.Count(b => !b.OnPlayer))} blows were on the charmed one, those struck in an attack clip asking the model's, and it idled again {string.Join(", ", charms.Select(c => c.First(5, k => k.StartsWith("idle", StringComparison.Ordinal)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on"));
         }
         else Console.WriteLine("skip the donor's support spells: no local/recordings/experiments/l01_a-v18-support-spells.rbrec and -2");
+    }
+    // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'
+    // npc_orc_bow, the long bow and the cleaver). Aware, it runs at the player to 471 units, nocks an arrow 1.2 s on and
+    // every 2.16 s, lets it go 1.08 s after standing (1.2 s on the move) at the player's eye less 11 units, at 7311 − 6.29
+    // units/s a unit off; each strikes the player's box for the model's 5. After 10 arrows standing (or 1) it moves off,
+    // looses one more and rushes in, kicks with the bow (2.5), drops it, draws the cleaver and fights on as any orc. Out of
+    // sight it rushes at once; nearer than 314 units it plays surprised and backs off to 350. Against l01_a-v18-npc-archery*.
+    {
+        float apu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var arTuning = combat.Tuning;
+        bool arWasHeld = combat.Orc.Hold, arWasGod = combat.God;
+        var (arRay, arSurface) = (combat.WorldRay, combat.WorldSurface);
+        // An open field: the arena's walls would stand between them at 900 units.
+        (combat.WorldRay, combat.WorldSurface) = (null, null);
+        combat.Retune(arTuning with { Orc = arTuning.Orc with { Bow = DarkMessiah.Lab.Npc.ArcheryData.LongBow, SquadMate = null, SpawnUnaware = false } });
+        combat.Reset();
+        combat.God = true;
+        combat.Orc.Hold = false;
+        var arOrcAt = new Vector3(0, 0, 0);
+        // One fight: the player's eye 900 units off (or as given), moving sideways at the given speed; the archer's arrows,
+        // its phases and its blows each step, to the cleaver's third blow or the seconds given.
+        (List<(float At, bool Standing, float Units)> Loosed, List<(float At, float Asked)> Struck, Dictionary<DarkMessiah.Lab.Npc.ArcheryPhase, float> Phases, float StoodAt,
+            List<(float At, string Move, float Asked)> Blows, float SurprisedAt, float ClosestAfter) Fight(int? standing, float units = 900, float strafe = 0, float seconds = 45, Func<Vector3, Vector3, Vector3?>? world = null)
+        {
+            combat.WorldRay = world;
+            combat.Orc.FixedStandingShots = standing;
+            combat.Orc.Spawn();
+            combat.Orc.PlaceAt(arOrcAt);
+            var eye = arOrcAt + new Vector3(0, 63 * apu, units * apu);
+            var loosed = new List<(float, bool, float)>();
+            var struck = new List<(float, float)>();
+            var phases = new Dictionary<DarkMessiah.Lab.Npc.ArcheryPhase, float>();
+            var blows = new List<(float, string, float)>();
+            float stoodAt = float.NaN, surprisedAt = float.NaN, closest = float.PositiveInfinity;
+            combat.Log = [];
+            int logged = 0, struckBefore = combat.OrcArchery.Struck;
+            for (int i = 0; i < (int)(seconds / Tick); i++)
+            {
+                float t = (i + 1) * Tick;
+                // Strafing as the donor's player did: from 4 s (npc-archery-4 waited that long first), 3 s each way.
+                if (t > 4) eye += Vector3.UnitX * strafe * (MathF.Floor((t - 4) / 3) % 2 == 0 ? 1 : -1) * apu * Tick;
+                combat.Step(Tick, step++, false, false, false, eye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY - eye), eye - Vector3.UnitY * 63 * apu);
+                float now = Vector2.Distance(new Vector2(eye.X, eye.Z), new Vector2(combat.Orc.Feet.X, combat.Orc.Feet.Z)) / apu;
+                foreach (var shot in combat.Orc.Loosed) loosed.Add((t, shot.Standing, now));
+                for (; struckBefore < combat.OrcArchery.Struck; struckBefore++) struck.Add((t, combat.LastOrcArrow!.Value.Asked));
+                phases.TryAdd(combat.Orc.Phase, t);
+                if (float.IsNaN(stoodAt) && combat.Orc.Phase == DarkMessiah.Lab.Npc.ArcheryPhase.Stand) stoodAt = now;
+                if (float.IsNaN(surprisedAt) && combat.Orc.Clip == "surprised") surprisedAt = now;
+                if (!float.IsNaN(surprisedAt) && combat.Orc.Phase == DarkMessiah.Lab.Npc.ArcheryPhase.Stand) closest = MathF.Min(closest, now);
+                for (; logged < combat.Log.Count; logged++) blows.Add((t, combat.Log[logged].Move, combat.Log[logged].Damage));
+                if (combat.Orc.Clip == "drop_bow") phases.TryAdd(DarkMessiah.Lab.Npc.ArcheryPhase.Drop, t);
+                if (blows.Count(b => b.Item2.StartsWith("attack", StringComparison.Ordinal)) >= 3) break;
+            }
+            combat.Log = null;
+            return (loosed, struck, phases, stoodAt, blows, surprisedAt, closest);
+        }
+        var ad = DarkMessiah.Lab.Npc.ArcheryData.For(combat.Donor, DarkMessiah.Lab.Npc.ArcheryData.LongBow);
+        float ArrowAsk(bool standing) => combat.Model.Damage(new DarkMessiah.Combat.DamageCase(0, new DarkMessiah.Combat.Party("player", "", [], 0, "#1", DarkMessiah.Combat.CombatData.PlayerModel),
+            standing ? new DarkMessiah.Combat.Party("npc_orc_sword", DarkMessiah.Lab.Npc.ArcheryData.Shoot, [], 0, "#2", DarkMessiah.Lab.Npc.Orc.Model)
+                : new DarkMessiah.Combat.Party("npc_orc_sword", "Run", [DarkMessiah.Lab.Npc.ArcheryData.ShootLayer], 0, "#2", DarkMessiah.Lab.Npc.Orc.Model),
+            "weapon_mm_bow_long", null, 0x40000, 0, 0, 50, 50, false, 0, ad.Bow)) ?? float.NaN;
+        string Times(IEnumerable<float> times) => string.Join(", ", times.Select(t => t.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)));
+        // Standing for 10, then moving off, one more and the rush.
+        var full = Fight(10);
+        var fullStanding = full.Loosed.Where(l => l.Standing).ToList();
+        float fullKick = full.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Kick, float.NaN), fullDrop = full.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Drop, float.NaN),
+            fullBlade = full.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Unsheathe, float.NaN);
+        var kickBlow = full.Blows.FirstOrDefault(b => b.Move == DarkMessiah.Lab.Npc.ArcheryData.Kick);
+        var bladeBlows = full.Blows.Where(b => b.Move.StartsWith("attack", StringComparison.Ordinal)).ToList();
+        bool spacing = fullStanding.Zip(fullStanding.Skip(1)).All(p => MathF.Abs(p.Second.At - p.First.At - ad.Every) <= 1.5f * Tick);
+        Check(full.Loosed.Count >= 11 && MathF.Abs(full.Loosed[0].At - ad.FirstNock - ad.LeaveMoving) <= 2.5f * Tick && !full.Loosed[0].Standing && fullStanding.Count == 10 && spacing
+                && MathF.Abs(full.StoodAt - ad.StandOff) <= 3 && full.Struck.Count == full.Loosed.Count && full.Struck.All(s => MathF.Abs(s.Asked - 5) < .01f) && MathF.Abs(ArrowAsk(true) - 5) < .01f
+                && MathF.Abs(fullKick - 33.2f) <= 1.5f && MathF.Abs(kickBlow.Asked - 2.5f) < .01f && fullDrop > fullKick && fullBlade > fullDrop && bladeBlows.Count >= 1 && bladeBlows.All(b => b.Asked > 0),
+            FormattableString.Invariant($"the archer: its first arrow let go {(full.Loosed.Count > 0 ? full.Loosed[0].At : float.NaN):0.00} s after it woke, running ({ad.FirstNock:0.0} + {ad.LeaveMoving:0.0}); it stood {full.StoodAt:0} units off ({ad.StandOff:0}) and let go {fullStanding.Count} standing {ad.Every:0.00} s apart ({spacing}); {full.Struck.Count} of {full.Loosed.Count} struck, for {Times(full.Struck.Select(s => s.Asked).Distinct())} (the model's {ArrowAsk(true):0.#}); it kicked {fullKick:0.0} s after it woke (the donor's 33.1, 33.3) for {kickBlow.Asked:0.#}, dropped the bow {fullDrop - fullKick:0.00} s after (the donor's 0.96) and drew the cleaver {fullBlade - fullKick:0.00} s after (1.32); then {string.Join(", ", bladeBlows.Select(b => FormattableString.Invariant($"{b.Move} {b.Asked:0.#}")))}"));
+        // Standing for 1 (2 of 9 recorded arrivals): the donor's two kicked 14.7 s after waking.
+        var brief = Fight(1);
+        float briefKick = brief.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Kick, float.NaN);
+        Check(brief.Loosed.Count(l => l.Standing) == 1 && brief.Loosed.Count(l => l.At < briefKick) == 3 && MathF.Abs(briefKick - 14.7f) <= 1.5f && brief.Struck.Count == brief.Loosed.Count,
+            FormattableString.Invariant($"the archer standing for one: {brief.Loosed.Count(l => l.At < briefKick)} arrows ({brief.Loosed.Count(l => l.Standing)} standing), all struck ({brief.Struck.Count}), and it kicked {briefKick:0.0} s after it woke (the donor's 14.7, 14.7)"));
+        // The player strafing at 206 units/s (the donor's fastest) from 4 s, the archer standing 471 off: every arrow strikes, as the donor's did.
+        var strafing = Fight(10, strafe: 206, seconds: 20);
+        var strafedStanding = strafing.Loosed.Where(l => l.Standing).ToList();
+        Console.WriteLine($"  strafed arrows: {string.Join(", ", strafing.Loosed.Select(l => FormattableString.Invariant($"{l.At:0.00} s {(l.Standing ? "standing" : "moving")} {l.Units:0}")))}; struck {string.Join(", ", strafing.Struck.Select(x => x.At.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))}");
+        Check(strafedStanding.Count >= 5 && strafing.Struck.Count == strafing.Loosed.Count,
+            FormattableString.Invariant($"strafing at 206 units/s: {strafing.Struck.Count} of {strafing.Loosed.Count} arrows struck ({strafedStanding.Count} standing, at {Times(strafedStanding.Select(l => l.Units))} units)"));
+        // Out of sight (a wall between them everywhere): it rushes at once, letting go nothing.
+        var hidden = Fight(10, world: (from, to) => Vector3.Lerp(from, to, .5f), seconds: 15);
+        float hiddenKick = hidden.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Kick, float.NaN);
+        // Too near: 250 units off, it plays surprised and backs off to 350, then shoots.
+        var tooNear = Fight(10, units: 250, seconds: 10);
+        Check(hidden.Loosed.Count == 0 && hiddenKick > 0 && hiddenKick <= 900 / ad.RushUnits + 1 && !float.IsNaN(tooNear.SurprisedAt) && tooNear.ClosestAfter >= ad.BackOffTo - 3 && tooNear.Loosed.Count >= 1,
+            FormattableString.Invariant($"out of sight it rushed in and kicked {hiddenKick:0.0} s on, letting go {hidden.Loosed.Count}; 250 units off it played surprised and stood {tooNear.ClosestAfter:0} units off to shoot ({ad.BackOffTo:0}), letting go {tooNear.Loosed.Count}"));
+        combat.Orc.FixedStandingShots = null;
+        (combat.WorldRay, combat.WorldSurface) = (arRay, arSurface);
+        combat.Retune(arTuning);
+        combat.Reset();
+        combat.God = arWasGod;
+        combat.Orc.Hold = arWasHeld;
+        ((IReplayBody)product).Begin();
+
+        var archeryRecordings = Directory.Exists(Path.Combine(repo!, "local", "recordings", "experiments"))
+            ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings", "experiments"), "l01_a-v18-npc-archery*.rbrec").Order().ToList() : [];
+        if (archeryRecordings.Count >= 4)
+        {
+            // The maps' kit (the cleaver, then the bow): a fight whose blade blows were the bow's had them the other way round (-2's second).
+            var fights = archeryRecordings.SelectMany(NpcArcheryCalibration.Measure).Where(f => !f.Blows.Any(b => b.Weapon == "weapon_mm_bow_long")).ToList();
+            foreach (var f in fights) Console.WriteLine($"  {f}");
+            // Its arrows let go before the player left (the one at 1200 units let go as the player went into the building).
+            var flown = fights.SelectMany(f => f.Arrows).Where(a => a.Distance < 1000).ToList();
+            // The first nock after waking (the fights it shot in), the first after each time it stood, and those standing on.
+            var firstNocks = fights.Where(f => f.Arrows.Count > 0).Select(f => f.Nocks[0] - f.Woken).ToList();
+            var standNocks = fights.SelectMany(f => f.Stood.Select(st => f.Nocks.FirstOrDefault(n => n >= st && n < st + 1, double.NaN) - st)).Where(d => !double.IsNaN(d)).ToList();
+            var standingGaps = fights.SelectMany(f => f.Arrows.Where(a => a.NockedStanding).Zip(f.Arrows.Where(a => a.NockedStanding).Skip(1)).Select(p => p.Second.Nocked - p.First.Nocked)).Where(g => g < 3).ToList();
+            double OffCadence(double gap) => Math.Abs(gap - ad.Every);
+            var speeds = flown.Where(a => !float.IsNaN(a.Speed) && a.Distance is >= 300 and <= 800).ToList();
+            var kicks = fights.Where(f => !double.IsNaN(f.Kicked)).ToList();
+            static double Median(IEnumerable<double> xs) { var l = xs.Order().ToList(); return l.Count == 0 ? double.NaN : l[l.Count / 2]; }
+            foreach (var a in speeds.Where(a => MathF.Abs(a.Speed - ad.SpeedAt(a.Distance)) > .04f * a.Speed)) Console.WriteLine(FormattableString.Invariant($"  archer arrow off the speed rule: {a} (the rule's {ad.SpeedAt(a.Distance):0})"));
+            bool struckRight = flown.Count >= 80 && flown.All(a => a.Hit && MathF.Abs(a.Asked - ArrowAsk(a.Standing)) < .01f),
+                // Each let go 1.08 or 1.2 s after its nock: standing when nocked, 1.08; on the move, 1.2, but for one stopping as it went (2).
+                leftRight = flown.All(a => Math.Abs(a.Left - a.Nocked - ad.LeaveStanding) <= .03 || Math.Abs(a.Left - a.Nocked - ad.LeaveMoving) <= .03)
+                    && flown.Where(a => a.NockedStanding).All(a => Math.Abs(a.Left - a.Nocked - ad.LeaveStanding) <= .03)
+                    && flown.Count(a => !a.NockedStanding && Math.Abs(a.Left - a.Nocked - ad.LeaveMoving) > .03) <= 2,
+                cadenceRight = firstNocks.All(n => Math.Abs(n - ad.FirstNock) <= .08) && standingGaps.Count >= 50 && standingGaps.All(g => OffCadence(g) <= .02)
+                    && standNocks.Count >= 10 && standNocks.Count(n => Math.Abs(n - ad.StandNock) <= .03) >= standNocks.Count - 1,
+                speedRight = speeds.All(a => MathF.Abs(a.Speed - ad.SpeedAt(a.Distance)) <= .04f * a.Speed),
+                aimRight = Math.Abs(Median(flown.Where(a => a.Standing).Select(a => (double)a.FromEye)) + ad.AimBelowEye) <= 1 && Math.Abs(Median(flown.Where(a => !a.Standing).Select(a => (double)a.FromEye)) - ad.AimAboveEye) <= 1.5;
+            bool kicksRight = kicks.Count >= 5 && kicks.All(k => MathF.Abs(k.KickAsked - 2.5f) < .01f && Math.Abs(k.Dropped - k.Kicked - .96) <= .05 && Math.Abs(k.Unsheathed - k.Kicked - 1.32) <= .05);
+            Console.WriteLine($"  donor archers: struck {struckRight}, let go {leftRight}, cadence {cadenceRight} (first {string.Join(" ", firstNocks.Select(n => n.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))}; on standing {string.Join(" ", standNocks.Select(n => n.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))}; off {string.Join(" ", standingGaps.Where(g => OffCadence(g) > .02).Select(g => g.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)))}), speed {speedRight}, aim {aimRight}, kicks {kicksRight}");
+            foreach (var a in flown.Where(a => Math.Abs(a.Left - a.Nocked - (a.NockedStanding ? ad.LeaveStanding : ad.LeaveMoving)) > .03)) Console.WriteLine($"  archer arrow off its delay: {a}");
+            bool arrowsRight = struckRight && leftRight && cadenceRight && speedRight && aimRight;
+            Check(arrowsRight && kicksRight,
+                FormattableString.Invariant($"the donor's archers: {flown.Count(a => a.Hit)} of {flown.Count} arrows struck at {flown.Min(a => a.Distance):0} to {flown.Max(a => a.Distance):0} units, the player still, strafing at up to {flown.Max(a => a.PlayerSpeed):0} units/s or backing off, each asking the model's 5; let go {ad.LeaveStanding:0.00} s after the nock standing, {ad.LeaveMoving:0.0} on the move; nocked first {Median(firstNocks):0.00} s after waking, {Median(standNocks):0.00} s after standing and every {Median(standingGaps):0.00} s on ({standingGaps.Count}); {speeds.Count} speeds within 4% of the rule; the line {Median(flown.Where(a => a.Standing).Select(a => (double)a.FromEye)):0.0} from the eye standing, {Median(flown.Where(a => !a.Standing).Select(a => (double)a.FromEye)):0.0} on the move; {kicks.Count} kicks asked 2.5, the bow dropped 0.96 s and the cleaver drawn 1.32 s after"));
+        }
+        else Console.WriteLine("skip the donor's archers: no local/recordings/experiments/l01_a-v18-npc-archery*.rbrec");
     }
     // The bow (#10168; docs/lab.md, "The bow"): belt slot 5 puts the classic bow in hand. A press draws it after 0.12 s, the
     // draw plays its 2 s and the arrow leaves 0.03 s into the shot, along the view raised 2.8°, at 2100 units/s falling

@@ -739,6 +739,40 @@ server.dll's ConVars (`bow-cvars`); the rest is measured.
   radius; the bounces; the rope; the zoom's field and times, and the sway with and without `stability`. `RB_BOWTRACE=name`
   prints a recording's donor and lab release times and its bow clips, `RB_SWAYTRACE=1` the sway curves.
 
+### NPC archery
+
+`Npc/OrcArchery.cs` (#10169; `l01_a-v18-npc-archery` to `-6`, docs/recording.md): `combat.json`'s `orc.bow` makes the
+first orc an archer, as the maps' `npc_orc_bow` (l05_a, l05_b, l07_a, l09_a: `rangeweapon` the long bow,
+`additionalequipment` the cleaver); its squad-mate stays a swordsman. Read by `NpcArcheryCalibration`.
+
+| | The donor | The lab |
+| --- | --- | --- |
+| Who shoots | `npc_orc_bow` only: an `npc_orc_sword` given the crossbow never shot, first or second (struck with it as a club), nor with the player out of reach | the first orc with `orc.bow` set |
+| Its approach | woken, it runs at the player (95 units/s) to 471 units (most stops; 476 to 548 with the player moving), shooting on the way, and stands in `bow_attack`; no standing shot was farther than 559 units: it ran in again | the same speed and stand-off; past 559 it runs in again |
+| Its arrows | nocked 1.2 s after it woke (1.12 to 1.24) and every 2.16 s; standing anew, 0.36 s after it stood (11 of 12; once 0.6, a turn first), then every 2.16 s (57 gaps); let go 1.08 s after the nock standing, 1.2 s on the move (`layer_Bow_Attack` over its run), but for two let go at 1.08 as it stopped; one nocked as it stopped is put away; faster the nearer the player, 7311 − 6.29 units/s a unit off (5140 at 345 units, 2540 at 758; 92 within 3%); the line through the player 11 units below the eye standing (crouched too), 11.5 above on the move | the same cadence, delays and speed rule (an arrow nocked running and let go as it stopped is put away instead), straight from its hand (65 units up) at where the player's eye is, less 11 or plus 11.5 |
+| Its aim | every arrow let go at the player struck: 93 of 93 at 217 to 758 units, the player still, strafing at up to 206 units/s or backing off; no `bow_precision` (20) error and no lead were seen | no error: the arrow, 12 units each way, meets the player's box (16 units each way, to 8 over the eye) or the arena. The donor's strafing player was 9 to 11 units beside its arrows as they struck; the lab's flight lets him drift 21 (its arrow's start, 150 units out at its first sample, isn't modelled), which the 12 takes |
+| Its damage | 5 every arrow: the orc's strength 1 and the long bow's `WDmg` 4, × `bow_attack`'s (or `layer_Bow_Attack`'s) `HitPow` 1 | the combat model's |
+| To the blade | after 10 arrows standing it moves off, looses one more and rushes in (190 units/s), 33.1 and 33.3 s after it woke (and so in every 30 s stand-off that ended after its 11th); on 2 of 9 arrivals after 1 standing, 14.7 s after waking (both); out of sight (in the wooden building) at once; within `bow_kick`'s `range` (60) it kicks (2.5: `HitPow` 0.5), `drop_bow` 0.96 s after, `unsheathe_sword` 0.36 s after that, then the cleaver's attacks (8, 12, 3.2 and 6.4) | the same, the 10 or 1 rolled on arriving (2 in 9 the 1), the brief one moving off 1.3 s first as the donor's did; after its last arrow on the move it moves on 1.8 s (both ways); the kick at the clip's own speed |
+| Too near | nearer than 314 units (`mm_ai_dist_surprised`) it plays `surprised` and backs off to 338 to 362 units, shooting | `surprised`, then back to 350 |
+
+- **Not in the lab, and why:**
+  - **hiding behind a prop:** `prop_physics_create` put no crate between them (12 arrows struck the crouched player,
+    twice), so cover short of leaving its sight isn't recorded;
+  - **the crossbow orc:** `mm_npc_create`'s `npc_orc_sword` with `weapon_arxcrossbow` never shot it; the maps' archers
+    are `npc_orc_bow`.
+- **Not measured:** shots past 811 units (`ThrowPrecisionMaxDist` 950) and `ThrowPrecisionNbShootToInc`'s first-shot
+  error (none seen), the arrows' arc (a few units over 600: the lab's fly straight), an archer at a jumping player, its
+  defence (parries, dodges) while it holds the bow, `ArcheryKickInterval` (5 s), and `mm_ai_dist_not_rush_on_seen` (400).
+- **The smoke:** in an open field, an archer woken 900 units from the player lets go its first arrow 2.43 s on,
+  running, stands 470 units off, lets go 10 standing 2.16 s apart, every one of its 12 striking for 5, and kicks 31.7
+  s after it woke (the donor's 33.1 and 33.3) for 2.5, drops the bow 0.97 s after and draws the cleaver 1.33 s after,
+  then fights with it; standing for one, it lets go 3 and kicks 13.7 s on (the donor's 14.7); the player strafing at
+  206 units/s from 4 s, 7 of 7 strike; out of sight it rushes in and kicks 4.4 s on, letting go nothing; 250 units off
+  it plays `surprised` and stands 350 off to shoot. Against the recordings: 93 of 93 arrows struck, each asking the
+  model's 5, every delay, the first nocks (1.18 s median), the nocks on standing (0.36 s) and the 57 gaps standing
+  (2.16 s), 91 speeds within 4% of the rule, the aim's medians, and 7 kicks (2.5; the drop 0.96 s and the cleaver
+  1.32 s after). `RB_ARCHERY=1` prints the donor's archers and stops.
+
 ### Telekinesis
 
 `Magic/Telekinesis.cs` and `Interaction/CubeInteraction.cs` (#10164; `l01_a-v18-telekinesis-mass`, `-throw`, `-heavy` and
@@ -1071,6 +1105,8 @@ level's other NPCs removed (docs/recording.md; `PerceptionCalibration`; the l05_
   on the nearest in reach, the backstab on the one whose back it readied on (`LabCombat.Victim`). The smoke checks it
   through the lab's combat in l05_a: it answers its mate's sighting 2.42 s after, not 600 units off, and not a blow
   from behind; a fast attack and a kick at it hurt it, not the first orc 20 m off.
+- **The archer** (`combat.json` `orc.bow`, a bow's model path, or null): the first orc an archer with that bow, the
+  long bow as the maps' `npc_orc_bow` (#10169; "NPC archery"). Its squad-mate stays a swordsman.
 - **Factions** (`mm_relationship.txt`): orcs like orcs and hate the rest, the player, guards, goblins and ghouls
   included.
 

@@ -9,7 +9,8 @@ using RustyBridge.Wire.Donor;
 namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed }
+/// <summary>Its state; <see cref="Ranged"/> is the archer's on the move with the bow (#10169), running at its own speed, not its clip's.</summary>
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed, Ranged }
 
 /// <summary>A ragdolled knockdown (#10216): the side its first frame took by the blow, the side it lay on at rest, and the seconds from the blow to getting up.</summary>
 internal readonly record struct RagdollKnockdown(string FellAs, string LayOn, float Seconds);
@@ -41,16 +42,16 @@ internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float He
 /// reacts to each blow by the donor's rule (<see cref="OrcReactions"/>), and is stunned and knocked down by it
 /// (<see cref="OrcStagger"/>). At no health it drops and comes back after a while.
 /// </summary>
-internal sealed class Orc : IDisposable
+internal sealed partial class Orc : IDisposable
 {
     internal const string Model = "models/npc/orc/npc_orc.mdl", Cleaver = "models/Items/Weapons/sword_orc/sword_orc.mdl",
         Shield = "models/items/armors/shield_orc/shield_orc.mdl";
-    internal const ulong BodyId = 0x4C41_0010, CleaverId = 0x4C41_0011, ShieldId = 0x4C41_0012;
+    internal const ulong BodyId = 0x4C41_0010, CleaverId = 0x4C41_0011, ShieldId = 0x4C41_0012, BowId = 0x4C41_0013;
     static readonly int[] PartEvents = [2102, 2139];
 
     readonly IEngineContext engine;
     readonly DonorContent donor;
-    readonly Puppet ownBody, cleaver, shield;
+    readonly Puppet ownBody, cleaver, shield, bow;
     // The body drawn and swept: the lab's own, or in a replay the recorded orc's model (R10177-2), one puppet per model.
     Puppet body;
     readonly Dictionary<string, Puppet?> bodies = new(StringComparer.OrdinalIgnoreCase);
@@ -101,6 +102,7 @@ internal sealed class Orc : IDisposable
         bodies[Model] = ownBody;
         cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId + ids);
         shield = new Puppet(engine, donor.Model(Shield), ShieldId + ids);
+        bow = new Puppet(engine, donor.Model(ArcheryData.LongBow), BowId + ids);
         AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
         mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
         stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
@@ -296,10 +298,12 @@ internal sealed class Orc : IDisposable
     /// closes. The orc answers it once, as soon as it stands ready (R10151-1).</param>
     /// <param name="swingId">Which swing it is (the sword's count), so each is answered once.</param>
     /// <param name="gait">How the player moves, for an unaware orc's hearing (#10154).</param>
-    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0, PlayerGait gait = PlayerGait.Running)
+    /// <param name="clearShot">For an archer (#10169): nothing of the arena between its aim and the player's eye.</param>
+    internal List<OrcBlow> Step(float seconds, Vector3 playerFeet, IncomingSwing swing, int swingId = 0, PlayerGait gait = PlayerGait.Running, bool clearShot = true)
     {
         clock += seconds;
         Spotted = false;
+        Loosed.Clear();
         var blows = new List<OrcBlow>();
         // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
         if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
@@ -337,6 +341,8 @@ internal sealed class Orc : IDisposable
         // Distances in Source units, as the .qct's zones and ranges are.
         float units = distance / SourceSpace.MetresPerUnit;
         var data = mind.Data;
+        // An archer with its bow fights its own way (#10169).
+        if (StepArchery(seconds, units, toPlayer / SourceSpace.MetresPerUnit, clearShot)) { AttackEnded(); wasAttacking = State == OrcState.Attack; return blows; }
         switch (State)
         {
             case OrcState.Quiet:
@@ -839,6 +845,7 @@ internal sealed class Orc : IDisposable
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
         FrozenFor = dyingLeft = WeakenedFor = CharmedFor = 0;
+        ResetArchery();
         Layer = null;
         mind.Reset();
         stagger.Reset();
@@ -865,7 +872,7 @@ internal sealed class Orc : IDisposable
         var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
         var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
         var targets = new List<PosedTarget> { new(body.Model.Info, body.Model.Joints, pose) };
-        foreach (var (item, attachment, held) in new[] { (cleaver, "RightHand", holdsCleaver), (shield, "LeftShield", holdsShield) })
+        foreach (var (item, attachment, held) in new[] { (cleaver, "RightHand", holdsCleaver), (shield, "LeftShield", holdsShield), (bow, "LeftHand_bow", HoldsBow) })
             if (held && Rig.Attached(body.Model, pose, attachment) is Transform at)
                 targets.Add(new(item.Model.Info, item.Model.Joints, Rig.Rest(engine, item.Instance, at), Holder: 0));
         return targets;
@@ -888,6 +895,7 @@ internal sealed class Orc : IDisposable
         var facts = new List<AppearanceFact> { body.Fact(Placement) };
         if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
         if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
+        if (HoldsBow && Rig.Attached(body.Model, pose, "LeftHand_bow") is Transform bowHand) facts.Add(bow.Fact(bowHand));
         return facts;
     }
 
@@ -953,7 +961,8 @@ internal sealed class Orc : IDisposable
     void Advance(float seconds)
     {
         var clip = body.Model.Clip(Clip);
-        float rate = State == OrcState.Attack ? AttackSpeed : 1;
+        // The cleaver's speed_attack; an archer's kick with the bow at its own (#10169).
+        float rate = State == OrcState.Attack && !HoldsBow ? AttackSpeed : 1;
         Cycle += clip.Seconds > 0 ? seconds * rate / clip.Seconds : 1;
         if (Looping(Clip) && Cycle >= 1) Cycle -= MathF.Floor(Cycle);
         else Cycle = MathF.Min(Cycle, 1);
@@ -1013,5 +1022,6 @@ internal sealed class Orc : IDisposable
         foreach (var b in bodies.Values) b?.Dispose();
         cleaver.Dispose();
         shield.Dispose();
+        bow.Dispose();
     }
 }

@@ -34,6 +34,7 @@
     "spawnUnaware": false,
     "map": "l01_a",
     "squadMate": null,
+    "bow": null,
     "attackLandings": {
       "attack_Bash": [41, 59],
       "attack_Fast": [37, 70],

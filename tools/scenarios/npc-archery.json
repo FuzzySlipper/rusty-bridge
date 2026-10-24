@@ -1,0 +1,197 @@
+{
+  "description": "NPC archery, a probe (#10169): every skill, god (no notarget), the level's NPCs removed, the classic bow. A new orc at (0, -2300) each time, its health 1000 (addoutput), made aware by an arrow from the north (the courtyard is open that way): the crossbow as its first weapon, the player 550 units north and still 20 s; 800 units north, strafing left 3 s, right 3 s, then still; the crossbow second (as the arena's orc has it), 550 units, still 20 s; the crossbow first, 550 units, backing off 4 s, then still. Marked with echo rb_xb.",
+  "seconds": 124,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "give weapon_arxcrossbow",
+    {
+      "wait": 0.5
+    },
+    "use weapon_arxcrossbow",
+    {
+      "wait": 2
+    }
+  ],
+  "play": [
+    "echo rb_xb crossbow first, an arrow from 550 units north, then still 20 s",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxcrossbow weapon_arxorccleaver 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1750 -12",
+    "setang 1.5 270 0",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 20
+    },
+    "echo rb_xb crossbow first, an arrow from 800 units north, then strafing left 3 s and right 3 s, then still 8 s",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxcrossbow weapon_arxorccleaver 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1500 -12",
+    "setang 1.5 270 0",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+moveleft",
+    {
+      "wait": 3
+    },
+    "-moveleft",
+    "+moveright",
+    {
+      "wait": 3
+    },
+    "-moveright",
+    {
+      "wait": 8
+    },
+    "echo rb_xb crossbow second (the arena's), an arrow from 550 units north, then still 20 s",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1750 -12",
+    "setang 1.5 270 0",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 20
+    },
+    "echo rb_xb crossbow first, an arrow from 550 units north, then backing off 4 s and still 10 s",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxcrossbow weapon_arxorccleaver 0",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1750 -12",
+    "setang 1.5 270 0",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 2.2
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+back",
+    {
+      "wait": 4
+    },
+    "-back",
+    {
+      "wait": 10
+    }
+  ]
+}

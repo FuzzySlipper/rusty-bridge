@@ -99,8 +99,10 @@ internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases
 /// <param name="Map">The donor map whose stealth rules the orcs follow (#10154): l01_a, the recordings' arena, is in the settings'
 /// <c>nostealth</c> block, where the recorded orcs saw nothing; l05_a isn't, where they saw (R10154-2).</param>
 /// <param name="SquadMate">Where a second orc of its squad stands (R10154-1), or none: it answers the first's call.</param>
+/// <param name="Bow">The first orc's bow, an archer's (#10169: the maps' <c>npc_orc_bow</c>, its <c>rangeweapon</c> the long
+/// bow), or none: a swordsman.</param>
 internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings, bool SpawnUnaware = false,
-    string Map = "l01_a", float[]? SquadMate = null);
+    string Map = "l01_a", float[]? SquadMate = null, string? Bow = null);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

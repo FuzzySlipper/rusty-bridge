@@ -106,6 +106,7 @@ internal sealed class LabCombat : IDisposable
         Weaken = WeakenRules.From(donor);
         Shrink = ShrinkRules.From(donor);
         Charm = CharmRules.From(donor);
+        Reflection = ReflectionRules.From(donor);
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -292,12 +293,15 @@ internal sealed class LabCombat : IDisposable
     /// <summary>Weaken with the gauge full (#10348).</summary>
     internal ShrinkRules Shrink { get; }
     internal CharmRules Charm { get; }
+    /// <summary>Magic reflection's numbers (#10349).</summary>
+    internal ReflectionRules Reflection { get; }
 
     /// <summary>The spells the lab plays: <c>spells.txt</c>'s id, and its name for the HUD.</summary>
     static readonly Dictionary<string, string> Played = new(StringComparer.OrdinalIgnoreCase)
     {
         [FireballRules.Spell] = "Fireball", [LightningRules.Spell] = "Lightning bolt", [FreezeRules.Spell] = "Freeze", [InfernoRules.Spell] = "Inferno",
         [CureRules.Spell] = "Cure wounds", [WeakenRules.Spell] = "Weaken", [CharmRules.Spell] = "Charm",
+        [ReflectionRules.Spell] = "Magic reflection",
     };
 
     /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
@@ -308,6 +312,8 @@ internal sealed class LabCombat : IDisposable
         if (!Played.TryGetValue(spell, out var name)) { Message = $"{spell} isn't played yet"; return; }
         // Cure wounds is cast as it's put in hand, and the hand keeps what it held (#10167).
         if (spell.Equals(CureRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastCure(); return; }
+        // So is magic reflection (#10349).
+        if (spell.Equals(ReflectionRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastReflection(); return; }
         Bow = null;
         EndSpell();
         SpellInHand = Played.Keys.First(k => k.Equals(spell, StringComparison.OrdinalIgnoreCase));
@@ -339,6 +345,32 @@ internal sealed class LabCombat : IDisposable
         Adrenaline.Gain(Cure.AdrenalineAdd);
         LastSupport = (CureRules.Spell, null);
         Message = FormattableString.Invariant($"Cure wounds: {healed:0.#} now, {Cure.Effect - Cure.AtOnce:0} to come");
+    }
+
+    /// <summary>Seconds magic reflection's shield has left about the player (#10349); 0 when it's down.</summary>
+    internal float ShieldLeft { get; private set; }
+
+    /// <summary>Magic reflection (#10349): its cost, and the shield up for its <see cref="ReflectionRules.Seconds"/>, a new one in place of the old.</summary>
+    void CastReflection()
+    {
+        if (!Mana.Spend(Reflection.Cost)) { Refuse("magic reflection", Reflection.Cost); return; }
+        Spells = Spells with { Casts = Spells.Casts + 1 };
+        ShieldLeft = Reflection.Seconds;
+        Adrenaline.Gain(Reflection.AdrenalineAdd);
+        LastSupport = (ReflectionRules.Spell, null);
+        Message = FormattableString.Invariant($"Magic reflection: {Reflection.Seconds:0} s");
+    }
+
+    /// <summary>
+    /// An enemy's spell missile (#10349) at <paramref name="at"/> flying at <paramref name="velocity"/> (lab space), the
+    /// player's feet at <paramref name="feet"/>: its new velocity if the player's shield turns it this step, else null.
+    /// The lab has no enemy caster yet; the player's own missiles are never turned.
+    /// </summary>
+    internal Vector3? TurnSpell(string spell, Vector3 at, Vector3 velocity, Vector3 feet)
+    {
+        if (ShieldLeft <= 0) return null;
+        static Vector3 Source(Vector3 lab) => new Vector3(lab.Z, lab.X, lab.Y) / SourceSpace.MetresPerUnit;
+        return Reflection.Turn(spell, Source(at), Source(velocity), Source(feet)) is { } turned ? SourceSpace.Position(turned) : null;
     }
 
     void StepCures(float seconds)
@@ -990,6 +1022,7 @@ internal sealed class LabCombat : IDisposable
         foreach (var blow in mateBlows) if (mateFoe is { } foe) OrcStrikesOrc(tick, blow, Mate!, foe); else OrcStrikes(tick, blow, feet, forward, Mate!);
         if (orcPose is null) Stomp(tick, feet);
         StepCures(seconds);
+        ShieldLeft = MathF.Max(0, ShieldLeft - seconds);
         Health.Step(seconds);
         Mana.Step(seconds);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { Health.Fill(); deadSeconds = 0; Message = "Back on your feet"; }
@@ -1732,6 +1765,7 @@ internal sealed class LabCombat : IDisposable
         cures.Clear();
         LastSupport = null;
         Stomped = 0;
+        ShieldLeft = 0;
         OrcFights = default;
         orcArrows.Clear();
         OrcArchery = default;

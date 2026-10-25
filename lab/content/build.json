@@ -30,7 +30,7 @@
   },
   "weapon": "models/items/weapons/sword_short/sword_short.mdl",
   "offHand": null,
-  "spells": ["fire_3", "air_3", "water_3", "fire_4", "air_2", "air_4", "water_4"],
+  "spells": ["fire_3", "air_3", "water_3", "fire_4", "air_2", "air_4", "water_4", "earth_2"],
   "belt": [
     { "item": "models/items/provisions/potions/life_potion.mdl", "count": 3 },
     { "item": "models/items/provisions/potions/full_life_potion.mdl", "count": 1 },

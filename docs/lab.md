@@ -679,8 +679,7 @@ attack spells: put them on it to play them).
 - **Split off, and why** (the user's call):
   - **shrink (#10348):** below, "Shrink": weaken cast with the gauge full (`Deploy_Spell_EARTH_3` puts nothing in hand:
     `earth_3` is no player spell);
-  - **magic reflection (`earth_2`, #10349):** it casts (`spell_earth_2`, `cost` 25, no clip), but nothing in l01_a casts a
-    spell at the player to reflect;
+  - **magic reflection (#10349):** below, "Magic reflection" (a necromancer spawned in l01_a casts at the player);
   - **wizard eye (`water_1`, #10350):** it casts (`spell_Water_1` at the player, no mana), but the camera the Wire records
     stayed with the player through the 3 s held: the eye's own view isn't on the Wire.
 - **Not measured:** cure wounds at full health and its `radius` 300 (on others), weaken's own `adrenaline_add` (2)
@@ -731,6 +730,29 @@ records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
   no blow, `combatidle` (and `ragdoll`), the regeneration's 0.25 every 2 s, the gauge at 2 after the two not first,
   the stomp's 2 at 25.8 units, the kick's kill, and one small for 129 s. The smoke's spell, bow and telekinesis checks
   count what the orc's blows took (`Orc.Taken`), its regeneration aside.
+
+### Magic reflection
+
+`Magic/MagicReflection.cs` (#10349; `l01_a-v19-reflect-probe-2`, `-3`, docs/recording.md). l01_a has no caster, so
+the scenarios spawn one: `mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook`
+(its `.qct`'s `fire_1`, the flame arrow, 0 to 450 units). l01_a's NPCs don't see the player, so a lightning bolt wakes
+it (and the archer).
+
+| | The donor | The lab |
+| --- | --- | --- |
+| The cast | `Deploy_Spell_EARTH_2` casts it as it's put in hand, `cost` 25 then, no arm clip (the hand keeps its spell); its entity stands at the player's feet 14.95 to 14.98 s (`effect` 15; five casts) | its belt key casts it, the hand keeping what it held: 25 mana, the shield up 15 s, a new cast starting it again |
+| What it turns | server.dll: each tick a sphere query of `shield_radius` (60) about the player's origin 20 units up (+0x474606), turning the flame arrow's, the fireball's and the freeze's missiles (`CARXSPELL_FIRE_1_Missile`, `_FIRE_3_`, `_WATER_3_`), not the player's own (+0x4746D9), and into a held spell staff, which takes them. Recorded: the necromancer's flame arrows (one every 1.68 s, 6 a blow, 1140 units/s), turned where their origin came within 74.7 to 75.9 units of that point (the query meets the missile's box), off from the player's origin through where they were, at their speed (720 in and out), back and up past the necromancer: 11 of 11, none striking anyone. The archer's arrows went through: all 15 under two shields struck the player for 5 | `ReflectionRules.Turn`: an enemy's flame arrow, fireball or freeze missile within 75 (`shield_radius` and 15) of that point is sent off from the player's origin through where it is at its speed; arrows aren't (the archer's go on as before). `LabCombat.TurnSpell` asks it in lab space while the shield is up; the lab has no enemy caster to ask yet |
+
+- **Not measured:** a fireball or freeze cast at the player (only the necromancer's flame arrows were), the spell staff
+  taking a missile, the shield moving with the player (the player stood still), a turned missile striking its caster
+  (none came back at it), and its `recovery` (2).
+- **The shield isn't drawn:** the HUD says it's up.
+- **The smoke:** cast from belt slot 1 for 25 mana, the hand keeping its weapon, up 15 s and down 15.00 s on; a flame
+  arrow flown level at the player's chest turns back and up at 720 units/s, an arrow isn't turned, and none is once the
+  shield is down. Against the recordings: the five shields' 25 mana and 15 s; every one of the 27 flame arrows flown
+  along its recorded line at the lab's rule, the shield up where the donor's was: the 11 the donor's turned turned on
+  the donor's tick, within 1° and 1% of its way off, and the 16 others didn't; and the 12 arrows loosed under the
+  shields all struck the player.
 
 ### The bow
 

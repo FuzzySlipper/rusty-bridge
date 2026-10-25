@@ -1852,6 +1852,101 @@ host.Call(engine =>
         }
         else Console.WriteLine("skip the donor's shrinks: no local/recordings/experiments/l01_a-v19-shrink.rbrec, -2 and -3");
     }
+    // Magic reflection (#10349; docs/lab.md, "Magic reflection"): cast as its belt key puts it in hand, for 25 mana, the
+    // shield up 15 s. It turns an enemy's flame arrow, fireball or freeze missile whose origin comes within 75 units
+    // (shield_radius 60 and the missile's 15) of a point 20 above the player's origin, off from the player's origin
+    // through where it is, at its speed; not arrows. The lab has no enemy caster: the recorded flame arrows are flown at it.
+    // Against l01_a-v19-reflect-probe-2 and -3.
+    {
+        var mrFile = file with
+        {
+            Skills = new Dictionary<string, int>(file.Skills) { ["focus"] = 1, ["extra_mana"] = 3 },
+            Belt = [new BeltSlot(Spell: DarkMessiah.Lab.Magic.ReflectionRules.Spell)],
+        };
+        var rr = combat.Reflection;
+        bool mrWasHeld = combat.Orc.Hold;
+        combat.Reset();
+        combat.Rebuild(mrFile);
+        combat.Orc.Hold = true;
+        combat.Mana.Fill();
+        float mrMana = combat.Mana.Value;
+        combat.UseBelt(0);
+        float mrCost = mrMana - combat.Mana.Value, mrUp = combat.ShieldLeft;
+        bool mrHand = combat.SpellInHand is null;
+        var mrEye = new Vector3(12, 1.6f, 6);
+        float mrDown = float.NaN;
+        // A flame arrow flying level at the player's chest from 200 units in front, then the same after the shield is down.
+        var mrFeet = mrEye - Vector3.UnitY * 1.6f;
+        float mpuR = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        Vector3? Flown()
+        {
+            var at = mrFeet + new Vector3(0, 1.1f, 200 * mpuR);
+            var velocity = new Vector3(0, 0, -720 * mpuR);
+            for (int i = 0; i < 40; i++, at += velocity * Tick)
+                if (combat.TurnSpell("fire_1", at, velocity, mrFeet) is { } turned) return turned;
+            return null;
+        }
+        var mrTurned = Flown();
+        var mrArrow = combat.TurnSpell("arrow", mrFeet + new Vector3(0, 1.1f, 60 * mpuR), new Vector3(0, 0, -900 * mpuR), mrFeet);
+        for (int i = 0; i < (int)(16 / Tick) && float.IsNaN(mrDown); i++)
+        {
+            combat.Step(Tick, step++, false, false, false, mrEye, Vector3.UnitZ, mrFeet);
+            if (combat.ShieldLeft <= 0) mrDown = (i + 1) * Tick;
+        }
+        var mrAfter = Flown();
+        Check(mrHand && MathF.Abs(mrCost - rr.Cost) < .05f && MathF.Abs(mrUp - rr.Seconds) < .01f && MathF.Abs(mrDown - rr.Seconds) <= 1.01f * Tick
+                && mrTurned is { } t && t.Z > 0 && t.Y > 0 && MathF.Abs(t.Length() / mpuR - 720) < 1 && mrArrow is null && mrAfter is null,
+            FormattableString.Invariant($"magic reflection: cast from belt slot 1 as it's put in hand (the hand keeps its weapon: {mrHand}), {mrCost:0.#} mana ({rr.Cost:0}), up {mrUp:0.#} s and down at {mrDown:0.00} s ({rr.Seconds:0}); a flame arrow at the chest turned back and up ({(mrTurned is { } tt ? tt / mpuR : Vector3.Zero):F0} units/s), an arrow not ({mrArrow is null}), and none once the shield was down ({mrAfter is null})"));
+        combat.Reset();
+        combat.Rebuild(file);
+        combat.Orc.Hold = mrWasHeld;
+        ((IReplayBody)product).Begin();
+
+        var reflectRecordings = new[] { "l01_a-v19-reflect-probe-2", "l01_a-v19-reflect-probe-3" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", n + ".rbrec")).Where(File.Exists).ToList();
+        if (reflectRecordings.Count == 2)
+        {
+            var measured = reflectRecordings.Select(MagicReflectionCalibration.Measure).ToList();
+            var shields = measured.SelectMany(m => m.Shields).ToList();
+            foreach (var sh in shields) Console.WriteLine(FormattableString.Invariant($"  shield {sh.From:0.00}–{sh.To:0.00} s ({sh.To - sh.From:0.00} s), {sh.Mana:0.#} mana"));
+            // Each recorded flame arrow flown at the lab's rule, tick by tick along its recorded line, the shield up where
+            // the donor's was: the lab turns it on the donor's tick, within 1° of its way off and at its speed, and those
+            // with no shield up it doesn't.
+            int agree = 0, turnedCount = 0, flamesCount = 0;
+            var disagreements = new List<string>();
+            foreach (var (shieldsIn, missiles) in measured)
+                foreach (var m in missiles.Where(m => m.Class == "arxspellmissileshot"))
+                {
+                    flamesCount++;
+                    double labTurn = double.NaN;
+                    System.Numerics.Vector3 labOut = default;
+                    int end = m.Turned >= 0 ? m.Turned : m.Samples.Count - 2;
+                    for (int a = 0; a < end && double.IsNaN(labTurn); a++)
+                    {
+                        // The recording's own ticks (15 ms) between its samples.
+                        var v = m.Velocity(a);
+                        int ticks = Math.Max(1, (int)Math.Round((m.Samples[a + 1].T - m.Samples[a].T) / .015));
+                        double dt = (m.Samples[a + 1].T - m.Samples[a].T) / ticks;
+                        for (int k = 1; k <= ticks; k++)
+                        {
+                            double at = m.Samples[a].T + k * dt;
+                            if (!shieldsIn.Any(sh => at >= sh.From - dt && at <= sh.To)) continue;
+                            if (rr.Turn("fire_1", m.Samples[a].At + v * (float)(k * dt), v, m.Samples[a + 1].Player) is { } o) { labTurn = at; labOut = o; break; }
+                        }
+                    }
+                    if (m.Turned >= 0) turnedCount++;
+                    var donorOut = m.Turned >= 0 ? m.Velocity(Math.Min(m.Turned + 1, m.Samples.Count - 2)) : default;
+                    bool ok = m.Turned >= 0
+                        ? Math.Abs(labTurn - m.Samples[m.Turned].T) <= .0151 && Vector3.Dot(Vector3.Normalize(labOut), Vector3.Normalize(donorOut)) > MathF.Cos(MathF.PI / 180) && MathF.Abs(labOut.Length() / donorOut.Length() - 1) < .01f
+                        : double.IsNaN(labTurn);
+                    if (ok) agree++; else disagreements.Add(FormattableString.Invariant($"{m.Launched:0.00} s (donor {(m.Turned >= 0 ? "turned" : "not")}, lab {labTurn:0.000})"));
+                }
+            var arrows = measured.SelectMany(x => x.Missiles.Where(m => m.Class == "arrowshot" && x.Shields.Any(sh => m.Launched >= sh.From && m.Launched <= sh.To - 1))).ToList();
+            Check(shields.Count == 5 && shields.All(sh => MathF.Abs(sh.Mana - rr.Cost) < .5f && Math.Abs(sh.To - sh.From - rr.Seconds) <= 4 * Tick)
+                    && turnedCount == 11 && agree == flamesCount && arrows.Count >= 10 && arrows.All(m => m.StruckPlayer && m.Turned < 0),
+                FormattableString.Invariant($"the donor's magic reflection: {shields.Count} shields took {rr.Cost:0} mana and lasted {string.Join(", ", shields.Select(sh => (sh.To - sh.From).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s; of {flamesCount} flame arrows {turnedCount} turned, the lab's rule agreeing on {agree} (each turn on the donor's tick, within 1° and 1% of its way off){(disagreements.Count > 0 ? ": not " + string.Join(", ", disagreements) : "")}; {arrows.Count} arrows loosed under the shield all struck the player"));
+        }
+        else Console.WriteLine("skip the donor's magic reflection: no local/recordings/experiments/l01_a-v19-reflect-probe-2.rbrec and -3");
+    }
     // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'
     // npc_orc_bow, the long bow and the cleaver). Aware, it runs at the player to 471 units, nocks an arrow 1.2 s on and
     // every 2.16 s, lets it go 1.08 s after standing (1.2 s on the move) at the player's eye less 11 units, at 7311 − 6.29

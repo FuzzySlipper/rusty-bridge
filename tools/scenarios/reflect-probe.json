@@ -1,0 +1,166 @@
+{
+  "description": "Magic reflection probe (#10349): every skill, god, notarget, the level's NPCs removed, sixteen mana potions. A necromancer (mm_npc_create npc_necromancer, weapon_mm_hook) spawned at (0, -2287), the player 413 units south: notarget off 20 s (its flame arrows), then Deploy_Spell_EARTH_2 and a cast, 20 s, twice. Then the necromancer removed, an orc archer (npc_orc_bow) in its place, notarget off and the shield cast, 25 s. Marked with echo rb_mr.",
+  "seconds": 125,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    },
+    "ent_remove_all npc_necromancer",
+    {
+      "wait": 0.5
+    },
+    "god",
+    {
+      "wait": 0.3
+    }
+  ],
+  "play": [
+    "echo rb_mr necromancer, no shield, 20 s",
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2700 -12",
+    "setang 0 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 2
+    },
+    "notarget",
+    {
+      "wait": 20
+    },
+    "echo rb_mr magic reflection, 20 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 20
+    },
+    "echo rb_mr magic reflection again, 20 s",
+    "usebelt3",
+    {
+      "wait": 2
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 20
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "echo rb_mr the archer, the shield up, 25 s",
+    "ent_remove_all npc_necromancer",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_bow models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_mm_bow_long 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2700 -12",
+    "setang 0 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 2
+    },
+    "notarget",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 25
+    },
+    "notarget"
+  ]
+}

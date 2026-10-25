@@ -680,8 +680,7 @@ attack spells: put them on it to play them).
   - **shrink (#10348):** below, "Shrink": weaken cast with the gauge full (`Deploy_Spell_EARTH_3` puts nothing in hand:
     `earth_3` is no player spell);
   - **magic reflection (#10349):** below, "Magic reflection" (a necromancer spawned in l01_a casts at the player);
-  - **wizard eye (`water_1`, #10350):** it casts (`spell_Water_1` at the player, no mana), but the camera the Wire records
-    stayed with the player through the 3 s held: the eye's own view isn't on the Wire.
+  - **wizard eye (#10350):** below, "Wizard eye": no remote view, a 30 s brightening, recorded and not yet played.
 - **Not measured:** cure wounds at full health and its `radius` 300 (on others), weaken's own `adrenaline_add` (2)
   and the stun and fall chances of a weakened orc, charm on a lone orc, an orc charmed by the player striking it, and
   whether a charmed orc's blows land on the other (the recorded one's didn't).
@@ -753,6 +752,24 @@ it (and the archer).
   along its recorded line at the lab's rule, the shield up where the donor's was: the 11 the donor's turned turned on
   the donor's tick, within 1° and 1% of its way off, and the 16 others didn't; and the 12 arrows loosed under the
   shields all struck the player.
+
+### Wizard eye
+
+Recorded only (#10350; `l01_a-v20-wizard-eye`; Wire v20, docs/wire.md "Wizard eye"). The wizard eye isn't a remote
+view: server.dll's `EnterWizardEye` is an empty stub, and the spell brightens the lightmaps and props for its
+duration. `Deploy_Spell_WATER_1` turns it on as it's put in hand, for `cost` 0, with no press: the player's
+`m_bMMWizardEyeEnable` on, `m_g_MM_fWizardEyeDuration` from 30 (`effect_duration`) down, the lightmap add
+`Lightmap_Max_Add` (0.002, its LDR value 0.01) and the props' add its fade times `Props_Max_Add` (0.01). The fade
+rises 0.03 every two ticks to 1 in 1.02 s, and at 30.00 s it's off and the fade falls 0.06 every two ticks to 0 in
+0.48 s (the FX value at half that speed). A tap and a 3 s hold while it was on changed nothing; cast again once it was
+off, it did the same.
+
+- **In the lab:** not yet: #10358 plays it as a brightening of the arena's lighting (the Engine's light and
+  indirect-light requests).
+- **Not measured:** how it looks (the client's lighting and its screen effect aren't on the Wire), its `radius` (300)
+  and `effect` (30), and a cast while it's on.
+- **The smoke:** both recorded eyes on 30.00 s for 0 mana, their adds `spells.txt`'s, the fade in 1.02 s and out
+  0.48 s, the props' add with it, and the presses changing nothing.
 
 ### The bow
 

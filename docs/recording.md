@@ -5,15 +5,16 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v19
+## Recording v20
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 19, reserved u32), then records until the end of the file. Each older
+= 20, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 19 | 88 bytes | 360 bytes | 56 bytes | |
+| 20 | 88 bytes | 360 bytes | 56 bytes | |
+| 19 | 88 | 360 | 56 | the wizard eye |
 | 18 | 80 (no size or shrink) | 360 | 56 | |
 | 17 | 80 | 360 | 56 | an NPC's alert level and state on its entity (zero there) |
 | 16 | 80 | 360 | 56 | the melee sweeps |
@@ -43,7 +44,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × Wire entities (88 bytes; older sizes above), `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the player stats: 80 bytes, 112 from v16, then (v17) `sweep_dropped` u32, `sweeps` i32, `sweeps` × 56-byte Wire sweep records |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × Wire entities (88 bytes; older sizes above), `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the player stats: 80 bytes, 112 from v16, then (v17) `sweep_dropped` u32, `sweeps` i32, `sweeps` × 56-byte Wire sweep records, then (v20) the 36-byte wizard eye |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -195,6 +196,7 @@ perception checks read: their fights would skew the orc's behaviour and defence 
 | `reflect-probe` | as `support-spells`, `god`, the level's necromancers removed | a necromancer spawned at (0, -2287), the player 413 units south, `notarget` off 20 s, then magic reflection twice; an orc archer in its place: neither NPC ever saw the player (l01_a's don't), so nothing was cast (#10349) |
 | `reflect-probe-2` | the same | the necromancer woken by a lightning bolt: 20 s of its flame arrows, then `Deploy_Spell_EARTH_2` (it casts as it's deployed: the presses after it cast the bolt again) twice, 20 s each; the archer woken the same way, but the second bolt killed it before it shot (#10349) |
 | `reflect-probe-3` | the same | the archer alone, woken by one bolt: 12 s of its arrows, then `Deploy_Spell_EARTH_2` alone, 16 s, twice (#10349) |
+| `wizard-eye` | as `support-spells` (Wire v20) | `Deploy_Spell_WATER_1` (it's on as it's deployed), a tap, 35 s; deployed again, held 3 s, 35 s (#10350) |
 | `npc-archery` | every skill, `god`, no `notarget`, the level's NPCs removed, the classic bow | an `npc_orc_sword` with the crossbow first, then second, each woken by an arrow from 550 or 800 units north (the courtyard is open that way) and left still, strafing or backing off: none shot; with the crossbow first it struck with it as a club (#10169) |
 | `npc-archery-2` | the same | `npc_orc_bow` (the maps' archer: `rangeweapon` the long bow) by `mm_npc_create`, the cleaver then the long bow (as the maps equip it), then the other way round; by `ent_create` (didn't spawn); an `npc_orc_sword` with the player noclipped 300 units up (it lost him) |
 | `npc-archery-3` | the same | the archer woken from 550 north, then the player noclipped up (it lost him), on the ground 900 north (it stood at 471 and shot every 2.16 s), noclipped and strafing |

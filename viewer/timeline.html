@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 19) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 19).`);
+  if (version < 1 || version > 20) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 20).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back),
   // v19 Arkane's size and shrink.
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : version < 19 ? 80 : 88;
@@ -384,6 +384,12 @@ function parseRecording(buf) {
           fr.sweeps.push({ tick: v.getInt32(p, true), attacker: v.getUint16(p + 4, true), type: v.getUint8(p + 6), flags: v.getUint8(p + 7),
                            start: f3(8), direction: f3(20), range: v.getFloat32(p + 32, true), viewAngles: f3(36), caller: v.getUint32(p + 48, true) });
         }
+      }
+      // v20: the player's wizard eye (36 bytes): read, on, its fade and its ambient adds.
+      if (version >= 20) {
+        fr.wizardEye = v.getUint8(p + 2) ? { enabled: !!v.getUint8(p + 3), duration: v.getFloat32(p + 4, true), lightmapAdd: v.getFloat32(p + 16, true),
+                                            propsAdd: v.getFloat32(p + 28, true), fade: v.getFloat32(p + 32, true) } : null;
+        p += 36;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }

@@ -8,7 +8,7 @@ namespace RustyBridge.Wire;
 public static class RecordingFormat
 {
     public const ulong Magic = 0x3130304345524252ul; // "RBREC001"
-    public const uint Version = 19;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
+    public const uint Version = 20;      // v2: 52-byte entities, sequence names; v3: damage; v4: defense; v5: serials; v6: overlay layers;
                                         // v7: 64-byte entities (links), wall clock, player state, slow-time events; v8: the client's view;
                                         // v9: its camera and viewmodel animation; v10: 80-byte entities (parent, attachment, owner);
                                         // v11: 56-byte defense records (the NPC's defense state); v12: the player's input;
@@ -18,7 +18,8 @@ public static class RecordingFormat
                                         // v16: the stats grow to 112 bytes with the skill levels;
                                         // v17: the melee sweeps after the stats;
                                         // v18: an NPC's alert level and state in the entity's spare fields (flag 4);
-                                        // v19: 88-byte entities (Arkane's size and shrink, flag 8)
+                                        // v19: 88-byte entities (Arkane's size and shrink, flag 8);
+                                        // v20: the player's wizard eye after the sweeps
 
     // Record sizes by version; older records are a prefix of the current ones.
     public static int EntityBytes(uint version) => version switch { 1 => 32, < 5 => 52, < 7 => 56, < 10 => 64, < 19 => 80, _ => Marshal.SizeOf<WireEntity>() };
@@ -171,6 +172,8 @@ public sealed class Recorder : IDisposable
             w.Write(snap.SweepDropped);
             w.Write(snap.SweepCount);
             w.Write(MemoryMarshal.AsBytes(snap.SweepSpan));
+            // v20: the player's wizard eye.
+            w.Write(MemoryMarshal.AsBytes(new ReadOnlySpan<WireWizardEye>(in snap.WizardEye)));
         });
         FramesWritten++;
     }
@@ -234,6 +237,8 @@ public sealed class RecordedFrame
     public WirePlayerInput Input = WirePlayerInput.None;
     /// <summary>v15: the player's stats and equipment; <see cref="WirePlayerStats.None"/> in older recordings.</summary>
     public WirePlayerStats Stats = WirePlayerStats.None;
+    /// <summary>v20: the player's wizard eye.</summary>
+    public WireWizardEye WizardEye = WireWizardEye.None;
     /// <summary>v17: the melee sweeps since the previous frame.</summary>
     public readonly List<WireSweep> Sweeps = new();
     public uint SweepDropped;
@@ -361,6 +366,7 @@ public static class RecordingReader
                         int sweeps = r.ReadInt32();
                         state.Sweeps.AddRange(MemoryMarshal.Cast<byte, WireSweep>(r.ReadBytes(sweeps * Marshal.SizeOf<WireSweep>())).ToArray());
                     }
+                    state.WizardEye = version >= 20 ? MemoryMarshal.Read<WireWizardEye>(r.ReadBytes(Marshal.SizeOf<WireWizardEye>())) : WireWizardEye.None;
                     yield return state;
                     break;
             }

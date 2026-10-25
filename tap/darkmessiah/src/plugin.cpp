@@ -894,6 +894,37 @@ static void WritePlayerStats(wire::PlayerStats* st) {
     }
 }
 
+// v20: the player's wizard eye, CMM_Player's nine fields from +0x1B24, in its datadesc (CheckWizardEyeOffsets).
+static const int kWizardEyeOffset = 0x1B24;
+static bool g_wizardEyeOk = false;
+
+static void WriteWizardEye(wire::WizardEye* we) {
+    memset(we, 0, sizeof *we);
+    we->player = wire::kNoEntity;
+    if (!g_wizardEyeOk) return;
+    const char* cls = ClassNameAt(1);
+    if (!cls || strcmp(cls, "player") != 0) return;
+    __try {
+        const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+        if (!p) return;
+        const unsigned char* w = p + kWizardEyeOffset;
+        we->duration = *(const float*)(w + 0x0);
+        we->fx_fade = *(const float*)(w + 0x4);
+        we->fx = *(const float*)(w + 0x8);
+        we->enabled = *(w + 0xC);
+        we->lightmap_add = *(const float*)(w + 0x10);
+        we->lightmap_add_ldr = *(const float*)(w + 0x14);
+        we->prop_add_max = *(const float*)(w + 0x18);
+        we->props_add = *(const float*)(w + 0x1C);
+        we->fade = *(const float*)(w + 0x20);
+        we->player = 1;
+        we->valid = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+        we->valid = 0;
+    }
+}
+
 // --- The client's view (Wire v8) --------------------------------------------
 //
 // In single player client.dll and engine.dll run in the tap's process. Their
@@ -1266,6 +1297,7 @@ static void WireWrite() {
     WriteClientView((wire::ClientView*)(slotBase + wire::kClientViewOffset));
     WritePlayerInput((wire::PlayerInput*)(slotBase + wire::kInputOffset));
     WritePlayerStats((wire::PlayerStats*)(slotBase + wire::kStatsOffset));
+    WriteWizardEye((wire::WizardEye*)(slotBase + wire::kWizardEyeOffset));
     {
         wire::SweepBlock* sweeps = (wire::SweepBlock*)(slotBase + wire::kSweepsOffset);
         memcpy(sweeps->records, g_pendingSweeps, g_sweepCount * sizeof(wire::Sweep));
@@ -1534,6 +1566,38 @@ static const DatadescField kStatsDatadesc[] = {
 static const unsigned char kMaxManaPush[] = { 0x68, 0xB0, 0x29, 0x00, 0x00, 0x68 };          // +0x425CD6
 static const unsigned char kModulesRead[] = { 0x8B, 0x84, 0x96, 0xF0, 0x2A, 0x00, 0x00 };    // +0x3E55E4
 static const unsigned char kLevelsRead[] = { 0x8B, 0x96, 0xC8, 0x2A, 0x00, 0x00 };           // +0x3E64FD
+
+// v20: the wizard eye's datadesc slots, as CMM_Player's start-up initializer fills them (server.dll+0x422A9C on):
+// the name pointer, then the field's offset, 0x34 bytes apart.
+static const DatadescField kWizardEyeDatadesc[] = {
+    { 0x227A45B8, "m_g_MM_fWizardEyeDuration", 0x1B24 },
+    { 0x227A45EC, "m_g_MM_fWizardEyeFXfade", 0x1B28 },
+    { 0x227A4620, "m_g_MM_fWizardEyeFX", 0x1B2C },
+    { 0x227A4654, "m_bMMWizardEyeEnable", 0x1B30 },
+    { 0x227A4688, "m_fMMWizardEyeLightmapAdd", 0x1B34 },
+    { 0x227A46BC, "m_fMMWizardEyeLightmapAddLDR", 0x1B38 },
+    { 0x227A46F0, "m_fMMWizardEyePropAddMax", 0x1B3C },
+    { 0x227A4724, "m_fMMWizardEyePropsAdd", 0x1B40 },
+    { 0x227A4758, "m_fMMWizardEyeFade", 0x1B44 },
+};
+
+static void CheckWizardEyeOffsets() {
+    unsigned char* base = (unsigned char*)GetModuleHandleA("server.dll");
+    if (!base) return;
+    const char* failed = nullptr;
+    __try {
+        for (const auto& f : kWizardEyeDatadesc) {
+            const unsigned char* slot = base + (f.slot - kServerImageBase);
+            const char* name = *(const char* const*)slot;
+            if (!name || strcmp(name, f.name) != 0 || *(const int*)(slot + 4) != f.offset) { failed = f.name; break; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        failed = "an unreadable address";
+    }
+    g_wizardEyeOk = failed == nullptr;
+    if (failed) Log("wizard eye: unexpected bytes for %s, not recording it", failed);
+    else Log("wizard eye: offsets checked (%d datadesc fields)", (int)(sizeof kWizardEyeDatadesc / sizeof *kWizardEyeDatadesc));
+}
 
 static void CheckStatsOffsets() {
     unsigned char* base = (unsigned char*)GetModuleHandleA("server.dll");
@@ -2202,6 +2266,7 @@ public:
         WireOpen();
         ControlOpen();
         CheckStatsOffsets();
+        CheckWizardEyeOffsets();
         InstallDamageHook();
         InstallUsercmdHook();
         InstallDefenseHook();

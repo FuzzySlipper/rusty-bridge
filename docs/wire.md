@@ -1,4 +1,4 @@
-# Wire v19
+# Wire v20
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -34,17 +34,17 @@ player's stats: stamina, mana, the skill modules learned, skill points and the i
 each skill's level. Since v17 each tick carries the melee sweeps the server ran: the start, direction and range of each
 ray it swept for a swing. Since v18 every NPC carries its alert level and state each tick (they were on damage
 records only), so its alertness is seen climbing. Since v19 every entity carries Arkane's size and shrink, so a shrunk
-NPC is seen shrinking (below, "Shrink"). A control file beside the Wire holds the donor
+NPC is seen shrinking (below, "Shrink"). Since v20 each tick carries the player's wizard eye (below, "Wizard eye"). A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v19 replaced v1 between 2026-10-17 and 2026-10-24. Readers check `version`; the tap writes
+v2–v20 replaced v1 between 2026-10-17 and 2026-10-25. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 27,851,008 bytes and maps it read-write; readers open
+creates it, sizes it to 27,855,616 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -61,7 +61,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 212,976 | Ring of slots |
+| 590,080 | 128 × 213,012 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -85,6 +85,7 @@ at 72), then:
 - at 211,064, the 112-byte player stats (80 in v15; below, "The player's stats")
 - at 211,176 (v17), the melee sweeps: `count` u32, `dropped` u32, then up to 32 sweep records of 56 bytes (below, "The
   melee sweep")
+- at 212,976 (v20), the 36-byte wizard eye (below, "Wizard eye")
 
 Entities:
 
@@ -626,6 +627,32 @@ How the donor shrinks an NPC (#10348), read from server.dll:
   (`0x3F7FF972`, +0x471C0F). `CBaseEntity` reads 0.999 with `m_iShrinked` bit 0 as unscaled (+0x397253).
 
 What the recordings show of it (`l01_a-v19-shrink`, `-2`, `-3`) is in lab.md, "Shrink".
+
+## Wizard eye
+
+Since v20 each tick carries the player's wizard eye (#10350): CMM_Player's nine fields from +0x1B24, read after the
+frame as the stats are. Their offsets are its datadesc's, which its start-up initializer fills (server.dll+0x422A9C on,
+0x34 bytes a field: the name pointer, then the offset); the tap checks each slot's name and offset at load and records
+nothing if any differ (`wizard eye: offsets checked` in its log).
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16 | edict index (1); 0xFFFF when not read |
+| 2 | `valid` u8 | 1 when read |
+| 3 | `enabled` u8 | `m_bMMWizardEyeEnable` (+0x1B30) |
+| 4 | `duration` f32 | `m_g_MM_fWizardEyeDuration` (+0x1B24) |
+| 8 | `fx_fade` f32 | `m_g_MM_fWizardEyeFXfade` (+0x1B28) |
+| 12 | `fx` f32 | `m_g_MM_fWizardEyeFX` (+0x1B2C) |
+| 16 | `lightmap_add` f32 | `m_fMMWizardEyeLightmapAdd` (+0x1B34) |
+| 20 | `lightmap_add_ldr` f32 | `m_fMMWizardEyeLightmapAddLDR` (+0x1B38) |
+| 24 | `prop_add_max` f32 | `m_fMMWizardEyePropAddMax` (+0x1B3C) |
+| 28 | `props_add` f32 | `m_fMMWizardEyePropsAdd` (+0x1B40) |
+| 32 | `fade` f32 | `m_fMMWizardEyeFade` (+0x1B44) |
+
+The wizard eye isn't a remote view: server.dll's `CARXSPELL_Spells::EnterWizardEye` export (+0x4A1180) is empty
+padding, and the spell's numbers in `spells.txt` (`water_1`: `effect_duration` 30, `Lightmap_Max_Add` 0.002,
+`Props_Max_Add` 0.01) and these fields brighten the lightmaps and props for its duration (server.dll also names a
+`wizardeye_tonemap_scale`, 0.3, +0x3DEE9A). What the recording shows of it is in lab.md, "Wizard eye".
 
 ## Finding fields: send tables
 

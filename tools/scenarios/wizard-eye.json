@@ -1,0 +1,97 @@
+{
+  "description": "Wizard eye (#10350): every skill, notarget, the level's NPCs removed, sixteen mana potions. Deploy_Spell_WATER_1, then a tap and 35 s; deployed again, held 3 s and 35 s. Wire v20 records the player's wizard-eye fields. Marked with echo rb_we.",
+  "seconds": 90,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_we wizard eye deployed, tapped, 35 s",
+    "setpos 0 -2500 -12",
+    "setang 0 90 0",
+    "usebelt1",
+    {
+      "wait": 2
+    },
+    "Deploy_Spell_WATER_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 35
+    },
+    "echo rb_we wizard eye deployed, held 3 s, 35 s",
+    "Deploy_Spell_WATER_1",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 3
+    },
+    "-attack",
+    {
+      "wait": 35
+    }
+  ]
+}

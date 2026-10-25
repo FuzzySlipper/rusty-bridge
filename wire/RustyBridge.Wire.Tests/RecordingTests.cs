@@ -95,8 +95,8 @@ public sealed class RecordingTests : IDisposable
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8)
         // + v8/v9: the client view (232) + v12/v14: the player's input (48) + v15/v16: the stats (112)
-        // + v17: sweep dropped-and-count (8).
-        Assert.Equal(582, recorder.Bytes - afterKey);
+        // + v17: sweep dropped-and-count (8) + v20: the wizard eye (36).
+        Assert.Equal(618, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -310,6 +310,7 @@ public sealed class RecordingTests : IDisposable
         };
         unsafe { stats.SkillLevels[0] = 1; stats.SkillLevels[3] = 3; }
         writer.Stats(stats);
+        writer.WizardEye(new WireWizardEye { Player = 1, Valid = 1, Enabled = 1, Duration = 30, Fade = .5f, LightmapAdd = .002f, PropsAdd = .01f });
         writer.Sweeps(new WireSweep { Tick = 10, Attacker = 1, AttackerSerial = 1, Type = 0, Flags = WireSweep.HeadEntity, StartX = 100, StartZ = 73,
             DirectionY = 1, Range = 120, ViewYaw = 90, Caller = 0x411C55 });
         writer.Player(new WirePlayerState { Index = 1, InBulletTime = 1, BulletTimeStart = 151.2f, BulletTimeDuration = 2, BulletTimeFactor = 0.1f, Adrenaline = 40, MaxAdrenaline = 100 }, wallSeconds: 12.5);
@@ -334,14 +335,17 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(19u, f.Version);
+        Assert.Equal(20u, f.Version);
         var sweep = Assert.Single(f.Sweeps);
         Assert.Equal((10, (ushort)1, (byte)0, WireSweep.HeadEntity, 100f, 73f, 1f, 120f, 90f, 0x411C55u),
             (sweep.Tick, sweep.Attacker, sweep.Type, sweep.Flags, sweep.StartX, sweep.StartZ, sweep.DirectionY, sweep.Range, sweep.ViewYaw, sweep.Caller));
         // The same frame as a v16 recording wrote it: no sweeps after the stats.
-        int sweepTail = 8 + System.Runtime.InteropServices.Marshal.SizeOf<WireSweep>();
+        int sweepTail = 8 + System.Runtime.InteropServices.Marshal.SizeOf<WireSweep>() + System.Runtime.InteropServices.Marshal.SizeOf<WireWizardEye>();
         var v16 = Assert.Single(RecordingReader.Frames(new MemoryStream(AsVersion(buffer.ToArray(), 16, sweepTail))));
         Assert.Equal((16u, 0, 3), (v16.Version, v16.Sweeps.Count, v16.Stats.SkillLevel("extra_damage")));
+        // v20: the wizard eye; none before it.
+        Assert.Equal(((byte)1, 30f, .5f, .002f), (f.WizardEye.Enabled, f.WizardEye.Duration, f.WizardEye.Fade, f.WizardEye.LightmapAdd));
+        Assert.Equal(((byte)0, WireLayout.NoEntity), (v16.WizardEye.Valid, v16.WizardEye.Player));
         // v19: Arkane's size and shrink; an older entity reads unscaled, with the flag off (it was never written).
         Assert.Equal((0.2f, 1, true), (f.Entities[9].Size, f.Entities[9].Shrinked, f.Entities[9].Flags.HasFlag(WireEntityFlags.HasSize)));
         Assert.Equal((1f, 0, (ushort)7), (v16.Entities[9].Size, v16.Entities[9].Shrinked, v16.Entities[9].Parent));
@@ -526,7 +530,7 @@ public sealed class RecordingTests : IDisposable
         int entityNow = System.Runtime.InteropServices.Marshal.SizeOf<WireEntity>(), entityThen = 64;
         int viewTail = System.Runtime.InteropServices.Marshal.SizeOf<WireClientView>() - WireClientView.V8Bytes
             + System.Runtime.InteropServices.Marshal.SizeOf<WirePlayerInput>() + System.Runtime.InteropServices.Marshal.SizeOf<WirePlayerStats>()
-            + 8 + System.Runtime.InteropServices.Marshal.SizeOf<WireSweep>();
+            + 8 + System.Runtime.InteropServices.Marshal.SizeOf<WireSweep>() + System.Runtime.InteropServices.Marshal.SizeOf<WireWizardEye>();
         var output = new MemoryStream();
         output.Write(current, 0, 16);
         BitConverter.GetBytes(8u).CopyTo(output.GetBuffer(), 8);

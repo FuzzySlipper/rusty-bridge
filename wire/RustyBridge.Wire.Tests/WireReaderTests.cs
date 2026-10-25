@@ -49,7 +49,11 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(WireLayout.InputOffset + 48, WireLayout.StatsOffset);
         Assert.Equal(WireLayout.StatsOffset + 112, WireLayout.SweepsOffset);
         Assert.Equal(48, (int)Marshal.OffsetOf<WireSweep>(nameof(WireSweep.Caller)));
-        Assert.Equal(27_851_008, WireLayout.FileBytes);
+        // v20: the wizard eye after the sweeps (wire.h WizardEye).
+        Assert.Equal(36, Marshal.SizeOf<WireWizardEye>());
+        Assert.Equal(16, (int)Marshal.OffsetOf<WireWizardEye>(nameof(WireWizardEye.LightmapAdd)));
+        Assert.Equal(WireLayout.SweepsOffset + 8 + 32 * 56, WireLayout.WizardEyeOffset);
+        Assert.Equal(27_855_616, WireLayout.FileBytes);
     }
 
     [Fact]

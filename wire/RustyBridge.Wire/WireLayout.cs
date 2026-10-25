@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 19;
+    public const uint Version = 20;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -36,7 +36,9 @@ public static class WireLayout
     public static readonly int StatsOffset = InputOffset + Marshal.SizeOf<WirePlayerInput>();
     /// <summary>v17: the melee sweeps since the previous frame (count, dropped, then the records), after the stats.</summary>
     public static readonly int SweepsOffset = StatsOffset + Marshal.SizeOf<WirePlayerStats>();
-    public static readonly int SlotBytes = SweepsOffset + 8 + MaxSweeps * Marshal.SizeOf<WireSweep>();
+    /// <summary>v20: the player's wizard eye, after the sweeps.</summary>
+    public static readonly int WizardEyeOffset = SweepsOffset + 8 + MaxSweeps * Marshal.SizeOf<WireSweep>();
+    public static readonly int SlotBytes = WizardEyeOffset + Marshal.SizeOf<WireWizardEye>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -203,6 +205,39 @@ public enum SlowTimeSource : byte
     Setter = 0,
     /// <summary>The static request (server.dll+0x147560): Start is a delay, and the game stores Duration × Factor.</summary>
     Request = 1,
+}
+
+/// <summary>
+/// v20: the player's wizard eye (docs/wire.md, "Wizard eye"): CMM_Player's block of its fields, +0x1B24 to +0x1B44,
+/// by their datadesc names.
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public struct WireWizardEye
+{
+    /// <summary>The edict the fields were read from; <see cref="WireLayout.NoEntity"/> when none.</summary>
+    public ushort Player;
+    /// <summary>1 when read.</summary>
+    public byte Valid;
+    /// <summary>m_bMMWizardEyeEnable (+0x1B30).</summary>
+    public byte Enabled;
+    /// <summary>m_g_MM_fWizardEyeDuration (+0x1B24).</summary>
+    public float Duration;
+    /// <summary>m_g_MM_fWizardEyeFXfade (+0x1B28).</summary>
+    public float FxFade;
+    /// <summary>m_g_MM_fWizardEyeFX (+0x1B2C).</summary>
+    public float Fx;
+    /// <summary>m_fMMWizardEyeLightmapAdd (+0x1B34).</summary>
+    public float LightmapAdd;
+    /// <summary>m_fMMWizardEyeLightmapAddLDR (+0x1B38).</summary>
+    public float LightmapAddLdr;
+    /// <summary>m_fMMWizardEyePropAddMax (+0x1B3C).</summary>
+    public float PropAddMax;
+    /// <summary>m_fMMWizardEyePropsAdd (+0x1B40).</summary>
+    public float PropsAdd;
+    /// <summary>m_fMMWizardEyeFade (+0x1B44).</summary>
+    public float Fade;
+
+    public static WireWizardEye None => new() { Player = WireLayout.NoEntity };
 }
 
 /// <summary>

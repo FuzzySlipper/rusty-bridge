@@ -1947,6 +1947,26 @@ host.Call(engine =>
         }
         else Console.WriteLine("skip the donor's magic reflection: no local/recordings/experiments/l01_a-v19-reflect-probe-2.rbrec and -3");
     }
+    // The wizard eye (#10350; docs/lab.md, "Wizard eye"), recorded only: Wire v20's player fields against spells.txt's
+    // water_1. Deployed, it's on for effect_duration (30 s), for its cost (0), with Lightmap_Max_Add, its LDR value and
+    // Props_Max_Add as its adds, the props' following its fade, which rises to 1 in 1 s and falls to 0 in 0.5 s. The lab
+    // doesn't play it yet.
+    {
+        var eyeRecording = Path.Combine(repo!, "local", "recordings", "experiments", "l01_a-v20-wizard-eye.rbrec");
+        if (File.Exists(eyeRecording))
+        {
+            var eyes = WizardEyeCalibration.Measure(eyeRecording);
+            foreach (var e in eyes) Console.WriteLine($"  {e}");
+            float? W(string key) => combat.Donor.Tables.Spell("water_1", key);
+            float duration = W("effect_duration") ?? float.NaN, lightmap = W("Lightmap_Max_Add") ?? float.NaN, ldr = W("Lightmap_Max_Add_LDR") ?? float.NaN,
+                props = W("Props_Max_Add") ?? float.NaN, cost = W("cost") ?? float.NaN;
+            Check(eyes.Count == 2 && eyes.All(e => Math.Abs(e.Off - e.On - duration) <= .031 && MathF.Abs(e.Mana - cost) < .75f
+                    && MathF.Abs(e.LightmapAdd - lightmap) < 1e-6f && MathF.Abs(e.LightmapAddLdr - ldr) < 1e-6f && MathF.Abs(e.PropAddMax - props) < 1e-6f
+                    && Math.Abs(e.FadeIn - 1) <= .031 && Math.Abs(e.FadeOut - .5) <= .031 && e.PropsFollowFade && e.PressesChangedNothing),
+                FormattableString.Invariant($"the donor's wizard eye: {eyes.Count} deployed, each on {string.Join(", ", eyes.Select(e => (e.Off - e.On).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s (effect_duration {duration:0}) for {cost:0} mana, lightmap +{lightmap} (LDR +{ldr}) and props up to +{props} as spells.txt has them, its fade in {eyes.FirstOrDefault()?.FadeIn:0.00} s and out {eyes.FirstOrDefault()?.FadeOut:0.00} s, the props' with it; presses while on changed nothing"));
+        }
+        else Console.WriteLine("skip the donor's wizard eye: no local/recordings/experiments/l01_a-v20-wizard-eye.rbrec");
+    }
     // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'
     // npc_orc_bow, the long bow and the cleaver). Aware, it runs at the player to 471 units, nocks an arrow 1.2 s on and
     // every 2.16 s, lets it go 1.08 s after standing (1.2 s on the move) at the player's eye less 11 units, at 7311 − 6.29

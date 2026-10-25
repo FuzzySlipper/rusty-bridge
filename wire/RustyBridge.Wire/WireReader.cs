@@ -49,6 +49,8 @@ public sealed class WireSnapshot
     public uint SweepDropped;
     public readonly WireSweep[] Sweeps = new WireSweep[WireLayout.MaxSweeps];
     public ReadOnlySpan<WireSweep> SweepSpan => Sweeps.AsSpan(0, SweepCount);
+    /// <summary>v20: the player's wizard eye.</summary>
+    public WireWizardEye WizardEye = WireWizardEye.None;
 }
 
 /// <summary>
@@ -136,6 +138,7 @@ public sealed unsafe class WireReader : IDisposable
         int sweeps = (int)Math.Min(*(uint*)(slot + WireLayout.SweepsOffset), (uint)WireLayout.MaxSweeps);
         snapshot.SweepDropped = *(uint*)(slot + WireLayout.SweepsOffset + 4);
         new ReadOnlySpan<WireSweep>(slot + WireLayout.SweepsOffset + 8, sweeps).CopyTo(snapshot.Sweeps);
+        snapshot.WizardEye = *(WireWizardEye*)(slot + WireLayout.WizardEyeOffset);
         snapshot.WallSeconds = header->WallSeconds;
         snapshot.Player = header->Player;
 

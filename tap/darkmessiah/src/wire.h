@@ -1,4 +1,4 @@
-// Wire v19: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v20: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 19;
+const uint32_t kVersion = 20;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -357,8 +357,25 @@ struct SweepBlock {
     Sweep records[kMaxSweeps];
 };
 
+// v20: the player's wizard eye, CMM_Player's block of its fields (+0x1B24 to +0x1B44, from its datadesc; docs/wire.md,
+// "Wizard eye"), read after the frame like the stats.
+struct WizardEye {
+    uint16_t player;            // edict index the fields are read from; kNoEntity if none
+    uint8_t valid;              // 1 when read
+    uint8_t enabled;            // m_bMMWizardEyeEnable (+0x1B30)
+    float duration;             // m_g_MM_fWizardEyeDuration (+0x1B24)
+    float fx_fade;              // m_g_MM_fWizardEyeFXfade (+0x1B28)
+    float fx;                   // m_g_MM_fWizardEyeFX (+0x1B2C)
+    float lightmap_add;         // m_fMMWizardEyeLightmapAdd (+0x1B34)
+    float lightmap_add_ldr;     // m_fMMWizardEyeLightmapAddLDR (+0x1B38)
+    float prop_add_max;         // m_fMMWizardEyePropAddMax (+0x1B3C)
+    float props_add;            // m_fMMWizardEyePropsAdd (+0x1B40)
+    float fade;                 // m_fMMWizardEyeFade (+0x1B44)
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(WizardEye) == 36, "WizardEye layout");
 static_assert(sizeof(Sweep) == 56, "Sweep layout");
 static_assert(sizeof(PlayerStats) == 112, "PlayerStats layout");
 static_assert(sizeof(PlayerInput) == 48, "PlayerInput layout");
@@ -383,7 +400,8 @@ const uint32_t kClientViewOffset = kSlowTimeOffset + kMaxSlowTime * sizeof(SlowT
 const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
 const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15 (80 bytes; 112 from v16)
 const uint32_t kSweepsOffset = kStatsOffset + sizeof(PlayerStats);   // v17
-const uint32_t kSlotBytes = kSweepsOffset + sizeof(SweepBlock);
+const uint32_t kWizardEyeOffset = kSweepsOffset + sizeof(SweepBlock);   // v20
+const uint32_t kSlotBytes = kWizardEyeOffset + sizeof(WizardEye);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 // The control file, rustybridge.control beside the Wire: a reader holds the

@@ -104,6 +104,7 @@ internal sealed class LabCombat : IDisposable
         Inferno = InfernoRules.From(donor);
         Cure = CureRules.From(donor);
         Weaken = WeakenRules.From(donor);
+        Shrink = ShrinkRules.From(donor);
         Charm = CharmRules.From(donor);
     }
 
@@ -288,6 +289,8 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The support spells' numbers (#10167).</summary>
     internal CureRules Cure { get; }
     internal WeakenRules Weaken { get; }
+    /// <summary>Weaken with the gauge full (#10348).</summary>
+    internal ShrinkRules Shrink { get; }
     internal CharmRules Charm { get; }
 
     /// <summary>The spells the lab plays: <c>spells.txt</c>'s id, and its name for the HUD.</summary>
@@ -344,18 +347,20 @@ internal sealed class LabCombat : IDisposable
         cures.RemoveAll(c => c.Done);
     }
 
-    /// <summary>Weaken or charm (#10167): its cost at the press, on the nearest orc in view.</summary>
-    void CastAt(string spell, float cost, float adrenaline, float rangeUnits, float coneDegrees, string clip, Action<Orc> effect)
+    /// <summary>Weaken, shrink or charm (#10167, #10348): its cost at the press, on the nearest orc in view.</summary>
+    /// <param name="name">What the HUD calls it, when not its spell's name (a shrink is a powered weaken).</param>
+    void CastAt(string spell, float cost, float adrenaline, float rangeUnits, float coneDegrees, string clip, Action<Orc> effect, string? name = null)
     {
-        if (!Mana.Spend(cost)) { Refuse(Played[spell].ToLowerInvariant(), cost); return; }
+        name ??= Played[spell];
+        if (!Mana.Spend(cost)) { Refuse(name.ToLowerInvariant(), cost); return; }
         Spells = Spells with { Casts = Spells.Casts + 1 };
         spellClip = (clip, 0, false);
         var at = InView(eyeAt, forwardAt, rangeUnits, coneDegrees).FirstOrDefault();
         LastSupport = (spell, at);
-        if (at is null) { Message = $"{Played[spell]}: nothing in view"; return; }
+        if (at is null) { Message = $"{name}: nothing in view"; return; }
         effect(at);
         Adrenaline.Gain(adrenaline);
-        Message = $"{Played[spell]} on {(at == Orc ? "the orc" : "its mate")}";
+        Message = $"{name} on {(at == Orc ? "the orc" : "its mate")}";
     }
     Vector3 eyeAt, forwardAt;
 
@@ -377,7 +382,10 @@ internal sealed class LabCombat : IDisposable
         switch (SpellInHand)
         {
             case WeakenRules.Spell:
-                if (pressed) CastAt(WeakenRules.Spell, Weaken.Cost, Weaken.AdrenalineAdd, Weaken.RangeUnits, Weaken.ConeDegrees, WeakenRules.CastClip, o => o.Weaken(Weaken.Seconds));
+                // The gauge full, it shrinks (#10348): the gauge empties at it, and its adrenaline_add comes back.
+                if (pressed && Adrenaline.Full)
+                    CastAt(WeakenRules.Spell, Shrink.Cost, Shrink.AdrenalineAdd, Shrink.RangeUnits, Shrink.ConeDegrees, WeakenRules.CastClip, o => { Adrenaline.Spend(); o.Shrink(); }, "Shrink");
+                else if (pressed) CastAt(WeakenRules.Spell, Weaken.Cost, Weaken.AdrenalineAdd, Weaken.RangeUnits, Weaken.ConeDegrees, WeakenRules.CastClip, o => o.Weaken(Weaken.Seconds));
                 break;
             case CharmRules.Spell:
                 if (pressed) CastAt(CharmRules.Spell, Charm.Cost, Charm.AdrenalineAdd, Charm.RangeUnits, Charm.ConeDegrees, CharmRules.CastClip, o => o.Charm(Charm.Seconds));
@@ -980,6 +988,7 @@ internal sealed class LabCombat : IDisposable
         foreach (var shot in Orc.Loosed) Loose(Orc, shot, orcFoe is { } target && target != Orc ? target : null, eye);
         StepOrcArrows(tick, seconds, feet, eye);
         foreach (var blow in mateBlows) if (mateFoe is { } foe) OrcStrikesOrc(tick, blow, Mate!, foe); else OrcStrikes(tick, blow, feet, forward, Mate!);
+        if (orcPose is null) Stomp(tick, feet);
         StepCures(seconds);
         Health.Step(seconds);
         Mana.Step(seconds);
@@ -1287,6 +1296,16 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         float asked = PlayerAsks(player, orc, null, kick: true, hitOrc.Health, alert: AlertAt(tick));
+        // A shrunk orc (#10348) dies to a kick, whatever it asked: it was at 2 for the kick's 1.
+        if (hitOrc.Shrunk)
+        {
+            hitOrc.Crush();
+            Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };
+            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, hitOrc.Feet + Vector3.UnitY * .1f, hitOrc.Feet + Vector3.UnitY * .1f, FormattableString.Invariant($"kick {asked:0.##}, crushed"), Damage: asked), blow: true);
+            Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
+            Message = "Kick: crushed";
+            return;
+        }
         hitOrc.Damage(asked);
         React(null, kick: true, asked, null, forward, flat, Tuning.KickPush);
         // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
@@ -1296,6 +1315,27 @@ internal sealed class LabCombat : IDisposable
         Log?.Add(new CombatEvent(tick, true, Sword.Clip.Clip, DefenseResult.Hit, asked, null));
         Message = "Kick";
     }
+
+    /// <summary>
+    /// The player's body on a shrunk orc (#10348): within <see cref="ShrinkRules.StompUnits"/> of its feet, on its level,
+    /// it's crushed by a kick-typed blow of <see cref="ShrinkRules.StompDamage"/>, as the donor's were walked into.
+    /// </summary>
+    void Stomp(ulong tick, Vector3 feet)
+    {
+        float reach = ShrinkRules.StompUnits * SourceSpace.MetresPerUnit;
+        foreach (var orc in Orcs)
+        {
+            if (!orc.Alive || !orc.Shrunk || ((orc.Feet - feet) with { Y = 0 }).Length() > reach || MathF.Abs(orc.Feet.Y - feet.Y) > .5f) continue;
+            orc.Crush();
+            Stomped++;
+            Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + Shrink.StompDamage };
+            Log?.Add(new CombatEvent(tick, true, "stomp", DefenseResult.Hit, Shrink.StompDamage, null));
+            Message = "Stomped";
+        }
+    }
+
+    /// <summary>The shrunk orcs the player's body has crushed (#10348).</summary>
+    internal int Stomped { get; private set; }
 
     /// <summary>
     /// What the player's blow asks, as the lab asks it: the weapon's swing by the move's clip, or a kick, on a
@@ -1691,6 +1731,7 @@ internal sealed class LabCombat : IDisposable
         EndSpell();
         cures.Clear();
         LastSupport = null;
+        Stomped = 0;
         OrcFights = default;
         orcArrows.Clear();
         OrcArchery = default;

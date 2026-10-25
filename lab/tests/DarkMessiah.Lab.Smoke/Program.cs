@@ -1230,11 +1230,12 @@ host.Call(engine =>
         var tkAim = Vector3.Normalize(tkOrcFeet + Vector3.UnitY * 1.1f - tkP.Eye);
         tkP.Face(MathF.Atan2(tkAim.X, -tkAim.Z), MathF.Asin(Math.Clamp(tkAim.Y, -1, 1)));
         Advance(20);
-        float tkOrcBefore = combat.Orc.Health;
+        // What the throws took (its regeneration aside, #10348).
+        float tkOrcBefore = combat.Orc.Taken;
         tkTk.Throw();
         // Frozen where it stands, as the donor's was (ai_disable): put back each step.
         for (int i = 0; i < 90; i++) { combat.Orc.PlaceAt(tkOrcFeet); Advance(1); }
-        float tkOrcTaken = tkOrcBefore - combat.Orc.Health;
+        float tkOrcTaken = combat.Orc.Taken - tkOrcBefore;
         uint tkHits = tkTk.Hits;
         combat.Orc.Hold = tkWasHeld;
         ((IReplayBody)product).Begin();
@@ -1381,7 +1382,9 @@ host.Call(engine =>
         var lr = combat.Lightning;
         var bolt = Run(1, (int)(3 / Tick));
         int struckAt = bolt.FindIndex(t => t.Health < 35);
-        float boltTaken = 35 - bolt[^1].Health, boltCost = combat.Mana.Max - bolt[Math.Max(0, struckAt)].Mana;
+        // What its blows took, its regeneration aside (#10348).
+        float boltTaken = combat.Orc.Taken;
+        float boltCost = combat.Mana.Max - bolt[Math.Max(0, struckAt)].Mana;
         bool boltStunned = bolt.Skip(Math.Max(0, struckAt)).Any(t => t.State == DarkMessiah.Lab.Npc.OrcState.Stunned);
         var second = Run(1, (int)(4 / Tick));
         int leftAt = second.FindIndex(t => t.Health < bolt[^1].Health), diedAt = second.FindIndex(t => !t.Alive);
@@ -1404,7 +1407,8 @@ host.Call(engine =>
         var ir = combat.Inferno;
         var burn = Run((int)(3 / Tick), (int)(10 / Tick));
         var burnTimes = new List<float>();
-        for (int i = 1; i < burn.Count; i++) if (burn[i].Alive && burn[i].Health < burn[i - 1].Health - .01f) burnTimes.Add((i + 1) * Tick);
+        // Each burn's blow; one after its regeneration's 0.25 (#10348) takes only that, and isn't counted.
+        for (int i = 1; i < burn.Count; i++) if (burn[i].Alive && burn[i].Health < burn[i - 1].Health - .5f) burnTimes.Add((i + 1) * Tick);
         float atPress = combat.Mana.Max - burn[0].Mana, atRelease = burn[(int)(3 / Tick) - 1].Mana;
         int burnDied = burn.FindIndex(t => !t.Alive);
         float lastBurn = burnTimes.Count > 0 ? burnTimes[^1] : float.NaN;
@@ -1432,7 +1436,7 @@ host.Call(engine =>
             combat.Mate.PlaceAt(spMateAt);
             combat.Step(Tick, step++, true, false, false, spEye, Vector3.Normalize(spMid - spEye), spEye - Vector3.UnitY * 1.6f);
         }
-        float areaFirst = 35 - combat.Orc.Health, areaMate = 35 - combat.Mate.Health;
+        float areaFirst = combat.Orc.Taken, areaMate = combat.Mate.Taken;
         combat.Step(Tick, step++, false, false, false, spEye, Vector3.Normalize(spMid - spEye), spEye - Vector3.UnitY * 1.6f);
         combat.Retune(spTuning);
         combat.Reset();
@@ -1450,7 +1454,7 @@ host.Call(engine =>
                 combat.Orc.PlaceAt(hidden);
                 combat.Step(Tick, step++, i < 1, false, false, eye, Vector3.Normalize(hidden + Vector3.UnitY * .9f - eye), eye - Vector3.UnitY * 1.6f);
             }
-            return 35 - combat.Orc.Health;
+            return combat.Orc.Taken;
         }
         float behindCrate = Bolted(crate with { Y = 1.6f, Z = 3 }), besideCrate = Bolted(new Vector3(5.5f, 1.6f, 3));
         // Three blows in 1.3 s (0.17, 0.68, 1.19): 39, all but the last 1 of their 35.
@@ -1548,6 +1552,8 @@ host.Call(engine =>
         combat.Orc.Spawn();
         combat.Orc.PlaceAt(ssOrc);
         combat.Mana.Fill();
+        // The gauge empty: full, the cast shrinks (#10348).
+        combat.Adrenaline.Set(0, DarkMessiah.Lab.Sword.PlayerAdrenaline.ShippedMax);
         combat.UseBelt(1);
         bool weakenInHand = combat.SpellInHand == DarkMessiah.Lab.Magic.WeakenRules.Spell;
         float weakenMana = combat.Mana.Value;
@@ -1724,6 +1730,127 @@ host.Call(engine =>
                 FormattableString.Invariant($"the donor's support spells: {cures.Count} cures took {cr.Cost:0} mana and gave {cr.AtOnce:0} at once, then a point at the rules' times; {weakens.Count} weakens cost {wr.Cost:0}, the orc's {weakenedBlows.Count} blows in their {wr.Seconds:0} s wounded attacks asking 4 (the model's), {laterBlows.Count} after the others, the wounded clips last begun {string.Join(", ", lastWounded.Select(t => t.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on, the player's {swordOnWeakened.Count} sword blows on it the lab's ({swordOnWeakened.Count(d => d.Agrees)} agree); {charms.Count} charm cost {chr.Cost:0}, no orc struck the player in its {chr.Seconds:0} s, the other orc's {charms.Sum(c => c.Blows.Count(b => !b.OnPlayer))} blows were on the charmed one, those struck in an attack clip asking the model's, and it idled again {string.Join(", ", charms.Select(c => c.First(5, k => k.StartsWith("idle", StringComparison.Ordinal)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} s on"));
         }
         else Console.WriteLine("skip the donor's support spells: no local/recordings/experiments/l01_a-v18-support-spells.rbrec and -2");
+    }
+    // Shrink (#10348; docs/lab.md, "Shrink"): weaken pressed with the gauge full. 15 mana, the gauge to air_4's 2, the
+    // orc's health to 1; its size falls from 0.96 s, 0.03 every two ticks to 0.2, and at 1.95 s it's small (0.3), standing
+    // in combatidle, striking nothing, its health climbing 0.25 every 2 s. The player's body 26 units from it crushes it;
+    // a kick kills it. Against l01_a-v19-shrink, -2 and -3.
+    {
+        float shmpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var shrinkFile = file with
+        {
+            Skills = new Dictionary<string, int>(file.Skills) { ["focus"] = 1, ["extra_mana"] = 3 },
+            Belt = [new BeltSlot(Spell: DarkMessiah.Lab.Magic.WeakenRules.Spell)],
+        };
+        bool shWasHeld = combat.Orc.Hold, shWasGod = combat.God;
+        var shEye = new Vector3(12, 1.6f, 6);
+        var shOrc = new Vector3(12, 0, 6 + 200 * shmpu);
+        var shFeet = shEye - Vector3.UnitY * 1.6f;
+        var sr = combat.Shrink;
+        combat.Reset();
+        combat.Rebuild(shrinkFile);
+        combat.God = true;
+        combat.Orc.Hold = false;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(shOrc);
+        float Tall(DarkMessiah.Lab.Npc.Orc o) => o.Targets() is { Count: > 0 } t ? t[0].Pose.Max(j => j.World.Translation.Y) - o.Feet.Y : float.NaN;
+        float tallBefore = Tall(combat.Orc), hullBefore = combat.Orc.Hull.HalfExtents.Y;
+        combat.Mana.Fill();
+        combat.Adrenaline.Set(DarkMessiah.Lab.Sword.PlayerAdrenaline.ShippedMax, DarkMessiah.Lab.Sword.PlayerAdrenaline.ShippedMax);
+        combat.UseBelt(0);
+        float shMana = combat.Mana.Value, shCost = float.NaN, shAdrenaline = float.NaN, shHealth = float.NaN;
+        var shSizes = new List<(float At, float Size)>();
+        float shSmallAt = float.NaN;
+        int shBlows = combat.OrcStats.Blows;
+        var shClips = new HashSet<string>();
+        var shRises = new List<float>();
+        float shLast = float.NaN;
+        // 20 s, the player 200 units off and looking at it (god: what it strikes is counted, none taken).
+        for (int i = 0; i < (int)(20 / Tick); i++)
+        {
+            combat.Step(Tick, step++, i < 1, false, false, shEye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY * .3f - shEye), shFeet);
+            float t = (i + 1) * Tick;
+            if (i == 0) (shCost, shAdrenaline, shHealth) = (shMana - combat.Mana.Value, combat.Adrenaline.Value, combat.Orc.Health);
+            if (!combat.Orc.Shrunk && (shSizes.Count == 0 || shSizes[^1].Size != combat.Orc.Size)) shSizes.Add((t, combat.Orc.Size));
+            if (float.IsNaN(shSmallAt) && combat.Orc.Shrunk) shSmallAt = t;
+            if (combat.Orc.Shrunk) shClips.Add(combat.Orc.Clip);
+            if (combat.Orc.Shrunk && !float.IsNaN(shLast) && combat.Orc.Health > shLast + .01f) shRises.Add(t);
+            shLast = combat.Orc.Health;
+        }
+        shBlows = combat.OrcStats.Blows - shBlows;
+        // Its size where the donor's was (the first of each value within a tick of the rules').
+        bool sizesRight = shSizes.Count >= 27 && shSizes.All(s => MathF.Abs(s.Size - DarkMessiah.Lab.Magic.ShrinkRules.SizeAt(s.At)) < .001f)
+            && shSizes.Any(s => MathF.Abs(s.Size - DarkMessiah.Lab.Magic.ShrinkRules.Floor) < .001f);
+        float tallAfter = Tall(combat.Orc), hullAfter = combat.Orc.Hull.HalfExtents.Y;
+        float meanRise = shRises.Count > 2 ? (shRises[^1] - shRises[0]) / (shRises.Count - 1) : float.NaN;
+        Check(MathF.Abs(shCost - sr.Cost) < .05f && MathF.Abs(shAdrenaline - sr.AdrenalineAdd) < .01f && shHealth == 1 && sizesRight
+                && MathF.Abs(shSmallAt - DarkMessiah.Lab.Magic.ShrinkRules.SwapSeconds) <= 1.01f * Tick && shBlows == 0 && shClips.SetEquals(["combatidle"])
+                && combat.Orc.Placement.Scale == Vector3.One * DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale
+                && MathF.Abs(tallAfter / tallBefore - DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .05f && MathF.Abs(hullAfter / hullBefore - DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .01f
+                && MathF.Abs(meanRise - DarkMessiah.Lab.Npc.Orc.RegenSeconds) < .05f && shRises.Count >= 8,
+            FormattableString.Invariant($"shrink: weaken with the gauge full cost {shCost:0.#} mana ({sr.Cost:0}), left the gauge at {shAdrenaline:0.#} ({sr.AdrenalineAdd:0}) and the orc at {shHealth:0.##} health; its size {shSizes.Count} values from {shSizes.ElementAtOrDefault(1).At:0.00} s to {shSizes[^1].Size:0.##} at {shSizes[^1].At:0.00} s (the rules': {sizesRight}), small at {shSmallAt:0.00} s ({DarkMessiah.Lab.Magic.ShrinkRules.SwapSeconds:0.00}): drawn at {combat.Orc.Placement.Scale.X:0.##}, {tallAfter / tallBefore:0.00} as tall posed (in combatidle, from its approach), its box {hullAfter / hullBefore:0.00}; in {string.Join("/", shClips)} it struck {shBlows} times in 20 s, its health rising {shRises.Count} times, every {meanRise:0.00} s"));
+        // The player walked at it from 60 units: crushed at 26 (within a step), not before; another kicked, the spell in
+        // hand as the donor's was.
+        var walkFrom = combat.Orc.Feet - Vector3.UnitZ * 60 * shmpu;
+        float stompedAt = float.NaN;
+        int stompsBefore = combat.Stomped;
+        for (int i = 0; i <= 60 && float.IsNaN(stompedAt); i++)
+        {
+            var at = walkFrom + Vector3.UnitZ * i * shmpu;
+            combat.Step(Tick, step++, false, false, false, at + Vector3.UnitY * 1.6f, Vector3.UnitZ, at);
+            if (!combat.Orc.Alive) stompedAt = ((combat.Orc.Feet - at) with { Y = 0 }).Length() / shmpu;
+        }
+        bool crushed = combat.Stomped == stompsBefore + 1 && stompedAt <= DarkMessiah.Lab.Magic.ShrinkRules.StompUnits && stompedAt > DarkMessiah.Lab.Magic.ShrinkRules.StompUnits - 1.01f;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(shOrc);
+        combat.Mana.Fill();
+        combat.Adrenaline.Set(DarkMessiah.Lab.Sword.PlayerAdrenaline.ShippedMax, DarkMessiah.Lab.Sword.PlayerAdrenaline.ShippedMax);
+        for (int i = 0; i < (int)(2.5f / Tick); i++)
+            combat.Step(Tick, step++, i < 1, false, false, shEye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY * .3f - shEye), shFeet);
+        bool smallForKick = combat.Orc.Shrunk;
+        var kickFeet = combat.Orc.Feet - Vector3.UnitZ * 40 * shmpu;
+        var kickEye = kickFeet + Vector3.UnitY * 1.6f;
+        float kickedHealth = combat.Orc.Health;
+        bool kickedDead = false;
+        for (int i = 0; i < (int)(1.5f / Tick) && !kickedDead; i++)
+        {
+            combat.Step(Tick, step++, false, false, i < 2, kickEye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY * .2f - kickEye), kickFeet);
+            kickedDead = !combat.Orc.Alive;
+        }
+        Check(crushed && smallForKick && kickedDead,
+            FormattableString.Invariant($"stomp and kick: walked at the small orc, crushed {stompedAt:0.#} units off ({DarkMessiah.Lab.Magic.ShrinkRules.StompUnits:0}; {combat.Stomped - stompsBefore} stomps); another, small ({smallForKick}) at {kickedHealth:0.##} health, kicked from 40 units: dead ({kickedDead})"));
+        combat.Reset();
+        combat.Rebuild(file);
+        combat.God = shWasGod;
+        combat.Orc.Hold = shWasHeld;
+        ((IReplayBody)product).Begin();
+
+        var shrinkRecordings = new[] { "l01_a-v19-shrink", "l01_a-v19-shrink-2", "l01_a-v19-shrink-3" }.Select(n => Path.Combine(repo!, "local", "recordings", "experiments", n + ".rbrec")).Where(File.Exists).ToList();
+        if (shrinkRecordings.Count == 3)
+        {
+            var shrinks = shrinkRecordings.SelectMany(ShrinkCalibration.Measure).ToList();
+            foreach (var c in shrinks) Console.WriteLine($"  {c}");
+            // Each: 15 mana (its regeneration aside), health 1; its size the rules' within two ticks (the cast's own tick
+            // read late once), small at 1.95 s; then combatidle (a ragdoll clip first), no blow, its health rising every
+            // 2 s on average. The gauge: full after a game's first, air_4's 2 after the others.
+            bool SizesAgree(ShrinkCast c) => c.Sizes.Where(s => s.After >= 0).All(s =>
+                Enumerable.Range(-2, 5).Any(k => MathF.Abs(DarkMessiah.Lab.Magic.ShrinkRules.SizeAt((float)s.After + k * Tick) - s.Size) < .001f));
+            bool castsRight = shrinks.Count == 5 && shrinks.All(c => MathF.Abs(c.Mana - sr.Cost) <= 1 && c.HealthBefore > 1 && SizesAgree(c)
+                && Math.Abs(c.Swapped - DarkMessiah.Lab.Magic.ShrinkRules.SwapSeconds) <= 2.01 * Tick && c.Blows == 0
+                && c.SmallClips.All(k => k is "combatidle" or "ragdoll") && c.Rises.All(r => MathF.Abs(r.Amount - .25f) < .01f)
+                && (c.Rises.Count < 3 || Math.Abs((c.Rises[^1].After - c.Rises[0].After) / (c.Rises.Count - 1) - DarkMessiah.Lab.Npc.Orc.RegenSeconds) < .05)
+                && (c.AdrenalineAfter == c.AdrenalineBefore || MathF.Abs(c.AdrenalineAfter - sr.AdrenalineAdd) < .01f));
+            var spent = shrinks.Where(c => c.AdrenalineAfter != c.AdrenalineBefore).ToList();
+            // Its deaths: walked into, a kick-typed blow of 2 with no weapon, 26 units off; kicked, the kick's 1. Each killed it.
+            var deaths = shrinks.Where(c => c.Death is not null).Select(c => c.Death!.Value).ToList();
+            bool deathsRight = deaths.Count == 2 && deaths.All(d => d.Type == 0x40000)
+                && deaths.Any(d => !d.Kick && MathF.Abs(d.Asked - sr.StompDamage) < .01f && MathF.Abs(d.Units - DarkMessiah.Lab.Magic.ShrinkRules.StompUnits) <= 1)
+                && deaths.Any(d => d.Kick && d.Asked < d.HealthBefore);
+            double longest = shrinks.Where(c => c.Death is null).Select(c => c.LastSmall).DefaultIfEmpty(0).Max();
+            Check(castsRight && spent.Count >= 2 && deathsRight && longest >= 60,
+                FormattableString.Invariant($"the donor's shrinks: {shrinks.Count} cost {sr.Cost:0} mana and set the orc's health to 1, its size the rules' and small at {string.Join(", ", shrinks.Select(c => c.Swapped.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s, no blow, its health rising 0.25 every 2 s; {spent.Count} left the gauge at {sr.AdrenalineAdd:0}; {deaths.Count(d => !d.Kick)} crushed by the player's body ({string.Join(", ", deaths.Where(d => !d.Kick).Select(d => d.Units.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} units off, {sr.StompDamage:0} asked), {deaths.Count(d => d.Kick)} kicked dead; one not killed small for {longest:0} s"));
+        }
+        else Console.WriteLine("skip the donor's shrinks: no local/recordings/experiments/l01_a-v19-shrink.rbrec, -2 and -3");
     }
     // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'
     // npc_orc_bow, the long bow and the cleaver). Aware, it runs at the player to 471 units, nocks an arrow 1.2 s on and
@@ -2031,14 +2158,13 @@ host.Call(engine =>
             combat.UseBelt(8);
             var near = bowEye with { Z = bowEye.Z + 100 * bmpu };
             combat.Orc.Spawn();
-            float health = combat.Orc.Health;
             var floor = new Vector3(bowEye.X, 0, near.Z - shortUnits * bmpu);
             for (int i = 0; i < 300; i++)
             {
                 combat.Orc.PlaceAt(near with { Y = 0 });
                 combat.Step(Tick, step++, i < 1, false, false, bowEye, Vector3.Normalize(floor - bowEye), bowEye - Vector3.UnitY * 1.6f);
             }
-            return health - combat.Orc.Health;
+            return combat.Orc.Taken;
         }
         float blast20 = BlastAt(20), blast50 = BlastAt(50);
         // The bounce: the classic bow aimed at the floor 15 m ahead, the orc out of the way.
@@ -2673,7 +2799,7 @@ host.Call(engine =>
             var feet = mateAt + face * 200 * mpu;
             var aim = between ? (mateAt + firstAt) / 2 : mateAt + Vector3.UnitY * 1.1f;
             var eye = feet + Vector3.UnitY * 1.6f;
-            float mate = combat.Mate!.Health, first = combat.Orc.Health;
+            float mate = combat.Mate!.Taken, first = combat.Orc.Taken;
             var absent = new OrcPose("", new Vector3(0, -1000, 0), Vector3.UnitZ, 0, "combatidle", 0, 1, null, 0, true);
             ulong t = 0;
             for (int i = 0; i < 180; i++)
@@ -2685,7 +2811,7 @@ host.Call(engine =>
             if (replaying) combat.Orc.StopFollowing();
             if (combat.SpellInHand is not null) combat.UseBelt(2);
             foreach (var o in new[] { combat.Orc, combat.Mate }) o.Hold = false;
-            return (mate - combat.Mate.Health, first - combat.Orc.Health);
+            return (combat.Mate.Taken - mate, combat.Orc.Taken - first);
         }
         var fbMate = FireAtMate(false);
         var fbBoth = FireAtMate(true);

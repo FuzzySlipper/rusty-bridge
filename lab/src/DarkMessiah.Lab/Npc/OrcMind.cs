@@ -27,7 +27,7 @@ internal sealed record OrcAttackChoice(string Clip, float Travel, float Range)
 /// <c>PlayerNoAttackDelayToGoBersekerMode</c> (2 s);</item>
 /// <item>its zones: <c>Red_zone</c> (10 units, the closest it fights at), <c>Green_zone</c> (70, the ideal),
 /// <c>Yellow_zone</c> (140, the farthest it fights at without walking in);</item>
-/// <item>its health, <c>npc_health</c> (35);</item>
+/// <item>its health, <c>npc_health</c> (35), and its <c>life_regen</c> (0.25, <see cref="Orc.RegenSeconds"/>; #10348);</item>
 /// <item>its attacks: each <c>combatmovedatas</c> entry with a clip that strikes (a 2102), but the turn strikes, the
 /// dodge strikes, the wounded ones, the grab and the block's counter, with each one's travel and reach.</item>
 /// </list>
@@ -35,7 +35,7 @@ internal sealed record OrcAttackChoice(string Clip, float Travel, float Range)
 /// <param name="Wounded">The wounded attacks (<c>attack_wounded_1</c>–<c>3</c>, #10167): a weakened orc's only ones.</param>
 internal sealed record OrcMindData(float CoolMin, float CoolMax, float BerserkMin, float BerserkMax, float RhythmMin, float RhythmMax,
     float NoAttackToBerserk, float Red, float Green, float Yellow, float Health, IReadOnlyList<OrcAttackChoice> Attacks,
-    IReadOnlyList<OrcAttackChoice>? Wounded = null)
+    IReadOnlyList<OrcAttackChoice>? Wounded = null, float LifeRegen = .25f)
 {
     internal static bool IsWounded(string clip) => clip.StartsWith("attack_wounded", StringComparison.OrdinalIgnoreCase);
 
@@ -63,7 +63,7 @@ internal sealed record OrcMindData(float CoolMin, float CoolMax, float BerserkMi
         }
         return new OrcMindData(N("AttackCoolMinTime", 1), N("AttackCoolMaxTime", 4), N("AttackBersekerMinTime", 0), N("AttackBersekerMaxTime", 2),
             N("AttackRythmMinTime", 7), N("AttackRythmMaxTime", 10), N("PlayerNoAttackDelayToGoBersekerMode", 2),
-            N("Red_zone", 10), N("Green_zone", 70), N("Yellow_zone", 140), N("npc_health", 35), attacks, wounded);
+            N("Red_zone", 10), N("Green_zone", 70), N("Yellow_zone", 140), N("npc_health", 35), attacks, wounded, N("life_regen", .25f));
     }
 }
 

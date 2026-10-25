@@ -1,4 +1,4 @@
-// Wire v16: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v19: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 18;
+const uint32_t kVersion = 19;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -76,6 +76,7 @@ struct SlotHeader {
 const uint8_t kHasHealth = 1;       // health, max_health and life_state are valid
 const uint8_t kHasAnimation = 2;    // sequence, cycle and playback_rate are valid
 const uint8_t kHasAlert = 4;        // v18: alert and npc_state are valid (npc_* entities)
+const uint8_t kHasSize = 8;         // v19: size and shrinked are valid (classes that send m_fMMSize)
 
 struct Entity {
     uint16_t index;             // edict index
@@ -105,6 +106,10 @@ struct Entity {
     uint16_t owner;             // m_hOwnerEntity, or a weapon's m_hOwner when that is empty; kNoEntity when none
     uint16_t reserved3;
     uint32_t owner_serial;
+    // v19
+    float size;                 // m_fMMSize (+0x12C): Arkane's render scale, 1 unscaled; a shrink ramps it to 0.2
+                                //   before the model is swapped, then sets 0.999 (docs/wire.md, "Shrink")
+    int32_t shrinked;           // m_iShrinked (+0x130): 1 once the NPC wears its _shrinked.mdl
 };
 
 const uint16_t kNoEntity = 0xFFFF;
@@ -365,7 +370,7 @@ static_assert(sizeof(SlowTime) == 32, "SlowTime layout");
 static_assert(sizeof(Layer) == 20, "Layer layout");
 static_assert(sizeof(Defense) == 56, "Defense layout");
 static_assert(sizeof(Damage) == 360, "Damage layout");
-static_assert(sizeof(Entity) == 80, "Entity layout");
+static_assert(sizeof(Entity) == 88, "Entity layout");
 
 const uint32_t kClassesOffset = 256;
 const uint32_t kModelsOffset = kClassesOffset + kMaxClasses * kClassNameBytes;

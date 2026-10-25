@@ -1,4 +1,4 @@
-# Wire v18
+# Wire v19
 
 The tap's stream of per-tick entity snapshots. Defined in
 `tap/darkmessiah/src/wire.h` (writer) and mirrored in
@@ -33,17 +33,18 @@ movement, the buttons and Arkane's action bytes, the kick among them. Since v15 
 player's stats: stamina, mana, the skill modules learned, skill points and the items in hand and worn, and since v16
 each skill's level. Since v17 each tick carries the melee sweeps the server ran: the start, direction and range of each
 ray it swept for a swing. Since v18 every NPC carries its alert level and state each tick (they were on damage
-records only), so its alertness is seen climbing. A control file beside the Wire holds the donor
+records only), so its alertness is seen climbing. Since v19 every entity carries Arkane's size and shrink, so a shrunk
+NPC is seen shrinking (below, "Shrink"). A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
-v2–v18 replaced v1 between 2026-10-17 and 2026-10-22. Readers check `version`; the tap writes
+v2–v19 replaced v1 between 2026-10-17 and 2026-10-24. Readers check `version`; the tap writes
 only the current one.
 
 ## Transport
 
 A file, `rustybridge.wire`, next to the tap DLL (`mm\addons\`). The tap
-creates it, sizes it to 23,799,040 bytes and maps it read-write; readers open
+creates it, sizes it to 27,851,008 bytes and maps it read-write; readers open
 it with `FileShare.ReadWrite | FileShare.Delete` and map it read-only.
 
 It's a file and not a named section because the game runs non-elevated, so
@@ -60,7 +61,7 @@ All little-endian, 4-byte packing, offsets in bytes.
 | 0 | 144 | Header |
 | 256 | 1024 × 64 | Class table: NUL-terminated class names, by class id |
 | 65,792 | 4096 × 128 | Model table: NUL-terminated model paths, by engine model index |
-| 590,080 | 128 × 194,792 | Ring of slots |
+| 590,080 | 128 × 212,976 | Ring of slots |
 
 Header: `magic` (u64, `"RBWIRE01"`), `version` (1), the sizes and offsets
 above (so a reader can check them), `writer_pid`, `level_serial`,
@@ -74,15 +75,15 @@ Slot: a 96-byte header (`seq` u64, `frame` u64, `tick` i32, `curtime` f32,
 `slow_time_count` u32, `slow_time_dropped` u32 and the 24-byte player state
 at 72), then:
 
-- up to 2048 entities of 80 bytes (64 before v10)
-- at slot offset 163,936, up to 64 damage records of 360 bytes (152 before v13)
-- at 186,976, up to 32 defense records of 56 bytes (48 before v11)
-- at 188,768, up to 256 overlay layer records of 20 bytes
-- at 193,888, up to 16 slow-time records of 32 bytes
-- at 194,400, the 232-byte client view (80 bytes in v8)
-- at 194,632, the 48-byte player input (16 bytes in v12 and v13)
-- at 194,680, the 112-byte player stats (80 in v15; below, "The player's stats")
-- at 194,792 (v17), the melee sweeps: `count` u32, `dropped` u32, then up to 32 sweep records of 56 bytes (below, "The
+- up to 2048 entities of 88 bytes (80 before v19, 64 before v10)
+- at slot offset 180,320, up to 64 damage records of 360 bytes (152 before v13)
+- at 203,360, up to 32 defense records of 56 bytes (48 before v11)
+- at 205,152, up to 256 overlay layer records of 20 bytes
+- at 210,272, up to 16 slow-time records of 32 bytes
+- at 210,784, the 232-byte client view (80 bytes in v8)
+- at 211,016, the 48-byte player input (16 bytes in v12 and v13)
+- at 211,064, the 112-byte player stats (80 in v15; below, "The player's stats")
+- at 211,176 (v17), the melee sweeps: `count` u32, `dropped` u32, then up to 32 sweep records of 56 bytes (below, "The
   melee sweep")
 
 Entities:
@@ -97,7 +98,7 @@ Entities:
 | 32 | `health` f32 | `CBaseEntity::m_fHealth` (+0x310) |
 | 36 | `max_health` f32 | `CBaseEntity::m_fMaxHealth` (+0x30C) |
 | 40 | `sequence` i16 | `CBaseAnimating::m_nSequence` (+0xEC4) |
-| 42 | `flags` u8 | 1 = health fields valid, 2 = animation fields valid, 4 = alert fields valid (v18) |
+| 42 | `flags` u8 | 1 = health fields valid, 2 = animation fields valid, 4 = alert fields valid (v18), 8 = size fields valid (v19) |
 | 43 | `life_state` u8 | `CBaseEntity::m_lifeState` (+0x300) |
 | 44 | `cycle` f32 | `CBaseAnimating::m_flCycle` (+0xEBC), 0..1 |
 | 48 | `playback_rate` f32 | `CBaseAnimating::m_flPlaybackRate` (+0xE70) |
@@ -112,6 +113,8 @@ Entities:
 | 72 | `owner` u16 | v10: `m_hOwnerEntity` (+0x500), or a weapon's `m_hOwner` when that is empty (the player's weapons); 0xFFFF for none |
 | 74 | reserved u16 | |
 | 76 | `owner_serial` u32 | |
+| 80 | `size` f32 | v19: `m_fMMSize` (+0x12C), Arkane's render scale: 1 unscaled; below, "Shrink" |
+| 84 | `shrinked` i32 | v19: `m_iShrinked` (+0x130): 1 once the NPC wears its `_shrinked.mdl` |
 
 A parent or owner is written only when its handle names a live entity with
 the handle's serial. In l01_a, NPC items hang from numbered attachments, not
@@ -601,6 +604,28 @@ damage record's `victim_alert`, v11), and the NPC state, +0x1A5C (the damage rec
 plain reads: no hook patches code for them. The offsets come from the melee routine's own reads, at
 server.dll+0x408692 (`mov ecx,[esi+0x36EC]`, its absolute value compared with `mul_damages_Npc_Not_alerted_level`,
 settings +0x434) and +0x4086AE (`cmp [esi+0x1A5C],3`). A read that faults leaves flag 4 off for that entity.
+
+## Shrink
+
+Since v19 every entity carries two of Arkane's send props: `size`, `m_fMMSize` (+0x12C, a float, 1 unscaled), and
+`shrinked`, `m_iShrinked` (+0x130). They are plain reads, found by name in each class's send table like the animation
+fields ("Finding fields" below; registered at server.dll+0x3BE2F5, `push 0x130; push "m_iShrinked"`, and +0x3BE31B,
+`push 0x12C; push "m_fMMSize"`), so no hook patches code for them; a class whose table lacks them leaves flag 8 off.
+
+How the donor shrinks an NPC (#10348), read from server.dll:
+- **It's air_4 with adrenaline.** `CARXSPELL_AIR_4_Spell`'s cast (vtable slot 363, server.dll+0x471770) sets its
+  `bTrueShrink` (+0x12C0, the datadesc entry at +0x7A8FE0) when the spell weapon in the spell manager's slot
+  (server.dll+0x838ADC, +0x84 + the spell id × 4, the id at +0x12D8) has its `m_adrenalinepower` byte (+0xBE0) set.
+  Without it the cast weakens (#10167). The console's `Deploy_Spell_*` guard
+  (server.dll+0x3E67E0) checks the learned module for each spell id; id 19 (`Deploy_Spell_AIR_4`) is checked against
+  `shrink`, and id 13 (`Deploy_Spell_EARTH_3`) against nothing, so it never deploys: `earth_3` isn't a player spell.
+- **The cast** (+0x471A4B on) keeps the NPC's health (`fHealthBeforeShrink`, +0x128C), sets it to 1
+  (`push 1.0; call +0x44B40`), and builds the model name, its own with `_shrinked.mdl` for `.mdl` (+0x4719DC).
+- **The shrink** steps `m_fMMSize` toward 0.2 (`0x3E4CCCCD`, +0x471EC1; the step +0x471170), then swaps the model, sets
+  `m_fMMSize` to 0.999 (`0x3F7FBE77`, +0x472057) and `m_iShrinked` to 1 (+0x47206F). The weaken path sets 0.9999
+  (`0x3F7FF972`, +0x471C0F). `CBaseEntity` reads 0.999 with `m_iShrinked` bit 0 as unscaled (+0x397253).
+
+What the recordings show of it (`l01_a-v19-shrink`, `-2`, `-3`) is in lab.md, "Shrink".
 
 ## Finding fields: send tables
 

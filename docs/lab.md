@@ -677,8 +677,8 @@ attack spells: put them on it to play them).
 | Charm (`water_4`) | in hand with the drain's arm clips (`layer_spellcasting_*_earth_4`), `cost` 15 at the press; with the player in `god` and seen, neither orc struck the player; the other orc ran at the charmed one 8 s on and struck it twice (12 with `attack_Forward`, 8 with `attack_bottom`: what it asks of the player), the charmed one fought back and landed nothing; 25.2 s on it stood idle again (`effect` 25, "the duration in Magic code") | the orc in view charmed 25 s, on the player's side while it lasts (R10167-1: sides by `mm_relationship.txt`; the orcs hate the player and like orcs, the player's side fights those that hate the player): it and its uncharmed squad-mate fight each other, each in the other's place of the player (the reach test against the victim's hull, the cleaver's damage, and a reaction as to the player's blow); two charmed orcs don't fight; with no foe it keeps by the player, holding off; the player is left alone until it ends, and its own side is back. Cast on an unaware orc (as weaken), it leaves its idle (R10167-2) |
 
 - **Split off, and why** (the user's call):
-  - **shrink (`earth_3`, #10348):** `Deploy_Spell_EARTH_3` put nothing in hand from the console (no clip, no mana spent), and
-    the Wire carries no model scale to record a shrunk orc by;
+  - **shrink (#10348):** below, "Shrink": weaken cast with the gauge full (`Deploy_Spell_EARTH_3` puts nothing in hand:
+    `earth_3` is no player spell);
   - **magic reflection (`earth_2`, #10349):** it casts (`spell_earth_2`, `cost` 25, no clip), but nothing in l01_a casts a
     spell at the player to reflect;
   - **wizard eye (`water_1`, #10350):** it casts (`spell_Water_1` at the player, no mana), but the camera the Wire records
@@ -699,6 +699,38 @@ attack spells: put them on it to play them).
   14.2 and 15.5 s on, and the player's 2 sword blows on the weakened orc the lab's; the charm's cost, no orc striking the
   player in its 25 s, the other orc's blows all on the charmed one (the one struck in an attack clip asking the model's
   12), and its idling again 25.2 s on.
+
+### Shrink
+
+`Magic/SupportSpells.cs`'s `ShrinkRules` and `Npc/OrcShrink.cs` (#10348; `l01_a-v19-shrink`, `-shrink-2`, `-shrink-3`,
+docs/recording.md; how server.dll does it in docs/wire.md, "Shrink"). Shrink is weaken (`air_4`) cast with the
+adrenaline gauge full: its spell weapon's `m_adrenalinepower` makes the cast shrink instead of weaken. Wire v19
+records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
+
+| | The donor (five shrinks) | The lab |
+| --- | --- | --- |
+| The cast | `cost` 15 at the press; the orc's health set to 1 and its size to 0.999 that tick; the gauge emptied and air_4's `adrenaline_add` 2 back (20 to 2; a game's first powered cast, three of the five, left it full) | weaken pressed with the gauge full: 15 mana, the gauge to 2, the orc in view (weaken's reach) at 1 health |
+| Its size | 0.96 s on (0.93 once), down 0.03 every two ticks to 0.2 at 1.74 s; at 1.95 s it wears `npc_orc_shrinked.mdl` (the orc's at 0.3: its hull 26.9 units tall to 89.5) and its size is 0.999 again, `m_iShrinked` 1, after a 0.12 s `ragdoll` clip | the same steps (`ShrinkRules.SizeAt`), drawn and struck at that size; at 1.95 s the orc's model at 0.3, its box and hit boxes with it |
+| Small | stands in `combatidle` and strikes nothing, the player seen or not (25 s at 120 units, `notarget` off); small for as long as it was watched (129 s), never growing back; its health climbing 0.25 every 2 s | stands in `combatidle`, no thought and no blow, for good; its `life_regen` as every orc's (below) |
+| Its death | the player's body meeting it, 25.8 units off (26: the player's half-width 16 and its hull's 10), crushes it: a kick-typed blow (0x40000) of 2 from the player with no weapon, killing it at 1.75 and 2.25 health (both walked into, the probe's included); a kick (1 asked at 2 health) killed it too | the player's feet within 26 units of its feet, on its level: a stomp of 2, and it dies (`Stomped` counts them); a kick that reaches it kills it, whatever it asks |
+
+- **Every orc regenerates:** its `.qct`'s `life_regen` (0.25) every 2 s while short of its health (`Orc.RegenSeconds`):
+  the shrunk orcs climbed so from 1 (145 rises, 1.92 or 2.04 s apart, 2.00 on average), and so did the hurt orcs of
+  `l01_a-v18-support-spells-2` (26 rises) and `-attack-spells` (3). The lab's orcs didn't before.
+- **Not measured:** the sword on a shrunk orc (its two swings, from 50 units 40° down and crouched from 45 units 15°
+  down, struck the floor), a shrunk orc's own clips past `combatidle` (`walk_shrink`, `run_shrink`, the jumps: none
+  played), an aware orc shrunk mid-fight, what the size ramp looks like on screen (the client's own scale is off the
+  Wire), and why a game's first powered cast left the gauge full.
+- **An orc spawned after a shrink** with `mm_npc_create` came up with no health and never moved (`shrink-probe`, v18),
+  so the scenarios spawn their orcs before the first cast.
+- **The smoke:** weaken pressed with the gauge full costs 15, leaves the gauge at 2 and the orc 200 units off at 1
+  health; its size takes the rules' 28 values from 0.97 s to 0.2 at 1.75 s, and it's small at 1.95 s, drawn at 0.3
+  (its box 0.3, its posed height 0.33 in `combatidle` against its approach), striking nothing in 20 s while its health
+  rises every 2.00 s; walked at, it's crushed 25 units off; another, kicked from 40 units, dies. Against the
+  recordings: all five shrinks' cost and health of 1, their size steps (within two ticks) and swap (1.92 to 1.95 s),
+  no blow, `combatidle` (and `ragdoll`), the regeneration's 0.25 every 2 s, the gauge at 2 after the two not first,
+  the stomp's 2 at 25.8 units, the kick's kill, and one small for 129 s. The smoke's spell, bow and telekinesis checks
+  count what the orc's blows took (`Orc.Taken`), its regeneration aside.
 
 ### The bow
 

@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 18;
+    public const uint Version = 19;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -269,6 +269,8 @@ public enum WireEntityFlags : byte
     HasAnimation = 2,
     /// <summary>v18: Alert and NpcState are valid (npc_* entities).</summary>
     HasAlert = 4,
+    /// <summary>v19: Size and Shrinked are valid (classes that send m_fMMSize).</summary>
+    HasSize = 8,
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -314,6 +316,12 @@ public struct WireEntity
     public ushort Owner;
     public ushort Reserved3;
     public uint OwnerSerial;
+    // v19
+    /// <summary>v19: m_fMMSize (+0x12C), Arkane's render scale: 1 unscaled; a shrink ramps it down before the NPC's model is
+    /// swapped for its <c>_shrinked.mdl</c> (docs/wire.md, "Shrink"). 1 in older recordings.</summary>
+    public float Size;
+    /// <summary>v19: m_iShrinked (+0x130), 1 once the NPC wears its <c>_shrinked.mdl</c>.</summary>
+    public int Shrinked;
 }
 
 /// <summary>

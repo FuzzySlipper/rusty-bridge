@@ -62,6 +62,49 @@ internal sealed record WeakenRules(float Cost, float Seconds, float AdrenalineAd
 }
 
 /// <summary>
+/// Shrink (#10348): weaken cast with the adrenaline gauge full, as server.dll casts it (docs/wire.md, "Shrink":
+/// <c>CARXSPELL_AIR_4_Spell</c> shrinks when its spell weapon has <c>m_adrenalinepower</c>; <c>earth_3</c> is no
+/// player spell). Its <c>cost</c> and <c>adrenaline_add</c> are air_4's. Measured (<c>l01_a-v19-shrink</c>, <c>-2</c>,
+/// <c>-3</c>, five shrinks):
+/// <list type="bullet">
+/// <item>at the press the mana goes (15), the orc's health is set to 1 and its size (<c>m_fMMSize</c>) to 0.999; the
+/// gauge empties and air_4's 2 come back (20 to 2; a game's first powered cast, three of them, left it full);</item>
+/// <item><see cref="RampDelay"/> (0.96 s) on, its size falls <see cref="RampStep"/> (0.03) every two ticks to
+/// <see cref="Floor"/> (0.2, 1.74 s on); at <see cref="SwapSeconds"/> (1.95 s) it wears its <c>_shrinked.mdl</c>,
+/// the orc's at <see cref="ShrunkScale"/> (its hull 26.9 units tall to 89.5), in <c>combatidle</c> (a <c>ragdoll</c>
+/// clip of 0.12 s first);</item>
+/// <item>small, it stands in <c>combatidle</c> and strikes nothing, the player seen or not (25 s at 120 units), for as
+/// long as it was watched (103 s): it doesn't grow back. Its health climbs by its <c>life_regen</c>;</item>
+/// <item>the player's body meeting it, <see cref="StompUnits"/> (26 units, the player's half-width 16 and its hull's
+/// 10) from it, crushes it: a kick-typed blow of <see cref="StompDamage"/> (2) from the player with no weapon, and it
+/// dies (three of three, at 1.75 to 2.25 health). A kick kills it too (1 asked at 2 health). The sword's two swings at
+/// it struck the floor.</item>
+/// </list>
+/// </summary>
+internal sealed record ShrinkRules(float Cost, float AdrenalineAdd, float RangeUnits = 2000, float ConeDegrees = 10, float StompDamage = 2)
+{
+    internal const float RampDelay = .96f, RampStep = .03f, RampEvery = .03f, Floor = .2f, SwapSeconds = 1.95f, ShrunkScale = .3f, StompUnits = 26;
+    /// <summary>Its size as the cast sets it: 0.999, which server.dll reads as unscaled.</summary>
+    internal const float CastSize = .999f;
+
+    internal static readonly ShrinkRules Shipped = new(15, 2);
+
+    internal static ShrinkRules From(DonorContent donor)
+    {
+        float? Spell(string key) => donor.Tables.Spell(WeakenRules.Spell, key);
+        return Shipped with
+        {
+            Cost = Spell("cost") ?? Shipped.Cost,
+            AdrenalineAdd = Spell("adrenaline_add") ?? Shipped.AdrenalineAdd,
+        };
+    }
+
+    /// <summary>The size <paramref name="age"/> seconds after the cast, until it wears the small model.</summary>
+    internal static float SizeAt(float age) =>
+        age < RampDelay ? CastSize : MathF.Max(Floor, CastSize - RampStep * (MathF.Floor((age - RampDelay) / RampEvery + 1e-4f) + 1));
+}
+
+/// <summary>
 /// Charm (<c>water_4</c>; #10167): its <c>cost</c> (15) at the press, and the orc it's cast at on the player's side for
 /// its <c>effect</c> (25 s: "the duration in Magic code", its comment says). Measured (<c>l01_a-v18-support-spells-2</c>,
 /// the player in <c>god</c> and seen): neither orc struck the player; the other orc ran at the charmed one 8 s after the

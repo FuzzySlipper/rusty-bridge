@@ -5,15 +5,17 @@ stepped through tick by tick after the game has moved on. `rbwire record`
 writes recordings, `RecordingReader` replays them in C#, and
 `viewer/timeline.html` steps through them in a browser.
 
-## Recording v17
+## Recording v19
 
 Little-endian. A 16-byte file header (`magic` u64 `"RBREC001"`, `version` u32
-= 17, reserved u32), then records until the end of the file. Each older
+= 19, reserved u32), then records until the end of the file. Each older
 version is the newer one with less in it:
 
 | Version | Entity | Damage | Defense | Also missing |
 | --- | --- | --- | --- | --- |
-| 17 | 80 bytes | 360 bytes | 56 bytes | |
+| 19 | 88 bytes | 360 bytes | 56 bytes | |
+| 18 | 80 (no size or shrink) | 360 | 56 | |
+| 17 | 80 | 360 | 56 | an NPC's alert level and state on its entity (zero there) |
 | 16 | 80 | 360 | 56 | the melee sweeps |
 | 15 | 80 | 360 | 56 | the skill levels (an 80-byte player stats record) |
 | 14 | 80 | 360 | 56 | the player stats |
@@ -31,8 +33,8 @@ version is the newer one with less in it:
 | 2 | 52 | none | none | |
 | 1 | 32 (no combat fields) | none | none | Sequences records |
 
-Each older record is a prefix of the current one, and readers accept all
-fourteen. Each record is
+Each older record is a prefix of the current one, and readers accept every
+version. Each record is
 `kind` u8, `length` u32 and `length` bytes of payload. Readers skip kinds
 they don't know.
 
@@ -41,7 +43,7 @@ they don't know.
 | 1 Level | `level_serial` u32, `tick_interval` f32, map (u16 length + ASCII) |
 | 2 Class | `class_id` u16, name (u16 length + ASCII) |
 | 3 Model | `model_index` i32, path (u16 length + ASCII) |
-| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × 52-byte Wire entities, `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the player stats: 80 bytes, 112 from v16, then (v17) `sweep_dropped` u32, `sweeps` i32, `sweeps` × 56-byte Wire sweep records |
+| 4 Frame | `frame` u64, `tick` i32, `curtime` f32, `flags` u8, `changed` i32, `changed` × Wire entities (88 bytes; older sizes above), `removed` i32, `removed` × u16 edict indices, then (v3) `damage_dropped` u32, `damage` i32, `damage` × Wire damage records, then (v4) `defense_dropped` u32, `defense` i32, `defense` × Wire defense records, then (v6) `layer_dropped` u32, `layers` i32, `layers` × 20-byte Wire layer records, then (v7) `wall_seconds` f64, the 24-byte player state, `slow_time_dropped` u32, `slow_time` i32, `slow_time` × 32-byte Wire slow-time records, then (v8) the client view: 80 bytes in v8, 232 from v9, then (v12) the player input: 16 bytes, 48 from v14, then (v15) the player stats: 80 bytes, 112 from v16, then (v17) `sweep_dropped` u32, `sweeps` i32, `sweeps` × 56-byte Wire sweep records |
 | 5 Sequences | `model_index` i32, `count` u16, `count` names (u16 length + ASCII) in `m_nSequence` order |
 
 Frame flags: 1 = keyframe (the frame lists every live entity; drop prior
@@ -186,6 +188,10 @@ perception checks read: their fights would skew the orc's behaviour and defence 
 | `attack-spells-2` | the same, each orc frozen with `ai_disable` | poison spray and drain 3 s after drinking (neither deployed again), the fire trap (not cast), the inferno held 1.5 s, the lightning bolt with a second orc (it took the first's place), the freeze then a bolt |
 | `support-spells` | every skill, `notarget`, the level's NPCs removed, sixteen mana potions | before each spell a new orc at (0, -2300), two belt slots drunk, `Deploy_Spell_*`, the player 200 units south: cure wounds after `hurtme 10` (deployed, then tapped); weaken at the orc, then `god` on and `notarget` off 12 s (its blows); charm with a second orc beside it; shrink (`earth_3`, not deployed); magic reflection (`earth_2`); wizard eye (`water_1`) held 3 s (#10167) |
 | `support-spells-2` | the same | cure wounds three times from a set health (`ent_fire !player addoutput "health N"`): 10 and deployed (it casts), 10 and tapped, 44 and tapped; weaken at a new orc, then `god` on and `notarget` off 25 s, the sword three times from 5 s; the sword on a new orc (it didn't come); charm at a new orc with a second beside it, `god` on and `notarget` off 30 s |
+| `shrink-probe` | as `support-spells` (Wire v18) | four times a new orc at (0, -2300), two belt slots drunk, `mm_player_add_adrenaline 100` before and after `Deploy_Spell_AIR_4`, cast from 200 units south: the first shrank and was walked into; the orcs spawned after it came up with no health and never moved, so the rest stopped (#10348) |
+| `shrink` | the same, three orcs spawned first at x 0, 300 and -300 (y -2287) | each cast as the probe's, from 213 units south: the east orc shrunk and walked into (the stomp); the west one shrunk and kicked (the sword's approach then found no shrunk orc, and the input stopped) (#10348) |
+| `shrink-2` | the same, two orcs at x 300 and 0 | the east orc shrunk, then the short sword at it from 50 units, 40° down (it struck the floor); the middle one shrunk (it had walked out of the cone: the cast missed) and watched 45 s, then `god` on and `notarget` off 20 s (#10348) |
+| `shrink-3` | the same, two orcs at x 300 and -300 | the east orc shrunk, then the sword crouched (`+duck`) from 45 units, 15° down (the floor again); the west one shrunk, then the player 120 units from it with `god` on and `notarget` off 25 s (#10348) |
 | `npc-archery` | every skill, `god`, no `notarget`, the level's NPCs removed, the classic bow | an `npc_orc_sword` with the crossbow first, then second, each woken by an arrow from 550 or 800 units north (the courtyard is open that way) and left still, strafing or backing off: none shot; with the crossbow first it struck with it as a club (#10169) |
 | `npc-archery-2` | the same | `npc_orc_bow` (the maps' archer: `rangeweapon` the long bow) by `mm_npc_create`, the cleaver then the long bow (as the maps equip it), then the other way round; by `ent_create` (didn't spawn); an `npc_orc_sword` with the player noclipped 300 units up (it lost him) |
 | `npc-archery-3` | the same | the archer woken from 550 north, then the player noclipped up (it lost him), on the ground 900 north (it stood at 471 and shot every 2.16 s), noclipped and strafing |

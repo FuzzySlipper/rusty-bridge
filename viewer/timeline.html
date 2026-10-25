@@ -197,9 +197,10 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 18) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 18).`);
-  // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back).
-  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : 80;
+  if (version < 1 || version > 19) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 19).`);
+  // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back),
+  // v19 Arkane's size and shrink.
+  const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : version < 19 ? 80 : 88;
   const DAMAGE_BYTES = version < 5 ? 128 : version < 13 ? 152 : 360, DEFENSE_BYTES = version < 5 ? 32 : version < 11 ? 48 : 56;
   const bySerial = new Map();   // v5: `${index}:${serial}` -> track, for resolving event records
   const dec = new TextDecoder("ascii");
@@ -247,11 +248,13 @@ function parseRecording(buf) {
         const index = v.getUint16(p, true), cls = classes.get(v.getUint16(p + 2, true)) ?? "?", model = models.get(v.getInt32(p + 4, true)) ?? "";
         const x = v.getFloat32(p + 8, true), y = v.getFloat32(p + 12, true), z = v.getFloat32(p + 16, true);
         const pitch = v.getFloat32(p + 20, true), yaw = v.getFloat32(p + 24, true), roll = v.getFloat32(p + 28, true);
-        let hp = NaN, maxhp = NaN, seq = -1, life = 0, cycle = 0, rate = 0, alert = null, npcState = null;
+        let hp = NaN, maxhp = NaN, seq = -1, life = 0, cycle = 0, rate = 0, alert = null, npcState = null, size = null, shrinked = null;
         if (version >= 2) {
           const flags = v.getUint8(p + 42);
           // v18: an NPC's alert level and state, every tick.
           if (version >= 18 && flags & 4) { alert = v.getUint16(p + 58, true); npcState = v.getUint8(p + 67); }
+          // v19: Arkane's size (m_fMMSize) and shrink (m_iShrinked).
+          if (version >= 19 && flags & 8) { size = v.getFloat32(p + 80, true); shrinked = v.getInt32(p + 84, true); }
           if (flags & 1) { hp = v.getFloat32(p + 32, true); maxhp = v.getFloat32(p + 36, true); life = v.getUint8(p + 43); }
           if (flags & 2) { seq = v.getInt16(p + 40, true); cycle = v.getFloat32(p + 44, true); rate = v.getFloat32(p + 48, true); }
         }
@@ -270,7 +273,7 @@ function parseRecording(buf) {
         if (t && (version >= 5 ? t.serial !== serial : t.cls !== cls || t.model !== model)) { close(t, fi); t = null; }
         if (!t) {
           t = { key: `${level}:${index}:${fi}`, index, serial, cls, model, seqNames: sequences.get(v.getInt32(p + 4, true)) ?? null,
-                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [], link: [], parent: [], attachment: [], owner: [], alert: [], npcState: [],
+                f: [], x: [], y: [], z: [], pitch: [], yaw: [], roll: [], hp: [], maxhp: [], seq: [], life: [], cycle: [], rate: [], link: [], parent: [], attachment: [], owner: [], alert: [], npcState: [], size: [], shrinked: [],
                 born: fi, died: Infinity, moves: false, fights: false, dist: 0 };
           tracks.set(t.key, t); live.set(index, t);
           if (version >= 5) bySerial.set(`${index}:${serial}`, t);
@@ -278,7 +281,7 @@ function parseRecording(buf) {
         const k = t.f.length - 1;
         if (k >= 0 && t.x[k] === x && t.y[k] === y && t.z[k] === z && t.pitch[k] === pitch && t.yaw[k] === yaw && t.roll[k] === roll
             && Object.is(t.hp[k], hp) && t.seq[k] === seq && t.cycle[k] === cycle && t.life[k] === life && t.rate[k] === rate && t.link[k] === link && t.parent[k] === parent && t.attachment[k] === attachment && t.owner[k] === owner
-            && t.alert[k] === alert && t.npcState[k] === npcState) continue;
+            && t.alert[k] === alert && t.npcState[k] === npcState && t.size[k] === size && t.shrinked[k] === shrinked) continue;
         if (k >= 0) {
           const d = Math.hypot(x - t.x[k], y - t.y[k], z - t.z[k]);
           if (d > 0) { t.moves = true; t.dist += d; moving++; }
@@ -293,7 +296,7 @@ function parseRecording(buf) {
         t.f.push(fi); t.x.push(x); t.y.push(y); t.z.push(z); t.pitch.push(pitch); t.yaw.push(yaw); t.roll.push(roll);
         if (link !== (k >= 0 ? t.link[k] : null)) links.push({ fi, track: t, link });
         t.hp.push(hp); t.maxhp.push(maxhp); t.seq.push(seq); t.life.push(life); t.cycle.push(cycle); t.rate.push(rate); t.link.push(link); t.parent.push(parent); t.attachment.push(attachment); t.owner.push(owner);
-        t.alert.push(alert); t.npcState.push(npcState);
+        t.alert.push(alert); t.npcState.push(npcState); t.size.push(size); t.shrinked.push(shrinked);
       }
       const removed = v.getInt32(p, true); p += 4;
       const gone = [];

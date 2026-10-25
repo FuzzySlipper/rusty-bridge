@@ -359,7 +359,9 @@ const int kPropStride = 76, kPropType = 8, kPropName = 44, kPropFlags = 52, kPro
 const int kDptDataTable = 6;
 const int kSpropExclude = 1 << 6;
 
-struct NetProps { int sequence = -1, cycle = -1, rate = -1, poses = -1, animTime = -1; bool overlay = false; };
+// v19: size and shrinked are Arkane's m_fMMSize and m_iShrinked (docs/wire.md, "Shrink"), found per class like the
+// animation fields: only a class that sends them has them written.
+struct NetProps { int sequence = -1, cycle = -1, rate = -1, poses = -1, animTime = -1, size = -1, shrinked = -1; bool overlay = false; };
 static int g_sendLayout;              // 0 unchecked, 1 ok, -1 wrong
 // Arkane made CBaseEntity's health a float pair, m_fHealth/m_fMaxHealth, next
 // to m_lifeState. Only some classes network them (shields do), but as
@@ -407,6 +409,8 @@ static void WalkSendTable(SendTable* t, int base, NetProps& p, int depth) {
         else if (!strcmp(name, "m_flCycle") && p.cycle < 0) p.cycle = off;
         else if (!strcmp(name, "m_flPlaybackRate") && p.rate < 0) p.rate = off;
         else if (!strcmp(name, "m_flAnimTime") && p.animTime < 0) p.animTime = off;
+        else if (!strcmp(name, "m_fMMSize") && p.size < 0) p.size = off;
+        else if (!strcmp(name, "m_iShrinked") && p.shrinked < 0) p.shrinked = off;
         else if (!strcmp(name, "m_fHealth") && g_healthOff < 0) { g_healthOff = off; Log("netprops: m_fHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_fMaxHealth") && g_maxHealthOff < 0) { g_maxHealthOff = off; Log("netprops: m_fMaxHealth @+0x%X (CBaseEntity, all classes)", off); }
         else if (!strcmp(name, "m_hOwner") && g_weaponOwnerOff < 0) { g_weaponOwnerOff = off; Log("netprops: m_hOwner @+0x%X (CBaseCombatWeapon)", off); }
@@ -435,8 +439,8 @@ static NetProps DiscoverNetProps(IServerNetworkable* n, const char* className) {
         }
         WalkSendTable(sc->table, 0, p, 0);
         if (p.sequence >= 0 || p.cycle >= 0)
-            Log("netprops: %s (%s/%s) sequence@+0x%X cycle@+0x%X rate@+0x%X poses@+0x%X animtime@+0x%X", SafeStr(className), SafeStr(sc->networkName),
-                SafeStr(sc->table->name), p.sequence, p.cycle, p.rate, p.poses, p.animTime);
+            Log("netprops: %s (%s/%s) sequence@+0x%X cycle@+0x%X rate@+0x%X poses@+0x%X animtime@+0x%X size@+0x%X shrinked@+0x%X", SafeStr(className),
+                SafeStr(sc->networkName), SafeStr(sc->table->name), p.sequence, p.cycle, p.rate, p.poses, p.animTime, p.size, p.shrinked);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("netprops: exception walking %s's send table", SafeStr(className));
         p = NetProps();
@@ -1222,6 +1226,13 @@ static void WireWrite() {
                 w.cycle = *(const float*)(ent + cls.props.cycle);
                 w.playback_rate = cls.props.rate >= 0 ? *(const float*)(ent + cls.props.rate) : 1.0f;
                 w.flags |= wire::kHasAnimation;
+            }
+            w.size = 1;
+            w.shrinked = 0;
+            if (cls.props.size >= 0 && cls.props.shrinked >= 0) {
+                w.size = *(const float*)(ent + cls.props.size);
+                w.shrinked = *(const int*)(ent + cls.props.shrinked);
+                w.flags |= wire::kHasSize;
             }
             WriteLink(cls.ptr, ent, w);
             WriteParent(cls.ptr, ent, w);

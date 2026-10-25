@@ -145,7 +145,8 @@ internal sealed partial class Orc : IDisposable
     /// <summary>Its defense-state word as Dark Messiah's verdict reads it: bit 0x4 while parrying.</summary>
     internal uint DefenseState => State == OrcState.Parry ? CombatModel.ParryState : 0;
     internal DonorModel BodyModel => body.Model;
-    internal Transform Placement => new(Feet, Rig.Facing(Facing, Vector3.UnitY), Vector3.One);
+    /// <summary>Where it's drawn and struck: at its feet, facing its way, at its <see cref="Scale"/> (a shrunk orc's, #10348).</summary>
+    internal Transform Placement => new(Feet, Rig.Facing(Facing, Vector3.UnitY), Vector3.One * Scale);
     /// <summary>The attacks it has made, and the blows that reached the player.</summary>
     internal int AttacksMade { get; private set; }
 
@@ -307,6 +308,9 @@ internal sealed partial class Orc : IDisposable
         var blows = new List<OrcBlow>();
         // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
         if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
+        Regenerate(seconds);
+        // Shrunk (#10348), it stands small: no thought, no blow.
+        if (StepShrink(seconds)) return blows;
         WeakenedFor = MathF.Max(0, WeakenedFor - seconds);
         CharmedFor = MathF.Max(0, CharmedFor - seconds);
         // Frozen (#10166), it stands as it was: no thought, no clip, no blow.
@@ -516,6 +520,28 @@ internal sealed partial class Orc : IDisposable
         CharmedFor = MathF.Max(CharmedFor, seconds);
     }
 
+    float regenClock;
+
+    /// <summary>What blows have taken of its health since it spawned (its regeneration aside, #10348).</summary>
+    internal float Taken { get; private set; }
+
+    /// <summary>
+    /// Its <c>.qct</c>'s <c>life_regen</c> (0.25) every <see cref="RegenSeconds"/> while it lives short of its health
+    /// (#10348): a shrunk orc's climbed from 1 so, and the hurt orcs of the support-spells and attack-spells recordings.
+    /// </summary>
+    void Regenerate(float seconds)
+    {
+        if (Following || !Alive) return;
+        for (regenClock += seconds; regenClock >= RegenSeconds; regenClock -= RegenSeconds)
+            if (Health < mind.Data.Health) Health = MathF.Min(mind.Data.Health, Health + mind.Data.LifeRegen);
+    }
+
+    /// <summary>
+    /// How often its health rises by its <c>life_regen</c>: every 2 s, as measured (the recorded rises 1.92 or 2.04 s
+    /// apart, 2.00 on average over 145 of them; the settings' <c>life_time_regen</c> is 2, said to be the player's).
+    /// </summary>
+    internal const float RegenSeconds = 2;
+
     /// <summary>It dies <paramref name="seconds"/> from now (a spell's blow left it at 1; #10166).</summary>
     internal void DieIn(float seconds)
     {
@@ -545,6 +571,7 @@ internal sealed partial class Orc : IDisposable
         // A blow makes it fight at once (#10154), the reaction its blow plays aside.
         perception.Struck();
         if (State == OrcState.Quiet) Play(OrcState.Ready, "combatidle");
+        Taken += MathF.Min(MathF.Max(Health, 0), amount);
         Health -= amount;
         if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; ReleaseRagdoll(); Play(OrcState.Down, "combatidle"); }
     }
@@ -717,7 +744,8 @@ internal sealed partial class Orc : IDisposable
     {
         get
         {
-            if (!Lying) return (Feet + Vector3.UnitY * .9f, new Vector3(.4f, .9f, .4f));
+            // Shrunk (#10348), its box at the small model's scale.
+            if (!Lying) return (Feet + Vector3.UnitY * .9f * Scale, new Vector3(.4f, .9f, .4f) * Scale);
             var forward = Vector3.Normalize(Facing with { Y = 0 });
             var side = new Vector3(forward.Z, 0, -forward.X);
             Vector3 Half(Vector3 axis, float extent) => new(MathF.Abs(axis.X) * extent, MathF.Abs(axis.Y) * extent, MathF.Abs(axis.Z) * extent);
@@ -851,8 +879,9 @@ internal sealed partial class Orc : IDisposable
         ReleaseRagdoll();
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
-        FrozenFor = dyingLeft = WeakenedFor = CharmedFor = 0;
+        FrozenFor = dyingLeft = WeakenedFor = CharmedFor = regenClock = Taken = 0;
         ResetArchery();
+        ResetShrink();
         Layer = null;
         mind.Reset();
         stagger.Reset();

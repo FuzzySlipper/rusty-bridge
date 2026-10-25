@@ -1,0 +1,305 @@
+{
+  "description": "Shrink probe (#10348): the adrenaline-powered air_4. Every skill, notarget, the level's NPCs removed, sixteen mana potions. Four times: a new orc at (0, -2300), two belt slots drunk, mm_player_add_adrenaline 100 before and after Deploy_Spell_AIR_4, cast from 200 units south. Then: walked into it and kicked twice; god on and notarget off 12 s (its blows); the sword at it; watched 30 s. Marked with echo rb_sh.",
+  "seconds": 150,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_sh shrink: full adrenaline, air_4 at the orc; watched 10 s",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_4",
+    {
+      "wait": 2
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 10
+    },
+    "echo rb_sh walked into it, then kicks",
+    {
+      "approach": "npc_orc_sword",
+      "distance": 40
+    },
+    {
+      "wait": 0.5
+    },
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "hold": [
+        "F"
+      ],
+      "ms": 150
+    },
+    {
+      "wait": 3
+    },
+    "echo rb_sh shrink again, then god on and notarget off 12 s: its blows",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_4",
+    {
+      "wait": 2
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 2
+    },
+    "god",
+    {
+      "wait": 0.3
+    },
+    "notarget",
+    {
+      "wait": 12
+    },
+    "notarget",
+    {
+      "wait": 0.3
+    },
+    "god",
+    {
+      "wait": 0.5
+    },
+    "echo rb_sh shrink, then the sword",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_4",
+    {
+      "wait": 2
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 3
+    },
+    "use weapon_arx_short_sword",
+    {
+      "wait": 1.5
+    },
+    {
+      "approach": "npc_orc_sword",
+      "distance": 50,
+      "pitch": 30
+    },
+    {
+      "wait": 0.3
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "click": 1,
+      "ms": 80
+    },
+    {
+      "wait": 3
+    },
+    "echo rb_sh shrink, watched 30 s (its duration)",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 3
+    },
+    "setpos 0 -2500 -12",
+    "setang 4.6 90 0",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 3
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_AIR_4",
+    {
+      "wait": 2
+    },
+    "mm_player_add_adrenaline 100",
+    {
+      "wait": 0.5
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 30
+    }
+  ]
+}

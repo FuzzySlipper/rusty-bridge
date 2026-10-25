@@ -26,7 +26,10 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(48, (int)Marshal.OffsetOf<WireDefense>(nameof(WireDefense.VictimState)));
         Assert.Equal(360, Marshal.SizeOf<WireDamage>());
         Assert.Equal(152, (int)Marshal.OffsetOf<WireDamage>(nameof(WireDamage.VictimSequence)));
-        Assert.Equal(80, Marshal.SizeOf<WireEntity>());
+        Assert.Equal(88, Marshal.SizeOf<WireEntity>());
+        // v19: Arkane's size and shrink after the owner (wire.h size, shrinked).
+        Assert.Equal(80, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Size)));
+        Assert.Equal(84, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Shrinked)));
         Assert.Equal(64, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Parent)));
         // v18: an NPC's alert level and state in the entity's spare fields (wire.h alert, npc_state).
         Assert.Equal(58, (int)Marshal.OffsetOf<WireEntity>(nameof(WireEntity.Alert)));
@@ -46,7 +49,7 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(WireLayout.InputOffset + 48, WireLayout.StatsOffset);
         Assert.Equal(WireLayout.StatsOffset + 112, WireLayout.SweepsOffset);
         Assert.Equal(48, (int)Marshal.OffsetOf<WireSweep>(nameof(WireSweep.Caller)));
-        Assert.Equal(25_753_856, WireLayout.FileBytes);
+        Assert.Equal(27_851_008, WireLayout.FileBytes);
     }
 
     [Fact]

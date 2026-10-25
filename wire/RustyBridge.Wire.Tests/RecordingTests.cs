@@ -91,12 +91,12 @@ public sealed class RecordingTests : IDisposable
         Assert.True(reader.TryReadFrame(1, snap));
         recorder.Write(snap, reader.Map, 0.015f, reader);
 
-        // Record header (5) + frame fields (21) + one changed entity (80) + removed count (4)
+        // Record header (5) + frame fields (21) + one changed entity (88; 80 before v19) + removed count (4)
         // + damage, defense and layer dropped-and-count pairs (8 each)
         // + v7: wall clock (8), player state (24), slow-time dropped-and-count (8)
         // + v8/v9: the client view (232) + v12/v14: the player's input (48) + v15/v16: the stats (112)
         // + v17: sweep dropped-and-count (8).
-        Assert.Equal(574, recorder.Bytes - afterKey);
+        Assert.Equal(582, recorder.Bytes - afterKey);
     }
 
     [Fact]
@@ -317,7 +317,8 @@ public sealed class RecordingTests : IDisposable
         writer.FrameEntities(10,
             new WireEntity { Index = 1, ClassId = 2, Serial = 1, Link = WireLayout.NoEntity },
             new WireEntity { Index = 7, ClassId = 0, Serial = 0x123, Link = 9, LinkSerial = 0x55 },
-            new WireEntity { Index = 9, ClassId = 1, Serial = 0x55, Link = 7, LinkSerial = 0x123, Parent = 7, ParentAttachment = 3, ParentSerial = 0x123, Owner = 7, OwnerSerial = 0x123 });
+            new WireEntity { Index = 9, ClassId = 1, Serial = 0x55, Link = 7, LinkSerial = 0x123, Parent = 7, ParentAttachment = 3, ParentSerial = 0x123, Owner = 7, OwnerSerial = 0x123,
+                Flags = WireEntityFlags.HasSize, Size = 0.2f, Shrinked = 1 });
         using var reader = new WireReader(_wire);
         var snap = new WireSnapshot();
         Assert.True(reader.TryReadFrame(0, snap));
@@ -333,7 +334,7 @@ public sealed class RecordingTests : IDisposable
             buffer = new MemoryStream(buffer.ToArray());
         }
         var f = Assert.Single(RecordingReader.Frames(new MemoryStream(buffer.ToArray())));
-        Assert.Equal(18u, f.Version);
+        Assert.Equal(19u, f.Version);
         var sweep = Assert.Single(f.Sweeps);
         Assert.Equal((10, (ushort)1, (byte)0, WireSweep.HeadEntity, 100f, 73f, 1f, 120f, 90f, 0x411C55u),
             (sweep.Tick, sweep.Attacker, sweep.Type, sweep.Flags, sweep.StartX, sweep.StartZ, sweep.DirectionY, sweep.Range, sweep.ViewYaw, sweep.Caller));
@@ -341,6 +342,9 @@ public sealed class RecordingTests : IDisposable
         int sweepTail = 8 + System.Runtime.InteropServices.Marshal.SizeOf<WireSweep>();
         var v16 = Assert.Single(RecordingReader.Frames(new MemoryStream(AsVersion(buffer.ToArray(), 16, sweepTail))));
         Assert.Equal((16u, 0, 3), (v16.Version, v16.Sweeps.Count, v16.Stats.SkillLevel("extra_damage")));
+        // v19: Arkane's size and shrink; an older entity reads unscaled, with the flag off (it was never written).
+        Assert.Equal((0.2f, 1, true), (f.Entities[9].Size, f.Entities[9].Shrinked, f.Entities[9].Flags.HasFlag(WireEntityFlags.HasSize)));
+        Assert.Equal((1f, 0, (ushort)7), (v16.Entities[9].Size, v16.Entities[9].Shrinked, v16.Entities[9].Parent));
         Assert.Equal((1, 3, 0), (f.Stats.SkillLevel("combat"), f.Stats.SkillLevel("extra_damage"), f.Stats.SkillLevel("backstab")));
 
         // The same frame as a v15 recording wrote it: the stats stop before the skill levels.
@@ -490,7 +494,8 @@ public sealed class RecordingTests : IDisposable
     /// <summary>A current recording as an older version wrote it: each frame without its last <paramref name="tail"/> bytes.</summary>
     static byte[] AsVersion(byte[] current, uint version, int tail)
     {
-        int stats = tail;
+        // Before v19 an entity is 80 bytes: the size and shrink fields go.
+        int entityNow = System.Runtime.InteropServices.Marshal.SizeOf<WireEntity>(), entityThen = RecordingFormat.EntityBytes(version);
         var output = new MemoryStream();
         output.Write(current, 0, 16);
         BitConverter.GetBytes(version).CopyTo(output.GetBuffer(), 8);
@@ -498,10 +503,19 @@ public sealed class RecordingTests : IDisposable
         {
             byte kind = current[at];
             int length = BitConverter.ToInt32(current, at + 1);
-            var payload = current.AsSpan(at + 5, kind == 4 ? length - stats : length);
+            var payload = current.AsSpan(at + 5, length);
+            var record = new MemoryStream();
+            if (kind == 4)
+            {
+                record.Write(payload[..21]);
+                int changed = BitConverter.ToInt32(payload[17..]), p = 21;
+                for (int i = 0; i < changed; i++, p += entityNow) record.Write(payload.Slice(p, entityThen));
+                record.Write(payload[p..^tail]);
+            }
+            else record.Write(payload);
             output.WriteByte(kind);
-            output.Write(BitConverter.GetBytes(payload.Length));
-            output.Write(payload);
+            output.Write(BitConverter.GetBytes((int)record.Length));
+            record.WriteTo(output);
             at += 5 + length;
         }
         return output.ToArray();

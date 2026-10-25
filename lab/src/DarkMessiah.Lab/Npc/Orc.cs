@@ -490,22 +490,29 @@ internal sealed partial class Orc : IDisposable
     /// <summary>Seconds it stays weakened (the weaken spell, #10167): wounded, striking with its wounded attacks only; 0 when it isn't.</summary>
     internal float WeakenedFor { get; private set; }
 
-    /// <summary>Weakens it for <paramref name="seconds"/>.</summary>
+    /// <summary>Weakens it for <paramref name="seconds"/>: aware of the player, it fights (an unaware one stands up from its idle, R10167-2).</summary>
     internal void Weaken(float seconds)
     {
         if (!Alive || Following) return;
-        perception.Struck();
+        Rouse();
         WeakenedFor = MathF.Max(WeakenedFor, seconds);
+    }
+
+    /// <summary>A spell cast on it makes it aware and, idling unaware, leaves its idle to fight, as a blow does (<see cref="Damage"/>).</summary>
+    void Rouse()
+    {
+        perception.Struck();
+        if (State == OrcState.Quiet) Play(OrcState.Ready, "combatidle");
     }
 
     /// <summary>Seconds it stays charmed (the charm spell, #10167): on the player's side, fighting its own squad; 0 when it isn't.</summary>
     internal float CharmedFor { get; private set; }
 
-    /// <summary>Charms it for <paramref name="seconds"/>.</summary>
+    /// <summary>Charms it for <paramref name="seconds"/>, aware, out of its idle (R10167-2).</summary>
     internal void Charm(float seconds)
     {
         if (!Alive || Following) return;
-        perception.Struck();
+        Rouse();
         CharmedFor = MathF.Max(CharmedFor, seconds);
     }
 

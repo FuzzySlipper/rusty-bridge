@@ -1578,7 +1578,8 @@ host.Call(engine =>
         // Charm at the orc with its squad-mate beside it, 30 s: they fight each other for 25 s, the player left alone.
         var ssTuning = combat.Tuning;
         var ssMateAt = ssOrc + Vector3.UnitX * 1.5f;
-        combat.Retune(ssTuning with { Orc = ssTuning.Orc with { SquadMate = [ssMateAt.X, ssMateAt.Y, ssMateAt.Z] } });
+        // No respawn: a charmed orc that falls stays down (one back on its feet would be on its own side).
+        combat.Retune(ssTuning with { Orc = ssTuning.Orc with { SquadMate = [ssMateAt.X, ssMateAt.Y, ssMateAt.Z], RespawnSeconds = 1000 } });
         combat.Reset();
         combat.Rebuild(support);
         combat.God = true;
@@ -1606,6 +1607,75 @@ host.Call(engine =>
         Check(charmInHand && MathF.Abs(charmCost - chr.Cost) < .05f && MathF.Abs(charmedFor - chr.Seconds) < .05f && MathF.Abs(charmEnded - chr.Seconds) <= 2 * Tick
                 && playerBlowsCharmed == 0 && fights.Landed >= 1 && fights.Dealt > 0 && playerBlowsAfter >= 1,
             FormattableString.Invariant($"charm: in hand from belt slot 3 ({charmInHand}), {charmCost:0.#} mana at the press ({chr.Cost:0}); the orc charmed {charmedFor:0.#} s, to {charmEnded:0.00} s ({chr.Seconds:0}); meanwhile the orcs struck each other {fights.Blows} times, {fights.Landed} landing for {fights.Dealt:0.#}, and the player {playerBlowsCharmed} times; after, the player {playerBlowsAfter}"));
+        // Both charmed (R10167-1): sides by mm_relationship.txt, the charmed on the player's. The orc charmed, then its mate
+        // 2 s on: from then neither strikes the other nor the player; their charms over, both fight the player.
+        combat.Reset();
+        combat.Rebuild(support);
+        combat.God = true;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ssOrc);
+        combat.Mate!.Spawn();
+        combat.Mate.PlaceAt(ssMateAt);
+        combat.Orc.Hold = combat.Mate.Hold = false;
+        combat.Mana.Fill();
+        if (combat.SpellInHand != DarkMessiah.Lab.Magic.CharmRules.Spell) combat.UseBelt(2);
+        int bothFightsFrom = 0, bothPlayerFrom = 0, bothPlayerAfter = 0, fightsDuring = 0, playerDuring = 0;
+        float bothCharmedUntil = float.NaN;
+        for (int i = 0; i < (int)(40 / Tick); i++)
+        {
+            float t = (i + 1) * Tick;
+            // Its press at the orc, then at the mate (each in view: 17° apart at 200 units).
+            var at = t < 1 ? combat.Orc.Feet : combat.Mate.Feet;
+            bool press = i == 0 || i == (int)(2 / Tick);
+            if (i == (int)(2 / Tick) + 1) (bothFightsFrom, bothPlayerFrom) = (combat.OrcFights.Blows, combat.OrcStats.Blows);
+            combat.Step(Tick, step++, press, false, false, ssEye, Vector3.Normalize(at + Vector3.UnitY * 1.1f - ssEye), ssFeet);
+            if (float.IsNaN(bothCharmedUntil) && i > (int)(2 / Tick) && (combat.Orc.CharmedFor <= 0 || combat.Mate.CharmedFor <= 0)) bothCharmedUntil = t;
+            if (float.IsNaN(bothCharmedUntil) && i > (int)(2 / Tick)) (fightsDuring, playerDuring) = (combat.OrcFights.Blows - bothFightsFrom, combat.OrcStats.Blows - bothPlayerFrom);
+            if (t > 27 + 2) bothPlayerAfter = combat.OrcStats.Blows - bothPlayerFrom - playerDuring;
+            if (Environment.GetEnvironmentVariable("RB_CHARMTRACE") == "1" && i % (int)(1 / Tick) == 0)
+                Console.WriteLine(FormattableString.Invariant($"  charm trace {t:0.0} s: orc {combat.Orc.State} {combat.Orc.Clip} charmed {combat.Orc.CharmedFor:0.0} hp {combat.Orc.Health:0} at {combat.Orc.Feet}; mate {combat.Mate.State} {combat.Mate.Clip} charmed {combat.Mate.CharmedFor:0.0} hp {combat.Mate.Health:0}; blows on the player {combat.OrcStats.Blows}, between {combat.OrcFights.Blows}"));
+        }
+        bool bothCharmed = !float.IsNaN(bothCharmedUntil) && bothCharmedUntil > 24;
+        // The second orc charmed after the first: once the first's ended, the second (still charmed) and the first are of
+        // other sides; both charms over, both on their own, the player's foes.
+        Check(bothCharmed && fightsDuring == 0 && playerDuring == 0 && bothPlayerAfter >= 1,
+            FormattableString.Invariant($"both charmed (R10167-1): from the mate's charm to the first's end ({bothCharmedUntil:0.0} s) the orcs struck each other {fightsDuring} times and the player {playerDuring}; their charms over, the player {bothPlayerAfter} times"));
+        // Cast on an unaware orc (R10167-2): weakened, it leaves its idle and fights the player, as it does past its 15 s;
+        // charmed, with its unaware mate beside it, it fights the mate.
+        combat.Retune(ssTuning with { Orc = ssTuning.Orc with { SpawnUnaware = true } });
+        combat.Reset();
+        combat.Rebuild(support);
+        combat.God = true;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ssOrc);
+        bool quietBefore = combat.Orc.State == DarkMessiah.Lab.Npc.OrcState.Quiet;
+        combat.Mana.Fill();
+        if (combat.SpellInHand != DarkMessiah.Lab.Magic.WeakenRules.Spell) combat.UseBelt(1);
+        int quietBlowsBefore = combat.OrcStats.Blows, quietBlowsLate = 0;
+        bool leftIdle = false;
+        for (int i = 0; i < (int)(25 / Tick); i++)
+        {
+            combat.Step(Tick, step++, i < 1, false, false, ssEye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY * 1.1f - ssEye), ssFeet);
+            if (i == 1) leftIdle = combat.Orc.State != DarkMessiah.Lab.Npc.OrcState.Quiet;
+            if ((i + 1) * Tick > wr.Seconds + 1 && quietBlowsLate == 0) quietBlowsLate = -combat.OrcStats.Blows;
+        }
+        quietBlowsLate += combat.OrcStats.Blows;
+        combat.Retune(ssTuning with { Orc = ssTuning.Orc with { SpawnUnaware = true, SquadMate = [ssMateAt.X, ssMateAt.Y, ssMateAt.Z], RespawnSeconds = 1000 } });
+        combat.Reset();
+        combat.Rebuild(support);
+        combat.God = true;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ssOrc);
+        combat.Mate!.Spawn();
+        combat.Mate.PlaceAt(ssMateAt);
+        combat.Mana.Fill();
+        if (combat.SpellInHand != DarkMessiah.Lab.Magic.CharmRules.Spell) combat.UseBelt(2);
+        int quietFights = combat.OrcFights.Landed;
+        for (int i = 0; i < (int)(20 / Tick); i++)
+            combat.Step(Tick, step++, i < 1, false, false, ssEye, Vector3.Normalize(ssOrc + Vector3.UnitY * 1.1f - ssEye), ssFeet);
+        quietFights = combat.OrcFights.Landed - quietFights;
+        Check(quietBefore && leftIdle && quietBlowsLate >= 1 && quietFights >= 1,
+            FormattableString.Invariant($"cast on an unaware orc (R10167-2): weakened, it left its idle ({leftIdle}) and struck the player {quietBlowsLate} times past its {wr.Seconds:0} s; charmed beside its unaware mate, their blows on each other landed {quietFights} times"));
         combat.Retune(ssTuning);
         combat.Reset();
         combat.Rebuild(file);

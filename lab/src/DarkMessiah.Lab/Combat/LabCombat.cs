@@ -1373,23 +1373,42 @@ internal sealed class LabCombat : IDisposable
     internal float PlayerStrength => model.Data.PlayerStrength(Build?.Level("extra_damage") ?? 0);
 
     /// <summary>
-    /// The orc <paramref name="orc"/> fights other than the player (#10167): charmed, its squad-mate while it lives; its
-    /// squad-mate charmed, that one. Null for the player. A charmed orc with no one left to fight is <see cref="Orc"/> itself.
+    /// The side an orc is on (R10167-1): its faction in <c>mm_relationship.txt</c>, <c>orc</c>, or charmed (#10167) the
+    /// player's, as long as the charm lasts; it's back on its own as it ends.
+    /// </summary>
+    static string Side(Orc orc) => orc.CharmedFor > 0 ? PlayerSide : NpcFaction;
+    const string PlayerSide = "player", NpcFaction = "orc";
+
+    /// <summary>
+    /// Whether one side fights another, by the donor's relationships: a faction those it hates (<c>HT</c>; the orcs'
+    /// row: the player, and every faction but its own, which it likes); the player's side, charmed NPCs with it, those
+    /// that hate the player. Two on the player's side don't fight.
+    /// </summary>
+    bool Hostile(string side, string other) =>
+        side == PlayerSide ? other != PlayerSide && donor.Tables.Disposition(other, PlayerSide) == "HT" : donor.Tables.Disposition(side, other) == "HT";
+
+    /// <summary>
+    /// Whom <paramref name="orc"/> fights (#10167, R10167-1): its squad-mate, alive and of a side it's hostile to (a
+    /// charmed one and its uncharmed mate, each the other); else the player, if it's hostile to the player's side (null);
+    /// else no one, and it stands (itself). Two charmed orcs stand together, and neither strikes the player.
     /// </summary>
     Orc? Foe(Orc orc)
     {
         var other = orc == Orc ? Mate : Orc;
-        if (orc.CharmedFor > 0) return other is { Alive: true } ? other : orc;
-        return other is { Alive: true, CharmedFor: > 0 } ? other : null;
+        if (other is { Alive: true } && Hostile(Side(orc), Side(other))) return other;
+        return Hostile(Side(orc), PlayerSide) ? null : orc;
     }
 
-    /// <summary>One orc's step against its foe: the player, another orc, or (charmed, with none) itself, standing its ground.</summary>
+    /// <summary>
+    /// One orc's step against its foe: the player, another orc, or (charmed, with none: itself) no one, when it keeps by the
+    /// player, on its side, holding off.
+    /// </summary>
     List<OrcBlow> StepOrc(Orc orc, Orc? foe, float seconds, Vector3 feet, PlayerGait gait)
     {
         if (foe is null) return orc.Step(seconds, feet, Incoming(), Sword.Swing, gait, clearShot: orc.Archery is null || ClearShot(orc, eyeAt));
         bool held = orc.Hold;
         if (foe == orc) orc.Hold = true;
-        var blows = orc.Step(seconds, foe == orc ? orc.Feet : foe.Feet, Incoming(), Sword.Swing, gait);
+        var blows = orc.Step(seconds, foe == orc ? feet : foe.Feet, Incoming(), Sword.Swing, gait);
         orc.Hold = held;
         return foe == orc ? [] : blows;
     }

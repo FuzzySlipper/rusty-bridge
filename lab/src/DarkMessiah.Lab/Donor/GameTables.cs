@@ -13,17 +13,27 @@ internal sealed record SkillInfo(string Name, string Requires, int MaxLevel, IRe
 /// imported scripts on first use:
 /// <list type="bullet">
 /// <item>spells from <c>scripts/spells.txt</c>'s <c>spelldatas</c>, by Arkane's id (<c>air_1</c> is telekinesis);</item>
-/// <item>skills from <c>scripts/mm_skills_infos.txt</c>.</item>
+/// <item>skills from <c>scripts/mm_skills_infos.txt</c>;</item>
+/// <item>the factions' relationships from <c>scripts/mm_relationship.txt</c> (R10167-1): each faction's disposition to
+/// every other and to the player, <c>HT</c> (hates), <c>LI</c> (likes) or <c>NE</c> (neutral).</item>
 /// </list>
 /// An item's own numbers (<c>WDmg</c>, <c>rangeattack</c>, a bow's <c>ammo</c>) are in its <c>.qct</c>'s
 /// <c>entity_data</c>: <see cref="DonorContent.Number"/>.
 /// </summary>
 internal sealed class GameTables(Func<string, byte[]?> read)
 {
-    internal const string SpellsFile = "scripts/spells.txt", SkillsFile = "scripts/mm_skills_infos.txt";
+    internal const string SpellsFile = "scripts/spells.txt", SkillsFile = "scripts/mm_skills_infos.txt", RelationshipsFile = "scripts/mm_relationship.txt";
 
     IReadOnlyDictionary<string, KeyValues>? spells;
     IReadOnlyDictionary<string, SkillInfo>? skills;
+    IReadOnlyDictionary<string, KeyValues>? relationships;
+
+    /// <summary>Each faction's block of dispositions, by name; empty when the import has no relationships table.</summary>
+    internal IReadOnlyDictionary<string, KeyValues> Relationships => relationships ??=
+        (Table(RelationshipsFile).FirstOrDefault()?.Blocks ?? []).GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary><paramref name="faction"/>'s disposition to <paramref name="other"/> (a faction, or <c>player</c>): <c>HT</c>, <c>LI</c>, <c>NE</c>, or null when the table hasn't it.</summary>
+    internal string? Disposition(string faction, string other) => Relationships.TryGetValue(faction, out var block) ? block[other] : null;
 
     /// <summary>Each spell's block by id; empty when the import has no spells table.</summary>
     internal IReadOnlyDictionary<string, KeyValues> Spells => spells ??=

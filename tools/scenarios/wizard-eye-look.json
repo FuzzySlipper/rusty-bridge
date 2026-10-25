@@ -1,0 +1,92 @@
+{
+  "description": "Wizard eye's look (#10358): as wizard-eye, standing at the same place and view; the game's own screenshots (jpeg) before the cast, 2 s and 15 s into it, and 3 s after it's over. Marked with echo rb_wel.",
+  "seconds": 50,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_wel wizard eye look",
+    "setpos 0 -2500 -12",
+    "setang 0 90 0",
+    "usebelt1",
+    {
+      "wait": 3
+    },
+    "jpeg rb_we_off 95",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_WATER_1",
+    {
+      "wait": 2
+    },
+    "jpeg rb_we_on2 95",
+    {
+      "wait": 13
+    },
+    "jpeg rb_we_on15 95",
+    {
+      "wait": 18
+    },
+    "jpeg rb_we_after 95",
+    {
+      "wait": 3
+    }
+  ]
+}

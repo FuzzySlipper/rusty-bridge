@@ -680,7 +680,7 @@ attack spells: put them on it to play them).
   - **shrink (#10348):** below, "Shrink": weaken cast with the gauge full (`Deploy_Spell_EARTH_3` puts nothing in hand:
     `earth_3` is no player spell);
   - **magic reflection (#10349):** below, "Magic reflection" (a necromancer spawned in l01_a casts at the player);
-  - **wizard eye (#10350):** below, "Wizard eye": no remote view, a 30 s brightening, recorded and not yet played.
+  - **wizard eye (#10350, #10358):** below, "Wizard eye": no remote view, a 30 s brightening of the arena.
 - **Not measured:** cure wounds at full health and its `radius` 300 (on others), weaken's own `adrenaline_add` (2)
   and the stun and fall chances of a weakened orc, charm on a lone orc, an orc charmed by the player striking it, and
   whether a charmed orc's blows land on the other (the recorded one's didn't).
@@ -755,7 +755,7 @@ it (and the archer).
 
 ### Wizard eye
 
-Recorded only (#10350; `l01_a-v20-wizard-eye`; Wire v20, docs/wire.md "Wizard eye"). The wizard eye isn't a remote
+`Magic/WizardEye.cs` (#10350, #10358; `l01_a-v20-wizard-eye`, `-wizard-eye-look`; Wire v20, docs/wire.md "Wizard eye"). The wizard eye isn't a remote
 view: server.dll's `EnterWizardEye` is an empty stub, and the spell brightens the lightmaps and props for its
 duration. `Deploy_Spell_WATER_1` turns it on as it's put in hand, for `cost` 0, with no press: the player's
 `m_bMMWizardEyeEnable` on, `m_g_MM_fWizardEyeDuration` from 30 (`effect_duration`) down, the lightmap add
@@ -764,12 +764,22 @@ rises 0.03 every two ticks to 1 in 1.02 s, and at 30.00 s it's off and the fade 
 0.48 s (the FX value at half that speed). A tap and a 3 s hold while it was on changed nothing; cast again once it was
 off, it did the same.
 
-- **In the lab:** not yet: #10358 plays it as a brightening of the arena's lighting (the Engine's light and
-  indirect-light requests).
-- **Not measured:** how it looks (the client's lighting and its screen effect aren't on the Wire), its `radius` (300)
-  and `effect` (30), and a cast while it's on.
+- **How it looks** (`wizard-eye-look`: the game's own `jpeg` screenshots in the l01_a courtyard by day): 2 s and
+  15 s in, 98% of the view is white, the props and the sky as well as the world, and the HUD's belt greyed; 3 s after
+  it's over the view is as before it.
+- **In the lab:** cast as it's put in hand (a belt slot, or `lab.spell water_1`), for its cost, the hand keeping its
+  weapon; on for `effect_duration`, its fade rising 1 a second and falling 2 a second once it's off (the recorded 0.03
+  and 0.06 every two ticks). The brightening is a white ambient light over the Engine's neutral rig, its fade times 40
+  (`WizardEye.FullLight`): in headless captures the arena goes white and the crate nearly (its mean 91 to 242 of 255),
+  as the donor's world and props do. A cast while it's on starts its 30 s over.
+- **Differences:** the orc's darker skin keeps some of its texture, the lab's background (the clear colour) isn't
+  brightened, and the donor's screen effect (`fx/WizardEye/dudv`) and tonemap (`wizardeye_tonemap_scale` 0.3) aren't
+  played.
+- **Not measured:** its `radius` (300) and `effect` (30), a cast while it's on, and how it looks somewhere dark.
 - **The smoke:** both recorded eyes on 30.00 s for 0 mana, their adds `spells.txt`'s, the fade in 1.02 s and out
-  0.48 s, the props' add with it, and the presses changing nothing.
+  0.48 s, the props' add with it, and the presses changing nothing; the lab's eye cast from the belt for 0 mana, on
+  30 s, its fade within 0.06 of the donor's at every recorded sample of both eyes, and the arena's light following
+  it.
 
 ### The bow
 
@@ -1458,6 +1468,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
   - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
+  - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;
   - `lab.dev.view x y z yaw pitch` stands at a viewpoint;
   - `lab.time`, `.rate`, `.hold`, `.run` and `.step` control world time.

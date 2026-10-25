@@ -4,10 +4,11 @@ namespace DarkMessiah.Lab.Calibration;
 
 /// <summary>
 /// One wizard eye in a recording (#10350; Wire v20, docs/wire.md "Wizard eye"): when it came on and went off, the mana
-/// then, its lightmap, LDR and prop adds while on, and how long its fade took to rise to 1 and to fall to 0.
+/// then, its lightmap, LDR and prop adds while on, how long its fade took to rise to 1 and to fall to 0, and its fade
+/// sampled from the cast until it was down (seconds from the cast; #10358).
 /// </summary>
 internal sealed record RecordedWizardEye(double On, double Off, float Mana, float LightmapAdd, float LightmapAddLdr, float PropAddMax,
-    double FadeIn, double FadeOut, bool PropsFollowFade, bool PressesChangedNothing)
+    double FadeIn, double FadeOut, bool PropsFollowFade, bool PressesChangedNothing, IReadOnlyList<(double T, float Fade)> Fades)
 {
     public override string ToString() =>
         FormattableString.Invariant($"wizard eye {On:0.00}–{Off:0.00} s ({Off - On:0.00} s), {Mana:0.#} mana, lightmap +{LightmapAdd:0.###} (LDR +{LightmapAddLdr:0.###}), props up to +{PropAddMax:0.###}; ")
@@ -43,8 +44,9 @@ internal static class WizardEyeCalibration
             // Its adds as they stood once it was up; a press while it was on (attack held) changed none of them.
             var up = during.Last();
             bool pressesNothing = during.Where(f => f.Attack).All(f => f.Eye.Enabled == 1 && f.Eye.LightmapAdd == up.Eye.LightmapAdd);
+            var fades = frames.GetRange(k, (dark < 0 ? frames.Count : dark + 1) - k).Select(f => (f.T - on.T, f.Eye.Fade)).ToList();
             eyes.Add(new RecordedWizardEye(on.T, frames[off].T, frames[k - 1].Mana - on.Mana, up.Eye.LightmapAdd, up.Eye.LightmapAddLdr, up.Eye.PropAddMax,
-                fadeIn, fadeOut, follows, pressesNothing));
+                fadeIn, fadeOut, follows, pressesNothing, fades));
         }
         return eyes;
     }

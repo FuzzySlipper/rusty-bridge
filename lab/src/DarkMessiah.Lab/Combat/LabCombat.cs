@@ -107,6 +107,7 @@ internal sealed class LabCombat : IDisposable
         Shrink = ShrinkRules.From(donor);
         Charm = CharmRules.From(donor);
         Reflection = ReflectionRules.From(donor);
+        WizardEye = new WizardEye(WizardEyeRules.From(donor));
     }
 
     internal CombatTuning Tuning { get; private set; }
@@ -295,13 +296,15 @@ internal sealed class LabCombat : IDisposable
     internal CharmRules Charm { get; }
     /// <summary>Magic reflection's numbers (#10349).</summary>
     internal ReflectionRules Reflection { get; }
+    /// <summary>The player's wizard eye (#10358): on, its seconds and its fade.</summary>
+    internal WizardEye WizardEye { get; }
 
     /// <summary>The spells the lab plays: <c>spells.txt</c>'s id, and its name for the HUD.</summary>
     static readonly Dictionary<string, string> Played = new(StringComparer.OrdinalIgnoreCase)
     {
         [FireballRules.Spell] = "Fireball", [LightningRules.Spell] = "Lightning bolt", [FreezeRules.Spell] = "Freeze", [InfernoRules.Spell] = "Inferno",
         [CureRules.Spell] = "Cure wounds", [WeakenRules.Spell] = "Weaken", [CharmRules.Spell] = "Charm",
-        [ReflectionRules.Spell] = "Magic reflection",
+        [ReflectionRules.Spell] = "Magic reflection", [WizardEyeRules.Spell] = "Wizard eye",
     };
 
     /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
@@ -314,6 +317,8 @@ internal sealed class LabCombat : IDisposable
         if (spell.Equals(CureRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastCure(); return; }
         // So is magic reflection (#10349).
         if (spell.Equals(ReflectionRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastReflection(); return; }
+        // And the wizard eye (#10358).
+        if (spell.Equals(WizardEyeRules.Spell, StringComparison.OrdinalIgnoreCase)) { CastWizardEye(); return; }
         Bow = null;
         EndSpell();
         SpellInHand = Played.Keys.First(k => k.Equals(spell, StringComparison.OrdinalIgnoreCase));
@@ -359,6 +364,16 @@ internal sealed class LabCombat : IDisposable
         Adrenaline.Gain(Reflection.AdrenalineAdd);
         LastSupport = (ReflectionRules.Spell, null);
         Message = FormattableString.Invariant($"Magic reflection: {Reflection.Seconds:0} s");
+    }
+
+    /// <summary>The wizard eye (#10358): its cost, and on for its <see cref="WizardEyeRules.Seconds"/>.</summary>
+    void CastWizardEye()
+    {
+        if (!Mana.Spend(WizardEye.Rules.Cost)) { Refuse("wizard eye", WizardEye.Rules.Cost); return; }
+        Spells = Spells with { Casts = Spells.Casts + 1 };
+        WizardEye.Cast();
+        LastSupport = (WizardEyeRules.Spell, null);
+        Message = FormattableString.Invariant($"Wizard eye: {WizardEye.Rules.Seconds:0} s");
     }
 
     /// <summary>
@@ -1023,6 +1038,7 @@ internal sealed class LabCombat : IDisposable
         if (orcPose is null) Stomp(tick, feet);
         StepCures(seconds);
         ShieldLeft = MathF.Max(0, ShieldLeft - seconds);
+        WizardEye.Step(seconds);
         Health.Step(seconds);
         Mana.Step(seconds);
         if (PlayerHealth <= 0 && (deadSeconds += seconds) > 2) { Health.Fill(); deadSeconds = 0; Message = "Back on your feet"; }
@@ -1766,6 +1782,7 @@ internal sealed class LabCombat : IDisposable
         LastSupport = null;
         Stomped = 0;
         ShieldLeft = 0;
+        WizardEye.Reset();
         OrcFights = default;
         orcArrows.Clear();
         OrcArchery = default;

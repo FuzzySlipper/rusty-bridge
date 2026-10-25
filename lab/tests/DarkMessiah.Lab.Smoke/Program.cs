@@ -1949,8 +1949,7 @@ host.Call(engine =>
     }
     // The wizard eye (#10350; docs/lab.md, "Wizard eye"), recorded only: Wire v20's player fields against spells.txt's
     // water_1. Deployed, it's on for effect_duration (30 s), for its cost (0), with Lightmap_Max_Add, its LDR value and
-    // Props_Max_Add as its adds, the props' following its fade, which rises to 1 in 1 s and falls to 0 in 0.5 s. The lab
-    // doesn't play it yet.
+    // Props_Max_Add as its adds, the props' following its fade, which rises to 1 in 1 s and falls to 0 in 0.5 s.
     {
         var eyeRecording = Path.Combine(repo!, "local", "recordings", "experiments", "l01_a-v20-wizard-eye.rbrec");
         if (File.Exists(eyeRecording))
@@ -1966,6 +1965,47 @@ host.Call(engine =>
                 FormattableString.Invariant($"the donor's wizard eye: {eyes.Count} deployed, each on {string.Join(", ", eyes.Select(e => (e.Off - e.On).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} s (effect_duration {duration:0}) for {cost:0} mana, lightmap +{lightmap} (LDR +{ldr}) and props up to +{props} as spells.txt has them, its fade in {eyes.FirstOrDefault()?.FadeIn:0.00} s and out {eyes.FirstOrDefault()?.FadeOut:0.00} s, the props' with it; presses while on changed nothing"));
         }
         else Console.WriteLine("skip the donor's wizard eye: no local/recordings/experiments/l01_a-v20-wizard-eye.rbrec");
+    }
+    // The wizard eye in the lab (#10358; docs/lab.md, "Wizard eye"): cast from the belt as it's put in hand (the hand keeps
+    // its weapon), for its cost (0), on for effect_duration; its fade at every recorded sample of both donor eyes within
+    // one sample's change (0.06), and the arena's light following it, off again once it's down.
+    {
+        var weFile = file with { Belt = [new BeltSlot(Spell: DarkMessiah.Lab.Magic.WizardEyeRules.Spell)] };
+        bool weWasHeld = combat.Orc.Hold;
+        combat.Reset();
+        combat.Rebuild(weFile);
+        combat.Orc.Hold = true;
+        combat.Mana.Fill();
+        var eye = combat.WizardEye;
+        float weMana = combat.Mana.Value;
+        combat.UseBelt(0);
+        float weCost = weMana - combat.Mana.Value, weLeft = eye.Left;
+        bool weHand = combat.SpellInHand is null;
+        var weEye = new Vector3(12, 1.6f, 6);
+        var lab = new List<(double T, float Fade, float Light)> { (0, eye.Fade, eye.Light) };
+        double weOff = double.NaN;
+        for (int i = 0; i < (int)(31.5 / Tick); i++)
+        {
+            combat.Step(Tick, step++, false, false, false, weEye, Vector3.UnitZ, weEye - Vector3.UnitY * 1.6f);
+            lab.Add(((i + 1) * Tick, eye.Fade, eye.Light));
+            if (!eye.On && double.IsNaN(weOff)) weOff = (i + 1) * Tick;
+        }
+        float LabFade(double t) => lab.MinBy(x => Math.Abs(x.T - t)).Fade;
+        double fadeIn = lab.First(x => x.Fade >= 1).T, fadeOut = lab.First(x => x.T > weOff && x.Fade <= 0).T - weOff;
+        var weRecording = Path.Combine(repo!, "local", "recordings", "experiments", "l01_a-v20-wizard-eye.rbrec");
+        var donorEyes = File.Exists(weRecording) ? WizardEyeCalibration.Measure(weRecording) : [];
+        var samples = donorEyes.SelectMany(e => e.Fades).ToList();
+        float worst = samples.Count > 0 ? samples.Max(x => MathF.Abs(LabFade(x.T) - x.Fade)) : 0;
+        bool lightFollows = lab.All(x => MathF.Abs(x.Light - x.Fade * DarkMessiah.Lab.Magic.WizardEye.FullLight) < 1e-3f) && lab[^1].Light == 0;
+        Check(weHand && MathF.Abs(weCost - eye.Rules.Cost) < .01f && MathF.Abs(weLeft - eye.Rules.Seconds) < .01f && Math.Abs(weOff - eye.Rules.Seconds) <= 1.01 * Tick
+                && Math.Abs(fadeIn - 1) <= 1.01 * Tick && Math.Abs(fadeOut - .5) <= 1.01 * Tick && lightFollows && (donorEyes.Count == 0 || (donorEyes.Count == 2 && worst <= .061f)),
+            FormattableString.Invariant($"the wizard eye: cast from belt slot 1 as it's put in hand (the hand keeps its weapon: {weHand}), {weCost:0.#} mana, on {weLeft:0.#} s and off at {weOff:0.00} s; its fade up in {fadeIn:0.00} s and down in {fadeOut:0.00} s, ")
+            + (donorEyes.Count > 0 ? FormattableString.Invariant($"within {worst:0.000} of the donor's at its {samples.Count} samples of {donorEyes.Count} eyes; ") : "no donor recording; ")
+            + FormattableString.Invariant($"the arena's light its fade times {DarkMessiah.Lab.Magic.WizardEye.FullLight:0} ({lightFollows})"));
+        combat.Reset();
+        combat.Rebuild(file);
+        combat.Orc.Hold = weWasHeld;
+        ((IReplayBody)product).Begin();
     }
     // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'
     // npc_orc_bow, the long bow and the cleaver). Aware, it runs at the player to 471 units, nocks an arrow 1.2 s on and

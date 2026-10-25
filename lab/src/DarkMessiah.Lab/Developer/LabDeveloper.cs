@@ -108,6 +108,14 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
     [DebugCommand("lab.god", Description = "Toggle whether the orc's blows take the player's health (they are still counted).")]
     public DebugCommandResult God() { combat.God = !combat.God; changed(); return DebugCommandResult.Success(combat.God ? "god on" : "god off"); }
 
+    [DebugCommand("lab.spell", Description = "Put spells.txt's SPELL in hand as its belt slot would (one cast as it's put in hand, such as water_1, the wizard eye, casts at once), or back to the weapon if it's there.")]
+    public DebugCommandResult Spell(string spell)
+    {
+        combat.ToggleSpell(spell);
+        changed();
+        return DebugCommandResult.Success(FormattableString.Invariant($"{combat.Message}; wizard eye {combat.WizardEye.Left:0.0} s, fade {combat.WizardEye.Fade:0.00}"));
+    }
+
     [DebugCommand("lab.fight", Description = "Read the fight: the sword's move, the orc, the last blow and the counts.")]
     public DebugCommandResult Fight() => observe();
 

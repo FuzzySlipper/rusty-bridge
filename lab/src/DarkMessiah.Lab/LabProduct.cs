@@ -42,6 +42,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     // The arrows in flight (#10168): a thin box each, along its flight.
     private readonly Appearance arrowLook;
     private readonly List<EntityId> arrowIds = [];
+    // The wizard eye's brightening (#10358): an ambient light over the Engine's neutral rig, as strong as its fade.
+    private readonly Light eyeLight;
+    private float eyeLightIntensity;
     private ulong generation;
     private double worldSeconds;
     private string notice = "";
@@ -104,6 +107,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         };
         fireballLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(1f, .55f, .15f, 1)));
         arrowLook = engine.Graphics.CreatePrimitive(new PrimitiveAppearanceRequest(PrimitiveGeometry.Cube, false, new Color(.45f, .32f, .2f, 1)));
+        eyeLight = engine.Graphics.CreateLight(EyeLight(0));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
         if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
@@ -272,6 +276,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         scene.Dispose();
         fireballLook.Dispose();
         arrowLook.Dispose();
+        eyeLight.Dispose();
         combat.Dispose();
         hud.Dispose();
         donor.Dispose();
@@ -371,8 +376,16 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     {
         player.Publish(worldSeconds);
         scene.Publish(combat.Facts().Concat(FireballFacts()).Concat(ArrowFacts()));
+        float eye = combat.WizardEye.Light;
+        if (eye != eyeLightIntensity) engine.Graphics.UpdateLight(new LightUpdateRequest(eyeLight, EyeLight(eyeLightIntensity = eye)));
         engine.Ui.PublishProjection(new UiProjection(hud, LabHud.Create(Observation())));
     }
+
+    /// <summary>The wizard eye's light at <paramref name="intensity"/>: white, the same on every surface, off at 0.</summary>
+    private static LightRequest EyeLight(float intensity) => new(EyeLightId, false, 0, new LightDescriptor(LightKind.Ambient,
+        Vector3.One, intensity, intensity > 0, Vector3.Zero, Vector3.UnitY, false, 0, 1, 0, 0, LightShadowIntent.Disabled));
+
+    private const ulong EyeLightId = 1;
 
     // Under rusty dev an edited (or tunables-saved) live file arrives here instead of a restage: read it again,
     // validated as at load, and hand it to its owner. A file that does not load is reported and the last values kept.

@@ -98,26 +98,31 @@ internal sealed partial class Orc
     /// <param name="clearShot">Nothing of the arena between its aim and the player's eye.</param>
     bool StepArchery(float seconds, float units, Vector3 toPlayer, bool clearShot)
     {
-        if (archery is not { } a || phase == ArcheryPhase.Blade || !perception.Aware) return false;
+        // Down, it's the orc's: it lies until it respawns (R10169-3).
+        if (archery is not { } a || phase == ArcheryPhase.Blade || !perception.Aware || !Alive) return false;
+        // Its reactions (a hit, a stun, a fall, a push) are the orc's too: they play out, and it goes on after.
+        bool free = State is OrcState.Ready or OrcState.Ranged or OrcState.Approach;
         // The kick (its strike as any attack's), the drop and the draw, each on at the donor's time.
         switch (phase)
         {
             case ArcheryPhase.Kick:
-                if (State == OrcState.Attack && (phaseAge += seconds) < a.KickSeconds) return false;
+                if (State == OrcState.Attack && Clip == ArcheryData.Kick) { if ((phaseAge += seconds) < a.KickSeconds) return false; }
+                else if (!free) return false;
                 Play(OrcState.Alarmed, ArcheryData.Drop);
                 (phase, phaseAge) = (ArcheryPhase.Drop, 0);
                 return true;
             case ArcheryPhase.Drop:
-                if ((phaseAge += seconds) < a.DropSeconds) return true;
+                if (State == OrcState.Alarmed && Clip == ArcheryData.Drop) { if ((phaseAge += seconds) < a.DropSeconds) return true; }
+                else if (!free) return false;
                 Play(OrcState.Alarmed, ArcheryData.Unsheathe);
                 (phase, phaseAge, holdsCleaver) = (ArcheryPhase.Unsheathe, 0, true);
                 return true;
             case ArcheryPhase.Unsheathe:
-                if (State == OrcState.Alarmed) return false;
+                if (!free) return false;
                 (phase, Layer) = (ArcheryPhase.Blade, null);
                 return false;
         }
-        if (State is not (OrcState.Ready or OrcState.Ranged or OrcState.Approach)) return false;
+        if (!free) return false;
         sinceAware += seconds;
         var away = toPlayer.LengthSquared() > 1e-6f ? -Vector3.Normalize(toPlayer) : -Facing;
         float metres = SourceSpace.MetresPerUnit * seconds;
@@ -164,8 +169,10 @@ internal sealed partial class Orc
                 return true;
         }
         standing = phase == ArcheryPhase.Stand;
-        // Its arrows: nocked on the cadence, let go after its stance's delay; one nocked as it stopped is put away.
-        if (float.IsNaN(nocked))
+        // Its arrows: nocked on the cadence, let go after its stance's delay; one nocked as it stopped is put away. Held
+        // (a charmed archer with no one to fight, R10169-2; the smoke's still orc), it nocks none.
+        if (Hold) nocked = float.NaN;
+        else if (float.IsNaN(nocked))
         {
             if (sinceAware >= nextNock) { nocked = 0; nockedStanding = standing; nextNock += a.Every; }
         }

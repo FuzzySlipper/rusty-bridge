@@ -1743,6 +1743,8 @@ host.Call(engine =>
         combat.God = true;
         combat.Orc.Hold = false;
         var arOrcAt = new Vector3(0, 0, 0);
+        // An archer's arrow drawn while it flies (R10169-1): the product's arrows, the player's and the archer's.
+        bool archerArrowDrawn = false, archerArrowSeen = false;
         // One fight: the player's eye 900 units off (or as given), moving sideways at the given speed; the archer's arrows,
         // its phases and its blows each step, to the cleaver's third blow or the seconds given.
         (List<(float At, bool Standing, float Units)> Loosed, List<(float At, float Asked)> Struck, Dictionary<DarkMessiah.Lab.Npc.ArcheryPhase, float> Phases, float StoodAt,
@@ -1768,6 +1770,13 @@ host.Call(engine =>
                 combat.Step(Tick, step++, false, false, false, eye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY - eye), eye - Vector3.UnitY * 63 * apu);
                 float now = Vector2.Distance(new Vector2(eye.X, eye.Z), new Vector2(combat.Orc.Feet.X, combat.Orc.Feet.Z)) / apu;
                 foreach (var shot in combat.Orc.Loosed) loosed.Add((t, shot.Standing, now));
+                if (!archerArrowSeen && combat.OrcArrows.Count > 0)
+                {
+                    archerArrowSeen = true;
+                    var drawnArrows = product.ArrowFacts().ToList();
+                    archerArrowDrawn = drawnArrows.Count == combat.ArrowsInFlight.Count + combat.OrcArrows.Count
+                        && combat.OrcArrows.All(a => drawnArrows.Any(f => Vector3.Distance(f.Transform.Translation, a.At) < 1e-3f));
+                }
                 for (; struckBefore < combat.OrcArchery.Struck; struckBefore++) struck.Add((t, combat.LastOrcArrow!.Value.Asked));
                 phases.TryAdd(combat.Orc.Phase, t);
                 if (float.IsNaN(stoodAt) && combat.Orc.Phase == DarkMessiah.Lab.Npc.ArcheryPhase.Stand) stoodAt = now;
@@ -1809,6 +1818,60 @@ host.Call(engine =>
         Console.WriteLine($"  strafed arrows: {string.Join(", ", strafing.Loosed.Select(l => FormattableString.Invariant($"{l.At:0.00} s {(l.Standing ? "standing" : "moving")} {l.Units:0}")))}; struck {string.Join(", ", strafing.Struck.Select(x => x.At.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))}");
         Check(strafedStanding.Count >= 5 && strafing.Struck.Count == strafing.Loosed.Count,
             FormattableString.Invariant($"strafing at 206 units/s: {strafing.Struck.Count} of {strafing.Loosed.Count} arrows struck ({strafedStanding.Count} standing, at {Times(strafedStanding.Select(l => l.Units))} units)"));
+        Check(archerArrowSeen && archerArrowDrawn, $"the archer's arrows are drawn as they fly (R10169-1): {archerArrowDrawn}");
+        // Charmed (R10169-2), with its squad-mate 500 units the other way: it shoots the mate, not the player; the mate down,
+        // with no one to fight it holds off, letting go nothing more.
+        combat.Retune(arTuning with { Orc = arTuning.Orc with { Bow = DarkMessiah.Lab.Npc.ArcheryData.LongBow, SquadMate = [arOrcAt.X, arOrcAt.Y, arOrcAt.Z - 500 * apu], SpawnUnaware = false, RespawnSeconds = 1000 } });
+        combat.Reset();
+        combat.God = true;
+        combat.Orc.FixedStandingShots = 10;
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(arOrcAt);
+        combat.Mate!.Spawn();
+        combat.Mate.PlaceAt(arOrcAt with { Z = arOrcAt.Z - 500 * apu });
+        combat.Orc.Charm(25);
+        var charmEye = arOrcAt + new Vector3(0, 63 * apu, 900 * apu);
+        var (loosedBefore, struckBefore2, fightsBefore) = (combat.OrcArchery.Loosed, combat.OrcArchery.Struck, combat.OrcFights.Landed);
+        float mateBefore = combat.Mate.Health;
+        for (int i = 0; i < (int)(12 / Tick); i++)
+            combat.Step(Tick, step++, false, false, false, charmEye, -Vector3.UnitZ, charmEye - Vector3.UnitY * 63 * apu);
+        int atMate = combat.OrcArchery.Loosed - loosedBefore, onPlayer = combat.OrcArchery.Struck - struckBefore2, mateStruck = combat.OrcFights.Landed - fightsBefore;
+        float mateTook = mateBefore - combat.Mate.Health;
+        combat.Mate.Damage(1000);
+        int afterMate = combat.OrcArchery.Loosed;
+        for (int i = 0; i < (int)(6 / Tick); i++)
+            combat.Step(Tick, step++, false, false, false, charmEye, -Vector3.UnitZ, charmEye - Vector3.UnitY * 63 * apu);
+        afterMate = combat.OrcArchery.Loosed - afterMate;
+        // The mate runs at it, and it backs off whenever the mate comes within 314: it shoots between.
+        Check(atMate >= 1 && onPlayer == 0 && mateStruck >= 1 && mateTook > 0 && afterMate == 0,
+            FormattableString.Invariant($"a charmed archer (R10169-2): {atMate} arrows let go at its mate 500 units off in 12 s, {mateStruck} blows on it for {mateTook:0.#}, none on the player ({onPlayer}); the mate down, it let go {afterMate} more in 6 s"));
+        combat.Retune(arTuning with { Orc = arTuning.Orc with { Bow = DarkMessiah.Lab.Npc.ArcheryData.LongBow, SquadMate = null, SpawnUnaware = false } });
+        combat.Reset();
+        combat.God = true;
+        // Killed in its kick or its drop (R10169-3): it lies until it respawns (RespawnSeconds), then an archer anew.
+        (bool Down, bool Respawned) KilledIn(DarkMessiah.Lab.Npc.ArcheryPhase at)
+        {
+            combat.Orc.FixedStandingShots = 1;
+            combat.Orc.Spawn();
+            combat.Orc.PlaceAt(arOrcAt);
+            var eye = arOrcAt + new Vector3(0, 63 * apu, 900 * apu);
+            for (int i = 0; i < (int)(30 / Tick) && combat.Orc.Phase != at; i++)
+                combat.Step(Tick, step++, false, false, false, eye, -Vector3.UnitZ, eye - Vector3.UnitY * 63 * apu);
+            if (combat.Orc.Phase != at) return (false, false);
+            combat.Orc.Damage(1000);
+            bool down = true;
+            for (int i = 0; i < (int)((combat.Tuning.Orc.RespawnSeconds - .2f) / Tick); i++)
+            {
+                combat.Step(Tick, step++, false, false, false, eye, -Vector3.UnitZ, eye - Vector3.UnitY * 63 * apu);
+                down &= !combat.Orc.Alive && combat.Orc.State == DarkMessiah.Lab.Npc.OrcState.Down;
+            }
+            for (int i = 0; i < (int)(1 / Tick); i++) combat.Step(Tick, step++, false, false, false, eye, -Vector3.UnitZ, eye - Vector3.UnitY * 63 * apu);
+            return (down, combat.Orc.Alive && combat.Orc.Health > 30 && combat.Orc.Archery is not null);
+        }
+        var inKick = KilledIn(DarkMessiah.Lab.Npc.ArcheryPhase.Kick);
+        var inDrop = KilledIn(DarkMessiah.Lab.Npc.ArcheryPhase.Drop);
+        Check(inKick.Down && inKick.Respawned && inDrop.Down && inDrop.Respawned,
+            FormattableString.Invariant($"killed in its kick, the archer lay until it respawned ({inKick.Down}, then {inKick.Respawned}); in its drop, the same ({inDrop.Down}, {inDrop.Respawned}) (R10169-3)"));
         // Out of sight (a wall between them everywhere): it rushes at once, letting go nothing.
         var hidden = Fight(10, world: (from, to) => Vector3.Lerp(from, to, .5f), seconds: 15);
         float hiddenKick = hidden.Phases.GetValueOrDefault(DarkMessiah.Lab.Npc.ArcheryPhase.Kick, float.NaN);

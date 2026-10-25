@@ -757,6 +757,7 @@ first orc an archer, as the maps' `npc_orc_bow` (l05_a, l05_b, l07_a, l09_a: `ra
 | Its damage | 5 every arrow: the orc's strength 1 and the long bow's `WDmg` 4, × `bow_attack`'s (or `layer_Bow_Attack`'s) `HitPow` 1 | the combat model's |
 | To the blade | after 10 arrows standing it moves off, looses one more and rushes in (190 units/s), 33.1 and 33.3 s after it woke (and so in every 30 s stand-off that ended after its 11th); on 2 of 9 arrivals after 1 standing, 14.7 s after waking (both); out of sight (in the wooden building) at once; within `bow_kick`'s `range` (60) it kicks (2.5: `HitPow` 0.5), `drop_bow` 0.96 s after, `unsheathe_sword` 0.36 s after that, then the cleaver's attacks (8, 12, 3.2 and 6.4) | the same, the 10 or 1 rolled on arriving (2 in 9 the 1), the brief one moving off 1.3 s first as the donor's did; after its last arrow on the move it moves on 1.8 s (both ways); the kick at the clip's own speed |
 | Too near | nearer than 314 units (`mm_ai_dist_surprised`) it plays `surprised` and backs off to 338 to 362 units, shooting | `surprised`, then back to 350 |
+| Charmed, and down | not recorded | charmed (R10169-2), it fights as the charm sets it ("Support spells"): at its squad-mate, its arrows aimed at the mate's middle and striking it through the model; with no one to fight, it holds off and lets go nothing. Struck down in its kick or its drop (R10169-3), it lies until it respawns, as any orc; a hit or a stun then plays out before the drop or the draw goes on |
 
 - **Not in the lab, and why:**
   - **hiding behind a prop:** `prop_physics_create` put no crate between them (12 arrows struck the crouched player,
@@ -774,7 +775,10 @@ first orc an archer, as the maps' `npc_orc_bow` (l05_a, l05_b, l07_a, l09_a: `ra
   it plays `surprised` and stands 350 off to shoot. Against the recordings: 93 of 93 arrows struck, each asking the
   model's 5, every delay, the first nocks (1.18 s median), the nocks on standing (0.36 s) and the 57 gaps standing
   (2.16 s), 91 speeds within 4% of the rule, the aim's medians, and 7 kicks (2.5; the drop 0.96 s and the cleaver
-  1.32 s after). `RB_ARCHERY=1` prints the donor's archers and stops.
+  1.32 s after). Round 2: its arrows are drawn as they fly (the product's arrows, with the player's: R10169-1); charmed
+  with its mate 500 units off, it lets go at the mate (once in 12 s: the mate runs at it, and it backs off whenever
+  it comes within 314), striking it, and none at the player, and with the mate down lets go nothing more (R10169-2); killed in its kick or its drop it lies until it respawns (R10169-3). `RB_ARCHERY=1`
+  prints the donor's archers and stops.
 
 ### Telekinesis
 

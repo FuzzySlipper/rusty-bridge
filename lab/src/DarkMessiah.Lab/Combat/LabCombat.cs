@@ -975,8 +975,9 @@ internal sealed class LabCombat : IDisposable
             Player = Player with { Missed = Player.Missed + 1 };
         }
         foreach (var blow in blows) if (orcFoe is { } foe) OrcStrikesOrc(tick, blow, Orc, foe); else OrcStrikes(tick, blow, feet, forward, Orc);
-        // The archer's arrows (#10169): let go this step at the player's eye, and those in flight.
-        foreach (var shot in Orc.Loosed) Loose(Orc, shot, eye);
+        // The archer's arrows (#10169): let go this step at its foe (the player's eye, or a squad-mate it's against,
+        // R10169-2), and those in flight.
+        foreach (var shot in Orc.Loosed) Loose(Orc, shot, orcFoe is { } target && target != Orc ? target : null, eye);
         StepOrcArrows(tick, seconds, feet, eye);
         foreach (var blow in mateBlows) if (mateFoe is { } foe) OrcStrikesOrc(tick, blow, Mate!, foe); else OrcStrikes(tick, blow, feet, forward, Mate!);
         StepCures(seconds);
@@ -1406,9 +1407,10 @@ internal sealed class LabCombat : IDisposable
     List<OrcBlow> StepOrc(Orc orc, Orc? foe, float seconds, Vector3 feet, PlayerGait gait)
     {
         if (foe is null) return orc.Step(seconds, feet, Incoming(), Sword.Swing, gait, clearShot: orc.Archery is null || ClearShot(orc, eyeAt));
+        bool clear = orc.Archery is null || foe == orc || ClearShot(orc, foe.Hull.Center);
         bool held = orc.Hold;
         if (foe == orc) orc.Hold = true;
-        var blows = orc.Step(seconds, foe == orc ? feet : foe.Feet, Incoming(), Sword.Swing, gait);
+        var blows = orc.Step(seconds, foe == orc ? feet : foe.Feet, Incoming(), Sword.Swing, gait, clearShot: clear);
         orc.Hold = held;
         return foe == orc ? [] : blows;
     }
@@ -1444,8 +1446,11 @@ internal sealed class LabCombat : IDisposable
         Message = FormattableString.Invariant($"{(striker == Orc ? "The orc" : "Its mate")} strikes {(victim == Orc ? "the orc" : "its mate")} for {asked:0.#}");
     }
 
-    /// <summary>An archer's arrow in flight (#10169): where it is, its velocity, its age, and the archer and its stance as it was let go.</summary>
-    internal sealed record OrcArrow(Orc Archer, bool Standing, Vector3 At, Vector3 Velocity, float Age);
+    /// <summary>
+    /// An archer's arrow in flight (#10169): where it is, its velocity, its age, the archer and its stance as it was let
+    /// go, and whom it was shot at: the player (null), or a squad-mate a charmed archer fights (R10169-2).
+    /// </summary>
+    internal sealed record OrcArrow(Orc Archer, bool Standing, Vector3 At, Vector3 Velocity, float Age, Orc? Target = null);
     readonly List<OrcArrow> orcArrows = [];
     /// <summary>The archers' arrows in flight, for drawing.</summary>
     internal IReadOnlyList<OrcArrow> OrcArrows => orcArrows;
@@ -1457,22 +1462,23 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The archer's aim point (its <c>Arrows_Aim</c> attachment's height, 65 units: the recorded arrows' first samples).</summary>
     static Vector3 ArcherHand(Orc archer) => archer.Feet + Vector3.UnitY * 65 * SourceSpace.MetresPerUnit + archer.Facing * 20 * SourceSpace.MetresPerUnit;
 
-    /// <summary>Nothing of the arena between the archer's aim and the player's eye.</summary>
-    bool ClearShot(Orc archer, Vector3 eye) =>
-        WorldRay?.Invoke(ArcherHand(archer), eye) is not Vector3 wall || Vector3.Distance(ArcherHand(archer), wall) >= Vector3.Distance(ArcherHand(archer), eye) - .05f;
+    /// <summary>Nothing of the arena between the archer's aim and its target (the player's eye, or an orc's middle).</summary>
+    bool ClearShot(Orc archer, Vector3 at) =>
+        WorldRay?.Invoke(ArcherHand(archer), at) is not Vector3 wall || Vector3.Distance(ArcherHand(archer), wall) >= Vector3.Distance(ArcherHand(archer), at) - .05f;
 
     /// <summary>
     /// An arrow let go (#10169): from the archer's hand at its speed for the distance (<see cref="ArcheryData.SpeedAt"/>), straight at
-    /// where the player is (no lead): <see cref="ArcheryData.AimBelowEye"/> below the eye standing, <see cref="ArcheryData.AimAboveEye"/> above on the move.
+    /// where the player is (no lead): <see cref="ArcheryData.AimBelowEye"/> below the eye standing, <see cref="ArcheryData.AimAboveEye"/> above on the move;
+    /// or at a squad-mate it fights, charmed (R10169-2), at its middle (no NPC target was recorded).
     /// </summary>
-    void Loose(Orc archer, OrcShot shot, Vector3 eye)
+    void Loose(Orc archer, OrcShot shot, Orc? target, Vector3 eye)
     {
         var a = archer.Archery!;
         float mpu = SourceSpace.MetresPerUnit;
         var from = ArcherHand(archer);
-        var aim = eye + Vector3.UnitY * (shot.Standing ? -a.AimBelowEye : a.AimAboveEye) * mpu;
-        float units = Vector2.Distance(new Vector2(eye.X, eye.Z), new Vector2(archer.Feet.X, archer.Feet.Z)) / mpu;
-        orcArrows.Add(new OrcArrow(archer, shot.Standing, from, Vector3.Normalize(aim - from) * a.SpeedAt(units) * mpu, 0));
+        var aim = target?.Hull.Center ?? eye + Vector3.UnitY * (shot.Standing ? -a.AimBelowEye : a.AimAboveEye) * mpu;
+        float units = Vector2.Distance(new Vector2(aim.X, aim.Z), new Vector2(archer.Feet.X, archer.Feet.Z)) / mpu;
+        orcArrows.Add(new OrcArrow(archer, shot.Standing, from, Vector3.Normalize(aim - from) * a.SpeedAt(units) * mpu, 0, target));
         OrcArchery = OrcArchery with { Loosed = OrcArchery.Loosed + 1 };
     }
 
@@ -1499,9 +1505,14 @@ internal sealed class LabCombat : IDisposable
             var arrow = orcArrows[i];
             var to = arrow.At + arrow.Velocity * seconds;
             float? world = WorldRay?.Invoke(arrow.At, to) is Vector3 w ? Vector3.Distance(arrow.At, w) / MathF.Max(1e-6f, Vector3.Distance(arrow.At, to)) : null;
-            if (SegmentEntersBox(arrow.At, to, min, max) is float t && (world is not float wt || t <= wt))
+            // At a squad-mate (R10169-2): its hull, grown as the player's box is; at the player, the player's box.
+            var (lo, hi) = arrow.Target is { } target
+                ? (target.Hull.Center - target.Hull.HalfExtents - Vector3.One * OrcArrowSize * mpu, target.Hull.Center + target.Hull.HalfExtents + Vector3.One * OrcArrowSize * mpu)
+                : (min, max);
+            if ((arrow.Target is null || arrow.Target.Alive) && SegmentEntersBox(arrow.At, to, lo, hi) is float t && (world is not float wt || t <= wt))
             {
-                ArrowStrikesPlayer(tick, arrow, feet);
+                if (arrow.Target is { } struck) ArrowStrikesOrc(tick, arrow, struck);
+                else ArrowStrikesPlayer(tick, arrow, feet);
                 orcArrows.RemoveAt(i--);
                 continue;
             }
@@ -1515,6 +1526,25 @@ internal sealed class LabCombat : IDisposable
     /// <c>layer_Bow_Attack</c> over its run: <c>HitPow</c> 1) with the bow's <c>WDmg</c> (the long bow's 4) and the
     /// orc's strength (1): 5, as every recorded arrow asked.
     /// </summary>
+    /// <summary>
+    /// A charmed archer's arrow strikes the squad-mate it fights (R10169-2): the combat model's NPC blow of its shot, as on
+    /// the player (5), and the victim's reaction as to any blow.
+    /// </summary>
+    void ArrowStrikesOrc(ulong tick, OrcArrow arrow, Orc victim)
+    {
+        var shooter = arrow.Standing ? new Party("npc_orc_sword", ArcheryData.Shoot, [], 0, "#2", Npc.Orc.Model) : new Party("npc_orc_sword", "Run", [ArcheryData.ShootLayer], 0, "#2", Npc.Orc.Model);
+        float asked = model.Damage(new DamageCase((int)tick, victim.Party(), shooter, "weapon_mm_bow_long", null, 0x40000, 0, 0, victim.Health, victim.Health, false, 0, arrow.Archer.Archery!.Bow)) ?? 0;
+        victim.Damage(asked);
+        OrcFights = OrcFights with { Blows = OrcFights.Blows + 1, Landed = OrcFights.Landed + 1, Dealt = OrcFights.Dealt + asked };
+        var facing = victim.Facing with { Y = 0 };
+        var left = new Vector3(facing.Z, 0, -facing.X);
+        var along = arrow.Velocity with { Y = 0 };
+        float angle = along.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f ? MathF.Atan2(Vector3.Dot(along, left), Vector3.Dot(along, facing)) * 180 / MathF.PI : 180;
+        var reaction = OrcReactions.Pick(new ReactionBlow(model.EventOf(shooter), false, asked, false, null, angle), victim.State == OrcState.Stunned, victim.SinceSmallHit);
+        if (reaction.Clip is not null) victim.React(reaction, along.LengthSquared() > 1e-6f ? Vector3.Normalize(along) : -victim.Facing, 0);
+        Message = FormattableString.Invariant($"The orc's arrow hits {(victim == Orc ? "the orc" : "its mate")} for {asked:0.#}");
+    }
+
     void ArrowStrikesPlayer(ulong tick, OrcArrow arrow, Vector3 feet)
     {
         var archer = arrow.Archer;

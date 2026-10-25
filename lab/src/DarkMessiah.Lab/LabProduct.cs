@@ -249,9 +249,10 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     }
 
     /// <summary>Each arrow in flight as a box 2 cm square and 0.75 m long (the classic arrow's length), along its velocity.</summary>
-    private IEnumerable<AppearanceFact> ArrowFacts()
+    /// <summary>The arrows in flight drawn: the player's, and the archer's (R10169-1).</summary>
+    internal IEnumerable<AppearanceFact> ArrowFacts()
     {
-        var flying = combat.ArrowsInFlight;
+        var flying = combat.ArrowsInFlight.Select(a => (a.Position, a.Velocity)).Concat(combat.OrcArrows.Select(a => (Position: a.At, a.Velocity))).ToList();
         while (arrowIds.Count < flying.Count) arrowIds.Add(scene.Entities.Create());
         for (int i = 0; i < flying.Count; i++)
         {

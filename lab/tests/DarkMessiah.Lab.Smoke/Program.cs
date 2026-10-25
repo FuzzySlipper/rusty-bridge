@@ -3989,6 +3989,25 @@ host.Call(engine =>
     foreach (var s in sides) Console.WriteLine(FormattableString.Invariant($"  ragdoll knockdown: lay on its {s.Side}, head down to {s.Lowest:0.00} m, highest once down {s.HighestDown:0.00} m, get-up after {s.Seconds:0.00} s"));
     Check(sides.Count > 0 && sides.All(s => s.Ragdolled && s.Lowest < .5f),
         $"headless, every felling blow drops an Engine ragdoll and its head reaches the ground: {sides.Count(s => s.Ragdolled && s.Lowest < .5f)} of {sides.Count}");
+    // Shrunk while it lies as a ragdoll (R10348-1): small, it stands in combatidle, the ragdoll gone, drawn, posed and
+    // boxed at the small model's scale.
+    {
+        host.Call(_ => { ragdollOrc.Spawn(); ragdollOrc.PlaceAt(lab.Player.Feet + Vector3.Normalize(lab.Player.Forward with { Y = 0 }) * 1.5f); });
+        for (int i = 0; i < 30; i++) Update();
+        float standingHead = HeadUp();
+        host.Call(_ => ragdollOrc.Struck(new AttackEvent(1, false, ChanceToFall: 1), 0, lab.Player.Feet, false, 1));
+        bool wasRagdolled = false;
+        for (int i = 0; i < 40 && !wasRagdolled; i++) { Update(); wasRagdolled = ragdollOrc.RagdollState.Ragdolled; }
+        host.Call(_ => ragdollOrc.Shrink());
+        for (int i = 0; i < (int)(2.1f / Tick); i++) Update();
+        for (int i = 0; i < 10; i++) Update();
+        float smallHead = HeadUp();
+        var (smallCentre, smallHalf) = host.Call(_ => ragdollOrc.Hull);
+        Check(wasRagdolled && ragdollOrc.Shrunk && !ragdollOrc.RagdollState.Ragdolled && !ragdollOrc.Lying && ragdollOrc.Clip == "combatidle"
+                && ragdollOrc.Placement.Scale.X == DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale && MathF.Abs(smallHalf.Y - .9f * DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .001f
+                && MathF.Abs(smallHead / standingHead - DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .05f,
+            FormattableString.Invariant($"shrunk as it lay as a ragdoll (R10348-1, ragdolled: {wasRagdolled}): small ({ragdollOrc.Shrunk}) in {ragdollOrc.Clip}, its ragdoll gone ({!ragdollOrc.RagdollState.Ragdolled}), drawn at {ragdollOrc.Placement.Scale.X:0.##}, its head {smallHead:0.00} m up ({smallHead / standingHead:0.00} of its {standingHead:0.00} standing), its box {smallHalf.Y * 2:0.00} m tall"));
+    }
     Check(sides.Select(s => s.Side).Distinct().Count() == 2 && sides.All(s => s.HighestDown < 1.2f),
         FormattableString.Invariant($"it gets up from both sides, and from its fall through the blend back into its get-up it never stands as it was struck (head at most {sides.Select(s => s.HighestDown).DefaultIfEmpty(0).Max():0.00} m, standing {1.7:0.0})"));
     Check(sides.All(s => s.Seconds is >= 2.9f and <= 4.2f),

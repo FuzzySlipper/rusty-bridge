@@ -48,6 +48,9 @@ internal sealed partial class Orc
             Size = ShrinkRules.CastSize;
             Layer = null;
             hitLayer = null;
+            // Down as a ragdoll, or about to be (R10348-1), it stands small instead: the ragdoll goes, and with it its
+            // hold on the drawn and struck pose.
+            ReleaseRagdoll();
             Play(OrcState.Ready, "combatidle");
         }
         Advance(seconds);

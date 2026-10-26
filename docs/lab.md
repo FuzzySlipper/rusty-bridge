@@ -22,6 +22,8 @@ Then, from `lab/`:
 rusty dev
 ```
 
+**The window's UI** is drawn by Servo, the Engine's default since the pin 0.1.0-dev.fb7b3343dc70; `rusty dev --window-ui chromium` (or `RustyEngineProductWindowUi=chromium`) draws it with Chromium instead. On den-win11 both ran the lab windowed for over ten minutes with no frame skipped and no UI import failed, the HUD, pause menu and developer shell alike. Under Servo the developer shell's panels show no scroll bars and its dropdown is smaller; its panels overlap the lab's title under either engine.
+
 **Where the donor's content comes from:**
 - **The pack:** at start the lab finds `local/import` above where it runs and packs it into `local/import.rpak`. The pack is a content container, which it opens at run time.
 - **When it repacks:** whenever the pack is older than the import, which takes a few seconds for l01_a's 320 MB.

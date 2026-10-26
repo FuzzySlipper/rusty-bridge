@@ -176,7 +176,26 @@ internal sealed partial class Orc : IDisposable
     internal List<OrcBlow> Follow(OrcPose pose, float seconds)
     {
         Following = true;
-        if (pose.Id != followed) { followed = pose.Id; landed.Clear(); }
+        if (pose.Id != followed)
+        {
+            followed = pose.Id;
+            landed.Clear();
+            if (staggered) { staggered = false; ReleasedAt = (Feet, Facing); ReleasedFor = "the replay followed another orc"; }
+        }
+        // Taken over by the procedural reaction (R10382-1): off its footing, it plays no recorded sequence, overlay or
+        // blow, and slides and turns as the model has it, until it has its footing back and follows the recording again.
+        if (staggered && tuning.Flinch is { On: true } overriding)
+        {
+            var (slid, turned) = flinch.Advance(overriding, seconds);
+            Feet += slid;
+            Facing = Vector3.Normalize(Vector3.Transform(Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, turned * MathF.PI / 180)));
+            Health = pose.Health;
+            Advance(seconds);
+            if (flinch.Busy > 0 && pose.Health > 0) return [];
+            staggered = false;
+            ReleasedAt = (Feet, Facing);
+            ReleasedFor = pose.Health > 0 ? "its footing back" : "the recorded orc died";
+        }
         // The recorded body model, if the import has it; else the lab's. A body that lacks the clip playing (the
         // one-clip ragdoll bodies) takes the pose's sequence, or its idle, or its only clip.
         if (pose.Model is { Length: > 0 } model && (Body(model) ?? ownBody) is var next && next != body)
@@ -636,7 +655,21 @@ internal sealed partial class Orc : IDisposable
         var outcome = flinch.Hit(rules, blow, State == OrcState.Stunned, Facing);
         // Followed in a replay (R10382-1), the recording moves and poses it: the lean is drawn over the recorded pose, and
         // what the reaction would have done is kept for the replay's report.
-        if (Following) { FollowedFlinches.Add(outcome); return outcome; }
+        if (Following)
+        {
+            FollowedFlinches.Add(outcome);
+            // The reaction governs (R10382-1): cut short, the recorded orc's action stops until it has its footing back.
+            if (outcome.Interrupted && Alive)
+            {
+                Layer = null;
+                hitLayer = null;
+                overlays = [];
+                Play(OrcState.Hurt, "combatidle");
+                staggered = true;
+                TakenAt = (Feet, Facing);
+            }
+            return outcome;
+        }
         if (!outcome.Interrupted) return outcome;
         Layer = null;
         hitLayer = null;
@@ -647,6 +680,15 @@ internal sealed partial class Orc : IDisposable
 
     /// <summary>Each procedural reaction to a blow while it was followed in a replay (R10382-1), in order.</summary>
     internal List<FlinchOutcome> FollowedFlinches { get; } = [];
+
+    /// <summary>Where a replayed orc stood and faced as the procedural reaction last took it over, and as it gave it back (R10382-1).</summary>
+    internal (Vector3 Feet, Vector3 Facing) TakenAt { get; private set; }
+
+    /// <inheritdoc cref="TakenAt"/>
+    internal (Vector3 Feet, Vector3 Facing) ReleasedAt { get; private set; }
+
+    /// <summary>Why the procedural reaction last gave a replayed orc back: its footing back, or the recording's doing.</summary>
+    internal string ReleasedFor { get; private set; } = "";
 
     /// <summary>The procedural reaction's state (#10382).</summary>
     internal OrcFlinch Flinching => flinch;

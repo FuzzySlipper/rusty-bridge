@@ -1237,12 +1237,16 @@ arm along the impact by `armKick` (1) of the blow's momentum; any other blow, an
 recording streams the donor's arm bones. The smoke strikes the right arm, which swings 0.34 rad to the left's 0.17, and
 the lean and arms settle until their joint turns clear (2.4 s).
 
-**In replays** (R10382-1): replays follow the recorded orc, which moves and poses it; with `orc.flinch.on` the lab's blows
-on it lean it as well, drawn over the recorded pose (no slide or turn: those are the recording's), and the report counts
-on how many the reaction cut it short as the donor's orc was (it began a hit or push within 16 ticks): `procedural
-reaction: N of the lab's blows leaned the followed orc ...`. The smoke replays `l01_a-v14-arena-hand` both ways: the
-player's blows compare the same, and with the reaction on the lab's 7 blows on the orc lean it (peak 0.79 rad), cut
-short as the donor's orc was on 6.
+**In replays** (R10382-1): replays follow the recorded orc. With `orc.flinch.on` the reaction governs it: each of the
+lab's blows leans it over its recorded pose, and one the model says cuts it short takes it over (`Orc.Follow`): it plays
+no recorded sequence, overlay or blow, slides and turns as the model has it, and follows the recording again once it has
+its footing back (or once the recording follows another orc or its orc dies). The report sets each blow against the
+donor's orc (`CombatReplay.DonorReaction`: a hit or push begun from the blow's own tick to 16 ticks on that it wasn't
+already playing, R10382-4) and, where both were cut short and the lab's ran its course, its busy time, slide and turn
+against the donor's. The smoke replays `l01_a-v14-arena-hand` both ways: off, the orc follows the recording throughout;
+on, its 7 blows lean the orc, 6 cut short as the donor's orc was, and the one the model cut short that ran its course
+held it 1.26 s and slid it 1.73 m (the model's 1.25 s and 1.73 m; the donor's orc 1.40 s and 2.28 m), with no blow while
+taken over; the other was given back when the recording followed another orc.
 
 **Not done.** Knockdowns stay the ragdoll's; a partial-physics knockdown would want rusty-engine #10383's powered
 ragdolls. The arms' numbers aren't measured.

@@ -3512,9 +3512,24 @@ host.Call(engine =>
             combat.UseFlinch(false);
         }
 
-        // In a replay (R10382-1): the same recording with the procedural reaction off and on. On, the lab's blows on the
-        // followed orc lean it over its recorded pose, and the report says on how many the reaction cut it short as the
-        // donor's orc was; the replay's blows are the same either way (the recording moves and poses the orc).
+        // The donor's reaction to a replayed blow (R10382-4): one begun on the blow's own tick and one begun later count,
+        // one already playing before the blow doesn't; each ends where the orc plays something else.
+        {
+            ReplayTick At(int tick, string sequence, float cycle) => new(tick, tick / 66.0, 1 / 66f, InputButtons.None, false, Vector3.Zero, -Vector3.UnitZ, Vector3.Zero,
+                new OrcPose("#5.1", Vector3.Zero, Vector3.UnitZ, 100, sequence, cycle, 1, null, 0, true));
+            List<ReplayTick> Timeline(params (int Tick, string Sequence, float Cycle)[] poses) => [.. poses.Select(p => At(p.Tick, p.Sequence, p.Cycle))];
+            var immediate = CombatReplay.DonorReaction(Timeline((99, "attack_Fast", .4f), (100, "Hit_left_long", 0), (108, "Hit_left_long", .2f), (116, "Hit_left_long", .4f), (180, "combatidle", 0)), 1);
+            var delayed = CombatReplay.DonorReaction(Timeline((99, "attack_Fast", .4f), (100, "attack_Fast", .45f), (108, "Hit_left_medium", 0), (150, "combatidle", 0)), 1);
+            var running = CombatReplay.DonorReaction(Timeline((99, "Hit_left_long", .3f), (100, "Hit_left_long", .32f), (108, "Hit_left_long", .5f), (116, "Hit_left_long", .7f)), 1);
+            var replayed = CombatReplay.DonorReaction(Timeline((99, "Hit_left_long", .8f), (100, "Hit_left_long", .02f), (150, "combatidle", 0)), 1);
+            Check(immediate is (true, 1, 4) && delayed is (true, 2, 3) && running is (false, null, null) && replayed is (true, 1, 2),
+                $"the donor's reaction to a replayed blow: begun on the blow's own tick {immediate}, begun later {delayed}, already playing {running}, played again {replayed}");
+        }
+
+        // In a replay (R10382-1): the same recording with the procedural reaction off and on. On, the reaction governs
+        // the followed orc: a blow it cuts short takes the orc over (no recorded sequence, overlay or blow) for the model's
+        // busy time, sliding and turning it, and then it follows the recording again; the report sets each against the
+        // donor's orc. Off, the orc follows the recording throughout.
         string handPath = Path.Combine(repo!, "local", "recordings", "l01_a-v14-arena-hand.rbrec");
         if (File.Exists(handPath))
         {
@@ -3523,8 +3538,14 @@ host.Call(engine =>
             var withFlinch = CombatReplay.Run(combat, handPath, product);
             combat.UseFlinch(false);
             Console.WriteLine($"  {withFlinch.Flinch}");
-            Check(withAuthored.Flinch is null && withFlinch.Flinch is { Blows: > 5, PeakLean: > .1f } && withFlinch.PlayerBlows.ToString() == withAuthored.PlayerBlows.ToString(),
-                $"{withFlinch.Name} replayed with the procedural reaction: {withFlinch.Flinch}; with the authored clips none; the player's blows the same ({withAuthored.PlayerBlows})");
+            foreach (var b in withFlinch.Flinch?.Blows ?? []) Console.WriteLine(FormattableString.Invariant(
+                $"    {b.Tick}: the model {(b.Model.Interrupted ? $"cut short {b.Model.Busy:0.00} s, {b.Model.Moved:0.00} m, {b.Model.Turned:0}°" : "standing")}; the lab {(b.LabCut ? $"{b.LabBusy:0.00} s, {b.LabMoved:0.00} m, {b.LabTurned:0}°, {b.LabOrcBlows} blows, given back for {b.Released}" : "standing")}; the donor {(b.DonorCut ? $"{b.DonorBusy:0.00} s, {b.DonorMoved:0.00} m, {b.DonorTurned:0}°" : "standing")}"));
+            var taken = withFlinch.Flinch?.Blows.Where(b => b.LabCut).ToList() ?? [];
+            Check(withAuthored.Flinch is null && withFlinch.Flinch is { PeakLean: > .1f } f && f.Blows.Count > 5 && taken.Count > 0
+                && taken.Any(b => b.OwnEnd) && taken.All(b => b.LabOrcBlows == 0 && b.LabMoved <= b.Model.Moved + .05f
+                    && (b.OwnEnd ? MathF.Abs(b.LabBusy - b.Model.Busy) <= 2.5f / 66 : b.LabBusy <= b.Model.Busy + 2.5f / 66))
+                && withFlinch.Flinch.Blows.All(b => b.LabCut == b.Model.Interrupted),
+                $"{withFlinch.Name} replayed with the procedural reaction governing: {withFlinch.Flinch}; each orc it cut short taken over for the model's busy time and slide (or until the recording followed another orc or the orc died), making no blow meanwhile, then following the recording again; with the authored clips none");
         }
         // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
         orc.Spawn();

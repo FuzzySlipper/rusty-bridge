@@ -88,14 +88,40 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
 }
 
 /// <summary>
-/// The procedural reaction played in a replay (R10382-1, <c>orc.flinch.on</c>): the lab's blows on the followed orc
-/// that leaned it, and on how many the reaction cut it short as the donor's orc was (it began a hit or push within
-/// <see cref="Calibration.ReactionCalibration.Within"/> ticks of the blow); the lean's peak, drawn over the recorded pose.
+/// One of the lab's blows on the followed orc with the procedural reaction on (R10382-1): what the model made of it, what
+/// the lab's orc did (cut short: taken over until it had its footing back, sliding and turning; seconds, metres and
+/// degrees), and what the donor's orc did (<see cref="CombatReplay.DonorReaction"/>).
 /// </summary>
-internal sealed record FlinchReplay(int Blows, int Agree, int DonorCut, int LabCut, float PeakLean)
+/// <param name="Released">Why the lab's orc was given back: <c>its footing back</c>, or the recording's doing (another orc
+/// followed, the recorded orc dead), which cuts its busy time, slide and turn short.</param>
+internal sealed record FlinchTakeover(int Tick, FlinchOutcome Model, bool LabCut, float LabBusy, float LabMoved, float LabTurned, int LabOrcBlows,
+    bool DonorCut, float DonorBusy, float DonorMoved, float DonorTurned, string Released = "")
 {
-    public override string ToString() => FormattableString.Invariant(
-        $"procedural reaction: {Blows} of the lab's blows leaned the followed orc (peak {PeakLean:0.00} rad), cut short as the donor's orc was on {Agree} (the donor's {DonorCut}, the reaction's {LabCut})");
+    internal bool OwnEnd => Released == "its footing back";
+}
+
+/// <summary>
+/// The procedural reaction played in a replay (R10382-1, <c>orc.flinch.on</c>): the lab's blows on the followed orc;
+/// on how many the reaction cut it short as the donor's orc was; where both were, the medians of how far the lab's
+/// busy time, slide and turn were from the donor's; the lean's peak, drawn over the recorded pose.
+/// </summary>
+internal sealed record FlinchReplay(IReadOnlyList<FlinchTakeover> Blows, float PeakLean)
+{
+    internal int Agree => Blows.Count(b => b.LabCut == b.DonorCut);
+    internal int DonorCut => Blows.Count(b => b.DonorCut);
+    internal int LabCut => Blows.Count(b => b.LabCut);
+
+    static float Median(IEnumerable<float> values) { var v = values.Where(float.IsFinite).Order().ToList(); return v.Count > 0 ? v[v.Count / 2] : float.NaN; }
+
+    public override string ToString()
+    {
+        // Where both were cut short and the lab's orc had its footing back on its own (not given back by the recording).
+        var both = Blows.Where(b => b.LabCut && b.DonorCut && b.OwnEnd).ToList();
+        return FormattableString.Invariant(
+            $"procedural reaction: {Blows.Count} of the lab's blows on the followed orc (lean peak {PeakLean:0.00} rad), cut short as the donor's orc was on {Agree} (the donor's {DonorCut}, the reaction's {LabCut}); ")
+            + FormattableString.Invariant(
+            $"where both were and the lab's ran its course ({both.Count}), busy off by {Median(both.Select(b => MathF.Abs(b.LabBusy - b.DonorBusy))):0.00} s, slide by {Median(both.Select(b => MathF.Abs(b.LabMoved - b.DonorMoved))):0.00} m, turn by {Median(both.Select(b => MathF.Abs(b.LabTurned - b.DonorTurned))):0}°; the orc's blows while taken over {Blows.Sum(b => b.LabOrcBlows)}");
+    }
 }
 
 /// <summary>
@@ -239,6 +265,38 @@ internal static class CombatReplay
     static readonly OrcPose Absent = new("", new Vector3(0, -1000, 0), Vector3.UnitZ, 0, "combatidle", 0, 1, null, 0, true);
 
     /// <summary>Reads <paramref name="path"/> for replay with the lab's move clips, and replays it.</summary>
+    /// <summary>
+    /// What the donor's followed orc did about a blow at <paramref name="ticks"/>[<paramref name="at"/>] (R10382-1,
+    /// R10382-4): cut short if, from the blow's own tick to <see cref="Calibration.ReactionCalibration.Within"/> ticks on,
+    /// it began a hit or push (not a stun or a get-up) it wasn't already playing before the blow: another sequence than
+    /// the pose before the blow's, or the same played again. Then where that reaction ended, by the timeline's index
+    /// (another sequence, or it played again, within <see cref="Calibration.ReactionCalibration.Follow"/> ticks); null when
+    /// it didn't within them or the orc changed.
+    /// </summary>
+    internal static (bool Cut, int? Start, int? End) DonorReaction(IReadOnlyList<ReplayTick> ticks, int at)
+    {
+        var blow = ticks[at];
+        if (blow.Orc is not { } struck) return (false, null, null);
+        var before = at > 0 && ticks[at - 1].Orc is { } prior && prior.Id == struck.Id ? prior : struck;
+        static bool Reaction(string s) => Calibration.ReactionCalibration.IsReaction(s)
+            && !s.StartsWith("hit_stunned", StringComparison.Ordinal) && !s.StartsWith("StandUp", StringComparison.Ordinal);
+        int? start = null;
+        for (int k = at; k < ticks.Count && ticks[k].Tick <= blow.Tick + Calibration.ReactionCalibration.Within; k++)
+        {
+            if (ticks[k].Orc is not { } o || o.Id != struck.Id) break;
+            var previous = k == at ? before : ticks[k - 1].Orc!;
+            if (Reaction(o.Sequence) && (o.Sequence != before.Sequence || o.Sequence == previous.Sequence && o.Cycle < previous.Cycle - .05f)) { start = k; break; }
+        }
+        if (start is not int s0) return (false, null, null);
+        string reaction = ticks[s0].Orc!.Sequence;
+        for (int k = s0 + 1; k < ticks.Count && ticks[k].Tick <= blow.Tick + Calibration.ReactionCalibration.Follow; k++)
+        {
+            if (ticks[k].Orc is not { } o || o.Id != struck.Id) return (true, s0, null);
+            if (o.Sequence != reaction || o.Cycle < ticks[k - 1].Orc!.Cycle - .05f) return (true, s0, k);
+        }
+        return (true, s0, null);
+    }
+
     internal static ReplayReport Run(LabCombat combat, string path, IReplayBody? body = null)
     {
         var clips = SwordClips.From(combat.FirstPerson.ArmsModel.Info, combat.FirstPerson.AttackSpeed, combat.Tuning);
@@ -323,8 +381,11 @@ internal static class CombatReplay
         PlayerAdrenaline? shadow = null;
         int shadowTicks = 0, shadowNear = 0;
         if (driveBody) body!.Begin();
-        // The procedural reaction's outcomes on the followed orc by the timeline's index, and its lean's peak (R10382-1).
-        var flinches = new List<(int Index, FlinchOutcome Outcome)>();
+        // The procedural reaction's outcomes on the followed orc by the timeline's index, each takeover's end, the orc's
+        // blows meanwhile, and the lean's peak (R10382-1).
+        var flinches = new List<(int Index, FlinchOutcome Outcome, (Vector3 Feet, Vector3 Facing)? Taken)>();
+        var released = new Dictionary<int, (int Index, (Vector3 Feet, Vector3 Facing) At, int OrcBlows, string Why)>();
+        int takenFlinch = -1, orcBlowsTaken = 0, lastOrcLogged = 0;
         float peakLean = 0;
         int index = -1;
         try
@@ -377,7 +438,21 @@ internal static class CombatReplay
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
-                for (int f = flinches.Count; f < combat.Orc.FollowedFlinches.Count; f++) flinches.Add((index, combat.Orc.FollowedFlinches[f]));
+                int orcLogged = log.Count(e => !e.ByPlayer);
+                if (takenFlinch >= 0 && !combat.Orc.Staggered)
+                {
+                    released[takenFlinch] = (index, combat.Orc.ReleasedAt, orcBlowsTaken, combat.Orc.ReleasedFor);
+                    takenFlinch = -1;
+                }
+                for (int f = flinches.Count; f < combat.Orc.FollowedFlinches.Count; f++)
+                {
+                    var outcome = combat.Orc.FollowedFlinches[f];
+                    bool taken = outcome.Interrupted && combat.Orc.Staggered;
+                    flinches.Add((index, outcome, taken ? combat.Orc.TakenAt : null));
+                    if (taken) { takenFlinch = flinches.Count - 1; orcBlowsTaken = 0; lastOrcLogged = orcLogged; }
+                }
+                if (takenFlinch >= 0) { orcBlowsTaken += orcLogged - lastOrcLogged; }
+                lastOrcLogged = orcLogged;
                 peakLean = MathF.Max(peakLean, combat.Orc.Flinching.Lean);
                 // The lab's camera in place against the donor's drawn one, every tick (R10161-4): the eyes attachment of
                 // the arms posed at the recorded eye.
@@ -514,20 +589,35 @@ internal static class CombatReplay
         FlinchReplay? flinchReplay = null;
         if (flinches.Count > 0)
         {
-            int agree = 0, donorCut = 0, labCut = 0;
-            foreach (var (i, outcome) in flinches)
+            static float Turn(Vector3 was, Vector3 now) =>
+                MathF.Atan2(Vector3.Dot(Vector3.Cross(was with { Y = 0 }, now with { Y = 0 }), Vector3.UnitY), Vector3.Dot(was with { Y = 0 }, now with { Y = 0 })) * 180 / MathF.PI;
+            var takeovers = new List<FlinchTakeover>();
+            for (int f = 0; f < flinches.Count; f++)
             {
-                var at = timeline.Ticks[i];
-                bool cut = false;
-                for (int k = i + 1; !cut && k < timeline.Ticks.Count && timeline.Ticks[k].Tick <= at.Tick + Calibration.ReactionCalibration.Within; k++)
-                    cut = timeline.Ticks[k].Orc is { } o && o.Id == at.Orc?.Id && Calibration.ReactionCalibration.IsReaction(o.Sequence)
-                        && !o.Sequence.StartsWith("hit_stunned", StringComparison.Ordinal) && !o.Sequence.StartsWith("StandUp", StringComparison.Ordinal)
-                        && (o.Sequence != at.Orc.Sequence || o.Cycle < at.Orc.Cycle - .05f);
-                if (cut) donorCut++;
-                if (outcome.Interrupted) labCut++;
-                if (cut == outcome.Interrupted) agree++;
+                var (i, outcome, taken) = flinches[f];
+                var donor = DonorReaction(timeline.Ticks, i);
+                float labBusy = float.NaN, labMoved = float.NaN, labTurned = float.NaN;
+                int labOrcBlows = 0;
+                string why = taken is null ? "" : "the replay ended";
+                if (taken is { } at && released.TryGetValue(f, out var end))
+                {
+                    labBusy = (float)(timeline.Ticks[end.Index].Time - timeline.Ticks[i].Time);
+                    labMoved = Vector2.Distance(new(at.Feet.X, at.Feet.Z), new(end.At.Feet.X, end.At.Feet.Z));
+                    labTurned = Turn(at.Facing, end.At.Facing);
+                    labOrcBlows = end.OrcBlows;
+                    why = end.Why;
+                }
+                float donorBusy = float.NaN, donorMoved = float.NaN, donorTurned = float.NaN;
+                if (donor.Cut && donor.End is int e && timeline.Ticks[i].Orc is { } before && timeline.Ticks[e].Orc is { } after)
+                {
+                    donorBusy = (float)(timeline.Ticks[e].Time - timeline.Ticks[i].Time);
+                    donorMoved = Vector2.Distance(new(before.Feet.X, before.Feet.Z), new(after.Feet.X, after.Feet.Z));
+                    donorTurned = Turn(before.Facing, after.Facing);
+                }
+                takeovers.Add(new FlinchTakeover(timeline.Ticks[i].Tick, outcome, taken is not null, labBusy, labMoved, labTurned, labOrcBlows,
+                    donor.Cut, donorBusy, donorMoved, donorTurned, why));
             }
-            flinchReplay = new FlinchReplay(flinches.Count, agree, donorCut, labCut, peakLean);
+            flinchReplay = new FlinchReplay(takeovers, peakLean);
         }
 
         double TimeOf(int tick) => times.TryGetValue(tick, out var s) ? s : double.NaN;

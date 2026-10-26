@@ -165,7 +165,8 @@ internal sealed class FirstPerson : IDisposable
         // its rest, and its draw, shot and reload over it.
         var idle = arms.Model.Clip(Spell is { } spell ? spell.Ready : Bow is not null ? Ranged.BowRules.Rest : move.Clips.Idle.Clip);
         idleCycle = (idleCycle + (idle.Seconds > 0 ? seconds / idle.Seconds : 0)) % 1;
-        if (Bow is { } bow) { if (bow.Clip == Ranged.BowRules.Rest) arms.Play(idle.Name, idleCycle); else arms.Play(idle.Name, idleCycle, (bow.Clip, bow.Cycle, 1)); }
+        if (HeldMove is { } shown) arms.Play(idle.Name, idleCycle, (shown.Clip, shown.Cycle, 1));
+        else if (Bow is { } bow) { if (bow.Clip == Ranged.BowRules.Rest) arms.Play(idle.Name, idleCycle); else arms.Play(idle.Name, idleCycle, (bow.Clip, bow.Cycle, 1)); }
         else if (Spell is { Cast: { } cast } casting) arms.Play(idle.Name, idleCycle, (cast, casting.Cycle, 1));
         else if (Spell is not null || move.Move == SwordMove.Ready) arms.Play(idle.Name, idleCycle);
         else arms.Play(idle.Name, idleCycle, (move.Clip.Clip, move.Traced ? move.TraceCycle : move.Cycle, 1));
@@ -194,9 +195,9 @@ internal sealed class FirstPerson : IDisposable
         var offset = Camera.Position - eye;
         View = new CameraRig(new Vector3(Vector3.Dot(offset, right), Vector3.Dot(offset, up), Vector3.Dot(offset, look)), turned);
         var (main, other) = HandOf(Weapon.Class);
-        Sword = Seated(sword, Rig.Attached(arms.Model, pose, main) ?? Arms);
-        OffHand = offHand is not null && other is not null ? Seated(offHand, Rig.Attached(arms.Model, pose, other) ?? Arms) : null;
-        ShieldAt = shield is not null ? Seated(shield, Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms) : null;
+        Sword = Seat(sword, Rig.Attached(arms.Model, pose, main) ?? Arms);
+        OffHand = offHand is not null && other is not null ? Seat(offHand, Rig.Attached(arms.Model, pose, other) ?? Arms) : null;
+        ShieldAt = shield is not null ? Seat(shield, Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms) : null;
         if (Bow is { } drawn)
         {
             bowPuppet = Loaded(drawn.Model);
@@ -274,31 +275,59 @@ internal sealed class FirstPerson : IDisposable
         return Vector3.Normalize(flat) * MathF.Cos(pitch) + Vector3.UnitY * MathF.Sin(pitch);
     }
 
+    /// <summary>
+    /// Items are seated by their handle (<see cref="Seated"/>), as the game draws them; off, hung by their origin as before
+    /// #10395 (<c>lab.held.seat off</c>: to see the landmark pairs catch it, <see cref="HeldLandmarks"/>).
+    /// </summary>
+    internal bool SeatByHandle { get; set; } = true;
+
+    /// <summary>A clip the arms hold at a cycle over their idle, whatever the sword does (<c>lab.dev.arms</c>, #10395: to
+    /// pose the lab as a donor screenshot was); null plays the moves.</summary>
+    internal (string Clip, float Cycle)? HeldMove { get; set; }
+
+    Transform Seat(Puppet item, Transform hand) => SeatByHandle ? Seated(item, hand) : hand;
+
+    /// <summary>The weapon in hand (its model and Engine id), for the landmark pairs.</summary>
+    internal DonorModel WeaponModel => sword.Model;
+    internal ulong WeaponId => sword.Id;
+
     // Each held model's handle attachment, in its model frame at rest; null for a model without one.
-    readonly Dictionary<Puppet, Transform?> handles = [];
+    readonly Dictionary<Puppet, (Transform At, bool Grip)?> handles = [];
+
+    /// <summary>
+    /// The turn a held item without a <c>handle</c> takes after its joint is seated (#10395, R10395-1): every sword's
+    /// handle, a 120° cycle of its axes (glTF columns (0, 0, 1), (1, 0, 0), (0, 1, 0)), then half a turn about Y. The small
+    /// orc shield so drawn lies low and wide at the bottom left looking down and across the bottom blocking, its inner side
+    /// up with its two rivets where the game's screenshots (<c>held-look</c>'s third run) show them; seated by its joint
+    /// alone it stood larger and higher with its bossed face to the player, and with the other half turns its rivets fell
+    /// elsewhere or its face showed.
+    /// </summary>
+    internal static readonly Quaternion GripTurn =
+        Quaternion.CreateFromRotationMatrix(new Matrix4x4(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1)) * Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI);
 
     /// <summary>
     /// Where a held item is drawn in first person: its own <c>handle</c> attachment brought to the hand's attachment
-    /// (<paramref name="hand"/>), not its origin. Dark Messiah's view model draws its weapons so (#10395): posed as the
-    /// recorded view model was, the short sword hung by its origin points right, out of view at rest, where the game's
-    /// own screenshots (<c>held-look</c>) show it rising from below the frame to (910, 330) of 1280×720; seated by its
-    /// handle (a 120° turn of its axes for every sword, the identity for the daggers) it rises to (907, 312). The
-    /// server's weapon entity and the NPCs' items hang by their origin (the recordings, within 1°), and so does the
-    /// mirror's.
+    /// (<paramref name="hand"/>), not its origin; an item without one (the shields) by its one joint, turned by
+    /// <see cref="GripTurn"/>. Dark Messiah's view model draws them so (#10395): posed as the recorded view model was, the
+    /// short sword hung by its origin points right, out of view at rest, where the game's own screenshots (<c>held-look</c>)
+    /// show it rising from below the frame to (905, 317) of 1280×720; seated by its handle (a 120° turn of its axes for
+    /// every sword, the identity for the daggers) it rises to (907, 312). The server's weapon entity and the NPCs' items
+    /// hang by their origin (the recordings, within 1°), and so does the mirror's.
     /// </summary>
     internal Transform Seated(Puppet item, Transform hand)
     {
-        if (!handles.TryGetValue(item, out var handle))
+        if (!handles.TryGetValue(item, out var seat))
         {
             // The handle in the model's frame at rest; with none, a one-joint item's joint, which the hand then holds.
             var rest = Rig.Rest(engine, item.Instance, new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One));
-            handles[item] = handle = item.Model.Info.Attachments.ContainsKey("handle") ? Rig.Attached(item.Model, rest, "handle")
-                : rest.Length == 1 ? rest[0].World : null;
+            handles[item] = seat = item.Model.Info.Attachments.ContainsKey("handle") && Rig.Attached(item.Model, rest, "handle") is Transform handle ? (handle, false)
+                : rest.Length == 1 ? (rest[0].World, true) : null;
         }
-        if (handle is not Transform h) return hand;
+        if (seat is not var (h, grip)) return hand;
         var turn = Quaternion.Inverse(h.Rotation);
-        return new Transform(hand.Translation - Vector3.Transform(Vector3.Transform(h.Translation, turn), hand.Rotation),
+        var seated = new Transform(hand.Translation - Vector3.Transform(Vector3.Transform(h.Translation, turn), hand.Rotation),
             Quaternion.Normalize(hand.Rotation * turn), hand.Scale);
+        return grip ? new Transform(seated.Translation, Quaternion.Normalize(seated.Rotation * GripTurn), seated.Scale) : seated;
     }
 
     /// <summary>
@@ -320,18 +349,32 @@ internal sealed class FirstPerson : IDisposable
     /// <paramref name="armsAt"/> holding <paramref name="clip"/> at <paramref name="cycle"/>, the item seated
     /// (<see cref="Seated"/>) or hung by its origin (#10395: drawn over the donor's screenshots).
     /// </summary>
-    internal List<Vector3> HullAt(bool shield, string clip, float cycle, Transform armsAt, bool seated)
+    internal List<Vector3> HullAt(bool shield, string clip, float cycle, Transform armsAt, bool seated, Quaternion? turn = null)
     {
         var item = shield ? this.shield : sword;
         if (item is null) return [];
         var (main, _) = HandOf(Weapon.Class);
         if (AttachedAt(clip, cycle, armsAt, shield ? "Leftshield" : main) is not Transform hand) return [];
-        var pose = Rig.Rest(engine, item.Instance, seated ? Seated(item, hand) : hand);
+        var placed = seated ? Seated(item, hand) : hand;
+        // A further turn in the item's own frame: a candidate seating, to try against a screenshot.
+        if (turn is Quaternion t) placed = new Transform(placed.Translation, Quaternion.Normalize(placed.Rotation * t), placed.Scale);
+        var pose = Rig.Rest(engine, item.Instance, placed);
         var points = new List<Vector3>();
         foreach (var hull in item.Model.Info.Collision)
             if (item.Model.Joints.TryGetValue(hull.Joint, out int j))
                 points.AddRange(hull.Points.Select(p => Vector3.Transform(p, pose[j].World.Rotation) + pose[j].World.Translation));
         return points;
+    }
+
+    /// <summary>
+    /// The way the shield's bossed face looks, its joint's +Y (the hull's thicker side, where the bosses stand), with the
+    /// arms at <paramref name="armsAt"/> holding <paramref name="clip"/> at <paramref name="cycle"/>; null without one.
+    /// </summary>
+    internal Vector3? ShieldFront(string clip, float cycle, Transform armsAt)
+    {
+        if (shield is null || AttachedAt(clip, cycle, armsAt, "Leftshield") is not Transform hand) return null;
+        var pose = Rig.Rest(engine, shield.Instance, Seat(shield, hand));
+        return pose.Length == 1 ? Vector3.Transform(Vector3.UnitY, pose[0].World.Rotation) : null;
     }
 
     internal IEnumerable<AppearanceFact> Facts()

@@ -996,6 +996,30 @@ internal sealed partial class Orc : IDisposable
     /// <summary>The orc as Dark Messiah's combat model sees it.</summary>
     internal Party Party() => new("npc_orc_sword", Clip, Layer is null ? [] : [Layer], Cycle, "#2", Model);
 
+    /// <summary>
+    /// Holds it in <paramref name="clip"/> at <paramref name="cycle"/>, facing <paramref name="yawDegrees"/> (0 along -Z, the
+    /// lab's view yaw), frozen until it spawns again (<c>lab.orc.pose</c>, #10395: to pose it as a donor screenshot was).
+    /// </summary>
+    internal void PoseAt(string clip, float cycle, float yawDegrees)
+    {
+        Clip = ClipNamed(clip) ?? clip;
+        Cycle = Math.Clamp(cycle, 0, 1);
+        Layer = null;
+        hitLayer = null;
+        float yaw = yawDegrees * MathF.PI / 180;
+        Facing = new Vector3(MathF.Sin(yaw), 0, -MathF.Cos(yaw));
+        FrozenFor = float.MaxValue;
+    }
+
+    /// <summary>The landmark pairs its grip and shield are judged by (#10395, <see cref="HeldLandmarks"/>), and what they're on.</summary>
+    internal (string Key, LandmarkPair[] Pairs) Landmarks()
+    {
+        var pairs = new List<LandmarkPair>();
+        if (holdsCleaver) pairs.AddRange(HeldLandmarks.Grip("orc", HeldLandmarks.Hand(engine, body.Model, body.Id, HeldLandmarks.OrcRight), body.Model, body.Id, HeldLandmarks.OrcRight, cleaver.Model, cleaver.Id, fingers: false));
+        if (holdsShield && HeldLandmarks.Strap(body.Model, body.Id, shield.Model, shield.Id) is { } strap) pairs.Add(strap);
+        return ($"{body.Id}:{holdsCleaver}:{holdsShield}", [.. pairs]);
+    }
+
     /// <summary>Where its cleaver and shield hang now (each null when it doesn't hold it), as they're drawn.</summary>
     internal (Transform? Cleaver, Transform? Shield) Held()
     {

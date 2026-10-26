@@ -1,6 +1,6 @@
 {
-  "description": "Held items' look (#10395): the game's own screenshots (jpeg) of a still orc (its AI off) with its cleaver, from 100 units in front, to its right and to its left at eye height, the viewmodel and HUD hidden; a second orc spawned with weapon_arxshield as its second weapon, the same three views; then the player's short sword in first person looking ahead and 30 degrees down, and with weapon_arxshield on the arm. Marked with echo rb_hl.",
-  "seconds": 70,
+  "description": "Held items' look (#10395): the game's own screenshots (jpeg) of a still orc (its AI off) with its cleaver from 100 units in front, to its right and to its left at eye height, the viewmodel and HUD hidden; then that orc removed and one given weapon_mm_shield_orc (after its crossbow, as rbfight.cfg does) in its place, the same three views; then the player's short sword in first person looking ahead and 30 degrees down, the power attack's wind-up held, a fast attack under way and a parry held; then with weapon_arxshield on the arm, ahead, down and blocking. Marked with echo rb_hl.",
+  "seconds": 80,
   "setup": [
     "sv_cheats 1",
     "god",
@@ -42,21 +42,6 @@
     "ent_fire orca addoutput \"health 100000\"",
     "ent_fire orca addoutput \"origin 0 -2250 -12\"",
     {
-      "wait": 1
-    },
-    "setpos 300 -2500 0",
-    "setang 15 90 0",
-    {
-      "wait": 1
-    },
-    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxshield 0",
-    {
-      "wait": 2
-    },
-    "ent_fire npc_orc_sword addoutput \"targetname orcb\"",
-    "ent_fire orcb addoutput \"health 100000\"",
-    "ent_fire orcb addoutput \"origin 300 -2250 -12\"",
-    {
       "wait": 2
     },
     "ai_disable",
@@ -86,19 +71,43 @@
       "wait": 1.5
     },
     "jpeg rb_hl_a_left 95",
-    "setpos 300 -2350 -12",
+    "ai_disable",
+    "ent_remove orca",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2500 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow weapon_mm_shield_orc",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orcb\"",
+    "ent_fire orcb addoutput \"health 100000\"",
+    "ent_fire orcb addoutput \"origin 0 -2250 -12\"",
+    {
+      "wait": 2
+    },
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2350 -12",
     "setang 0 90 0",
     {
       "wait": 1.5
     },
     "jpeg rb_hl_b_front 95",
-    "setpos 200 -2250 -12",
+    "setpos -100 -2250 -12",
     "setang 0 0 0",
     {
       "wait": 1.5
     },
     "jpeg rb_hl_b_right 95",
-    "setpos 400 -2250 -12",
+    "setpos 100 -2250 -12",
     "setang 0 180 0",
     {
       "wait": 1.5
@@ -116,14 +125,47 @@
       "wait": 1.5
     },
     "jpeg rb_hl_fp_down 95",
+    "setang 0 270 0",
+    {
+      "wait": 1
+    },
+    "+attack",
+    {
+      "wait": 1.4
+    },
+    "jpeg rb_hl_fp_power_hold 95",
+    {
+      "wait": 0.2
+    },
+    "-attack",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.1
+    },
+    "jpeg rb_hl_fp_fast 95",
+    {
+      "wait": 2
+    },
+    "+attack2",
+    {
+      "wait": 1
+    },
+    "jpeg rb_hl_fp_parry 95",
+    "-attack2",
+    {
+      "wait": 1.5
+    },
     "give weapon_arxshield",
     "use weapon_arxshield",
     {
       "wait": 3
-    },
-    "setang 0 270 0",
-    {
-      "wait": 1.5
     },
     "jpeg rb_hl_fp_shield_ahead 95",
     "setang 30 270 0",
@@ -131,6 +173,16 @@
       "wait": 1.5
     },
     "jpeg rb_hl_fp_shield_down 95",
+    "setang 0 270 0",
+    {
+      "wait": 1
+    },
+    "+attack2",
+    {
+      "wait": 1
+    },
+    "jpeg rb_hl_fp_block 95",
+    "-attack2",
     "cl_drawhud 1",
     {
       "wait": 2

@@ -543,7 +543,7 @@ host.Call(engine =>
         foreach (var f in RecordingReader.Frames(stream))
         {
             var v = f.ClientView;
-            if (v.Player == WireLayout.NoEntity || f.Tick - last < 66) continue;
+            if (v.Player == WireLayout.NoEntity || f.Tick - last < (Environment.GetEnvironmentVariable("RB_VIEW_ALL") == "1" ? 1 : 66)) continue;
             last = f.Tick;
             var eye = new Vector3(v.OriginX + v.ViewOffsetX, v.OriginY + v.ViewOffsetY, v.OriginZ + v.ViewOffsetZ);
             float p = v.ViewPitch * MathF.PI / 180, y = v.ViewYaw * MathF.PI / 180;
@@ -559,14 +559,21 @@ host.Call(engine =>
         return;
     }
     // RB_HULLS=file writes the first-person sword's and shield's hull points as they'd fall in the donor's 1280x720
-    // screenshots of held-look (looking ahead and 30° down), hung by their origin and seated, for drawing over them (#10395).
+    // screenshots of held-look (#10395), posed as the recorded view model was for each, hung by their origin and seated,
+    // each also turned half a turn about its own X, Y or Z, for drawing over them.
     if (Environment.GetEnvironmentVariable("RB_HULLS") is { Length: > 0 } hullsPath)
     {
         var fp = product.Combat.FirstPerson;
         fp.Wear(LabShield.Of(product.Combat.Donor, "models/items/armors/shield_orc/shield_orc_small.mdl", 3));
         float half = MathF.Tan(101.4f / 2 * MathF.PI / 180);
         var lines = new List<string>();
-        foreach (float pitch in new[] { 0f, 30f })
+        var turns = new (string Name, Quaternion? Turn)[] { ("", null), (" flipX", Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI)),
+            (" flipY", Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI)), (" flipZ", Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI)),
+            // Every sword's handle, a 120° cycle of its axes (glTF columns (0, 0, 1), (1, 0, 0), (0, 1, 0)), as if a shield had it too.
+            (" cycle", Quaternion.CreateFromRotationMatrix(new Matrix4x4(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1))),
+            (" cycleInv", Quaternion.Inverse(Quaternion.CreateFromRotationMatrix(new Matrix4x4(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1)))) };
+        foreach (var (shot, pitch, clip, cycle) in new[] { ("ahead", 0f, "layer_sword_noshield_idle", .72f), ("down", 30f, "layer_sword_noshield_idle", .19f),
+            ("shield_down", 30f, "layer_sword_shield_idle", .78f), ("block", 0f, "layer_parry_sword_shield_idle", .32f) })
         {
             // The view looks along -Z, pitched down; the arms by 0.4 of it; the camera 2.1 ahead and 9 up in the view's frame.
             float p = -pitch * MathF.PI / 180;
@@ -578,15 +585,16 @@ host.Call(engine =>
             var right = Vector3.Cross(look, up);
             foreach (bool shield in new[] { false, true })
                 foreach (bool seated in new[] { false, true })
-                {
-                    var pts = fp.HullAt(shield, "layer_sword_shield_idle", .25f, armsAt, seated).Select(w =>
+                    foreach (var (name, turn) in shield ? turns : turns[..1])
                     {
-                        var d = w - camera;
-                        float z = Vector3.Dot(d, look);
-                        return z <= .01f ? null : FormattableString.Invariant($"{640 + 640 * Vector3.Dot(d, right) / z / half:0} {360 - 640 * Vector3.Dot(d, up) / z / half:0}");
-                    }).Where(x => x is not null);
-                    lines.Add($"{pitch} {(shield ? "shield" : "sword")} {(seated ? "seated" : "origin")}: {string.Join(",", pts)}");
-                }
+                        var pts = fp.HullAt(shield, clip, cycle, armsAt, seated, turn).Select(w =>
+                        {
+                            var d = w - camera;
+                            float z = Vector3.Dot(d, look);
+                            return z <= .01f ? null : FormattableString.Invariant($"{640 + 640 * Vector3.Dot(d, right) / z / half:0} {360 - 640 * Vector3.Dot(d, up) / z / half:0}");
+                        }).Where(x => x is not null);
+                        lines.Add($"{shot} {(shield ? "shield" : "sword")} {(seated ? "seated" : "origin")}{name}: {string.Join(",", pts)}");
+                    }
         }
         File.WriteAllLines(hullsPath, lines);
         return;
@@ -3133,6 +3141,28 @@ host.Call(engine =>
         var tip = seated is var (_, t) ? Screen(t) : null;
         var hungTip = hung is var (_, h) ? Screen(h) : null;
         float pitched = MathF.Asin(FirstPerson.PitchedLook(new Vector3(0, -MathF.Sin(MathF.PI / 6), -MathF.Cos(MathF.PI / 6))).Y) * 180 / MathF.PI;
+        // The shield (R10395-1): looking 30° down in its idle and blocking (held-look's third run, posed as the recorded view
+        // model was), its hull's top where the game's shield's top is (581 and 524 of 720, measured on the screenshots; the
+        // hull stands a little proud of the mesh), and its bossed face turned away from the camera: the player sees its inside.
+        fp.Wear(LabShield.Of(combat.Donor, "models/items/armors/shield_orc/shield_orc_small.mdl", 3));
+        var shieldShots = new List<(string Shot, float Top, float DonorTop, float Facing)>();
+        foreach (var (shot, pitch, clip, cycle, donorTop) in new[] { ("down", 30f, "layer_sword_shield_idle", .78f, 581f), ("blocking", 0f, "layer_parry_sword_shield_idle", .32f, 524f) })
+        {
+            float p = -pitch * MathF.PI / 180;
+            var look = new Vector3(0, MathF.Sin(p), -MathF.Cos(p));
+            var up = new Vector3(0, MathF.Cos(p), MathF.Sin(p));
+            var armsLook = FirstPerson.PitchedLook(look);
+            var armsAt = new Transform(Vector3.Zero, Rig.Facing(armsLook, Vector3.Cross(Vector3.UnitX, armsLook)), Vector3.One);
+            var eyeCamera = (look * 2.1f + up * 9) * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+            var hull = fp.HullAt(true, clip, cycle, armsAt, true);
+            var top = hull.Select(w => w - eyeCamera).Where(d => Vector3.Dot(d, look) > .01f).Min(d => 360 - 640 * Vector3.Dot(d, up) / Vector3.Dot(d, look) / half);
+            var front = fp.ShieldFront(clip, cycle, armsAt) ?? Vector3.Zero;
+            var middle = hull.Aggregate(Vector3.Zero, (a, b) => a + b) / hull.Count;
+            shieldShots.Add((shot, top, donorTop, Vector3.Dot(front, Vector3.Normalize(eyeCamera - middle))));
+        }
+        fp.Wear(null);
+        Check(shieldShots.All(x => MathF.Abs(x.Top - x.DonorTop) <= 60 && x.Facing < 0),
+            FormattableString.Invariant($"the first-person shield, seated by its joint and the grip turn, lies where the game drew it, its inside to the player: {string.Join("; ", shieldShots.Select(x => $"{x.Shot} its top at {x.Top:0} (the game's {x.DonorTop:0}), its bosses facing the camera by {x.Facing:0.00}"))}"));
         Check(tip is Vector2 at && Vector2.Distance(at, new Vector2(905, 317)) <= 15 && hungTip is Vector2 off && (off.X > 1280 || off.Y > 720) && MathF.Abs(pitched + 12) < .01f,
             FormattableString.Invariant($"the first-person short sword, seated by its handle, puts its tip at ({tip?.X:0}, {tip?.Y:0}) of the donor's screenshot, where the game drew it (905, 317); hung by its origin it would be at ({hungTip?.X:0}, {hungTip?.Y:0}), out of view; looking 30° down, the arms pitch {-pitched:0.0}° (the donor's 12)"));
     }

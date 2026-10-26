@@ -125,6 +125,37 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
             $"{(combat.Tuning.Orc.Flinch?.On == true ? "procedural" : "authored")}: {orc.State} {orc.Clip}, over it {orc.HitLayer ?? "nothing"}; lean peak {last.Peak:0.00} rad, cut short {last.Interrupted}, busy {last.Busy:0.00} s, slide {last.Moved:0.00} m, turn {last.Turned:0}°"));
     }
 
+    [DebugCommand("lab.held.landmarks", Description = "Read the held items' landmark pairs as the renderer measured them on the last frame (#10395): the player's and the orc's palm on the grip and web at the guard, the orc's forearm at its shield.")]
+    public DebugCommandResult HeldLandmarkReport() => DebugCommandResult.Success(Sword.HeldLandmarks.Report(engine));
+
+    [DebugCommand("lab.dev.arms", Description = "Hold the first-person arms in CLIP (one of first_basic's) at CYCLE over their idle, to pose them as a donor screenshot was; CLIP off plays the moves again.")]
+    public DebugCommandResult Arms(string clip, float cycle = 0)
+    {
+        if (clip == "off") { combat.FirstPerson.HeldMove = null; changed(); return DebugCommandResult.Success("arms play the moves"); }
+        if (!combat.FirstPerson.ArmsModel.Info.Clips.ContainsKey(clip)) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, $"first_basic has no clip {clip}.");
+        combat.FirstPerson.HeldMove = (clip, Math.Clamp(cycle, 0, 1));
+        changed();
+        return DebugCommandResult.Success(FormattableString.Invariant($"arms hold {clip} at {cycle:0.00}"));
+    }
+
+    [DebugCommand("lab.orc.pose", Description = "Hold the orc in CLIP at CYCLE facing YAW (degrees, the view's: 0 along -Z), frozen until it spawns again, to pose it as a donor screenshot was.")]
+    public DebugCommandResult PoseOrc(string clip, float cycle, float yaw)
+    {
+        if (!float.IsFinite(cycle) || !float.IsFinite(yaw)) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "CYCLE and YAW must be finite numbers.");
+        combat.Orc.PoseAt(clip, cycle, yaw);
+        changed();
+        return DebugCommandResult.Success($"orc holds {combat.Orc.Clip} at {combat.Orc.Cycle:0.00}");
+    }
+
+    [DebugCommand("lab.held.seat", Description = "Seat first-person items by their handle as the game does (on), or hang them by their origin as before #10395 (off), to compare.")]
+    public DebugCommandResult HeldSeat(string state)
+    {
+        if (state is not ("on" or "off")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "on or off.");
+        combat.FirstPerson.SeatByHandle = state == "on";
+        changed();
+        return DebugCommandResult.Success(state == "on" ? "items seated by their handle" : "items hung by their origin");
+    }
+
     [DebugCommand("lab.orc.ragdoll", Description = "Read the orc's ragdoll: falling, lying or blending back, the side it fell to and lies on, and every knockdown so far (fell as, lay on, seconds to getting up).")]
     public DebugCommandResult Ragdoll() => DebugCommandResult.Success(RagdollText());
 

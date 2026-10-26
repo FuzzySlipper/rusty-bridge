@@ -988,30 +988,58 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
 ### Held items
 
 Where the hands hold what they hold (#10395), checked against the game's own screenshots (`held-look`, docs/recording.md)
-and the recordings, not set by eye:
+and the recordings, not set by eye. The side-by-sides are kept with the screenshots, outside the repository:
+`local/recordings/experiments/held-look-3/compare/` (`fp_*.png`: each first-person screenshot beside the lab posed as the
+recorded view model was, with `lab.dev.arms CLIP CYCLE`; `orc_*.png`: each orc screenshot beside the mirror on that
+tick):
 - **The orcs' items** hang at their holder's attachment by their origin: the cleaver on `RightHand` (7), the shield on
   `LeftShield` (11), as Wire v10 streams them parented. Posed as `l01_a-v10-held` streams its orcs, the lab's cleaver
   and shield are within 1.8 cm and 0.0° of the donor's streamed transforms at 834 and 417 ticks
   (`HeldItemCalibration`; `RB_HELD=path` prints a recording's). The mirror, hanging them the same way, draws
-  `held-look`'s orcs as the game's screenshots show them (cleavers down along the leg in their idle). A frozen orc's
-  (`ai_disable`) streamed items aren't updated, so `held-look`'s own are off by 80°: only fighting orcs measure.
+  `held-look`'s orcs as the game's screenshots show them: the cleaver down along the leg in its idle, the shield
+  (`weapon_mm_shield_orc`, the third run's second orc) on the left forearm, its painted face out. The mirror's eye camera
+  doesn't follow the scenario's `setpos`/`setang` jumps, so its views look from elsewhere; the items are what compare.
+  A frozen orc's (`ai_disable`) streamed items aren't updated, so `held-look`'s own are off by 80°: only fighting orcs
+  measure.
 - **First-person items are seated by their handle**, not hung by their origin (`FirstPerson.Seated`): the item's
-  `handle` attachment is brought to the hand's attachment, or, without one, a one-joint item's joint (the shields'). Every
-  sword's handle is a 120° turn of its axes and the daggers' the identity. Hung by its origin, as the server's weapon
+  `handle` attachment is brought to the hand's attachment. Every sword's handle is a 120° turn of its axes and the
+  daggers' the identity. Without one (the shields), a one-joint item's joint is brought there and turned by
+  `FirstPerson.GripTurn`: the swords' handle turn, then half a turn about Y. Hung by its origin, as the server's weapon
   entity is (within 1 cm and 3° of the lab's hand attachment in the idle), the short sword pointed right, out of view at
   rest; the game draws it rising from below the frame, its tip at (905, 317) of `rb_hl_fp_ahead` (1280×720). Seated,
   its tip projects to (907, 312), and its collision hull drawn over the screenshots (`RB_HULLS=file`) lies on the
-  game's blade, looking ahead and 30° down. The shield, seated by its joint, lies low and wide at the bottom left as
-  the game's does looking down; its hull can't tell its face from its back, so which side faces up is not confirmed.
+  game's blade, looking ahead and 30° down. Posed as the recorded view model was, the lab draws the power attack's
+  held wind-up, a parry held and a fast attack under way as the game does (`compare/fp_*.png`; the fast attack's frame
+  is known only to within its second, so its cycle is approximate).
+- **The shield** (the small orc shield, `weapon_arxshield`): seated by its joint alone, it stood larger and higher than
+  the game's with its bossed face to the player; with the grip turn it lies low and wide at the bottom left looking down
+  and across the bottom blocking, its inner side to the player with its two rivets where the game's screenshots show
+  them. Its hull's top projects within 60 px of the game's shield's top in both, and its bosses face away from the
+  camera (the smoke). The other half turns either showed its face or put the rivets elsewhere.
 - **The arms pitch 0.4 of the view** (`FirstPerson.ViewmodelPitch`): the recorded view model turned 0.399 of the
   client's view pitch (0.397 to 0.403 over 110 samples of `l01_a-v14-arena-hand`), its heading the view's. The camera
   takes the whole view, so looking down brings the hands and what they hold up into it.
 - **The view model's clips** play as the donor's: its main sequence stays `anm_reference` and every move is an overlay
   layer (Wire v9's client layers: `layer_sword_noshield_idle` at weight 1 at rest); `first_basic` and its seven
   `$includemodel` animation files share one skeleton, so the lab's playing the layer as its main clip poses the same.
+- **Landmark pairs** (R10395-2, `Sword/HeldLandmarks.cs`; docs/playtest-inspection.md, "Landmark pairs"): the grips
+  are published as the overlay set `held.landmarks` and measured by the renderer on the poses it drew
+  (`engine.inspect.landmarks held.landmarks`, `lab.held.landmarks`; `lab/tests/landmarks-live.mjs` checks them in a
+  headless session, the smoke's test host having no renderer). The player's hand: `player.blade`, the blade along the
+  knuckles' line (`Landmark.Between` the pinky's and index's bases, `LandmarkAim.Axis`, within 35°); `player.palm`, the
+  palm's surface facing the grip's line and within 5 cm (`LandmarkAim.Line`); `player.guard`, the web within 11 cm of the
+  guard. The orc's: `orc.guard`, and `orc.shield`, its forearm's middle within 18 cm of its shield's middle. Seated, all
+  are within (blade 5°, palm 2.9 cm and 52°, guard 9.2 cm; the orc's 7.7 and 15.9 cm); hung by its origin as before
+  (`lab.held.seat off`), the pairs catch the turned sword (blade 91°, palm 78°, guard 12.9 cm). The reaches are the
+  donor's own holds with a little over; the blade pair is the one that tells.
+- **What the landmark tooling lacked:** `HandRig` and `Landmark.Palm` assume four fingers (a palm needs index, middle and
+  pinky bases); the orc's hand has three and a thumb, so its last finger stands for both ring and pinky, and its knuckle
+  line and palm read 82° and 90° off on a pose the recordings confirm, so the orc's grip is judged by its guard alone. The
+  palm's default depth (out of the palm) put its reference point inside a closed fist on the grip, where the angle to the
+  grip's line is noise: the pairs measure from the palm's surface (`depth: 0`). Neither is filed as an Engine task: a
+  three-fingered rig option and a fist-aware palm would be worth one.
 - **Not done:** the bow, its arrow and other multi-joint items in the hands keep their origin (no `handle`, and no
-  screenshot of them yet); the Engine's landmark pairs (docs/playtest-inspection.md) measure a grip as drawn and would
-  check palm against handle, but the cause here was the seating rule, which the screenshots and recordings settled.
+  screenshot of them yet).
 
 ## The orc
 
@@ -1571,7 +1599,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

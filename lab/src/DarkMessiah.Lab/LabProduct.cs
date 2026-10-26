@@ -376,9 +376,26 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     {
         player.Publish(worldSeconds);
         scene.Publish(combat.Facts().Concat(FireballFacts()).Concat(ArrowFacts()));
+        PublishLandmarks();
         float eye = combat.WizardEye.Light;
         if (eye != eyeLightIntensity) engine.Graphics.UpdateLight(new LightUpdateRequest(eyeLight, EyeLight(eyeLightIntensity = eye)));
         engine.Ui.PublishProjection(new UiProjection(hud, LabHud.Create(Observation())));
+    }
+
+    // What the held items' landmark pairs were last published for (#10395).
+    string landmarksFor = "";
+
+    /// <summary>The grips' landmark pairs (<see cref="HeldLandmarks"/>), published again when what's held changes.</summary>
+    private void PublishLandmarks()
+    {
+        var fp = combat.FirstPerson;
+        var (orcKey, orcPairs) = combat.Orc.Alive ? combat.Orc.Landmarks() : ("down", []);
+        string key = $"{fp.WeaponId}:{orcKey}";
+        if (key == landmarksFor) return;
+        landmarksFor = key;
+        var pairs = HeldLandmarks.Grip("player", HeldLandmarks.Hand(engine, fp.ArmsModel, FirstPerson.ArmsId, HeldLandmarks.PlayerRight), fp.ArmsModel, FirstPerson.ArmsId, HeldLandmarks.PlayerRight, fp.WeaponModel, fp.WeaponId)
+            .Concat(orcPairs).ToArray();
+        engine.Graphics.PublishOverlaySet(new OverlaySetRequest(HeldLandmarks.Set, [], pairs));
     }
 
     /// <summary>The wizard eye's light at <paramref name="intensity"/>: white, the same on every surface, off at 0.</summary>

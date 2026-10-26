@@ -3075,6 +3075,22 @@ host.Call(engine =>
         Check(scored.Count >= 400 && agree * 10 >= scored.Count * 8,
             FormattableString.Invariant($"the orc's reaction to a blow is the donor's (clip and side) on {agree} of {scored.Count} recorded blows ({100.0 * agree / scored.Count:0}%)"));
 
+        // A reaction followed to its end (R10382-3): one replaced or played again on a tick a blow struck the orc is the
+        // blow's doing and stays unmeasured; one that ends on its own is measured; none ends before it began.
+        {
+            var reacting = new ReactionCase("synthetic", 100, "kick", 1, 3, 0, 0, "front", 0, 1, "combatidle", .5f, "Push_Front_medium", "", 2);
+            var began = new Vector3(0, 0, 90);
+            var replaced = ReactionCalibration.FollowEnd(reacting, 130, "Hit_left_long", .1f, .6f, struck: true, new Vector3(40, 0, 95), began);
+            var restarted = ReactionCalibration.FollowEnd(reacting, 130, "Push_Front_medium", .05f, .6f, struck: true, new Vector3(40, 0, 95), began);
+            var ended = ReactionCalibration.FollowEnd(reacting, 130, "combatidle", .1f, .6f, struck: false, new Vector3(40, 0, 95), began);
+            var again = ReactionCalibration.FollowEnd(reacting, 130, "Push_Front_medium", .05f, .6f, struck: false, new Vector3(40, 0, 95), began);
+            var early = ReactionCalibration.FollowEnd(reacting, 101, "combatidle", .1f, .6f, struck: false, new Vector3(40, 0, 95), began);
+            Check(replaced is { Ended: true } && float.IsNaN(replaced.Case.Busy) && restarted is { Ended: true } && float.IsNaN(restarted.Case.Busy)
+                && ended is { Ended: true } && MathF.Abs(ended.Case.Busy - 30 / 66f) < 1e-4f && MathF.Abs(ended.Case.Turned - 5) < 1e-3f
+                && again is { Ended: true } && !float.IsNaN(again.Case.Busy) && early is { Ended: false },
+                FormattableString.Invariant($"a reaction replaced or played again on the tick a blow strikes is left unmeasured (busy {replaced.Case.Busy}, {restarted.Case.Busy}); ended on its own it's measured ({ended.Case.Busy:0.000} s, {ended.Case.Moved:0.00} m, {ended.Case.Turned:0}°; played again {again.Case.Busy:0.000} s); none ends before its first tick"));
+        }
+
         // The procedural reaction (#10382) against the same blows, as the player feels it, beside the authored rule's.
         var blows = ReactionCalibration.Blows(reactions, combat.Model.Data);
         var flinchTuning = combat.Tuning.Orc.Flinch!;
@@ -3463,7 +3479,7 @@ host.Call(engine =>
         Check(swiftStands && powerFeel.Cut && kickFeel.Cut && powerFeel.Clip == "combatidle" && kickFeel.Clip == "combatidle"
             && MathF.Abs(powerFeel.Took - powerFeel.Busy) <= 2 * Tick && MathF.Abs(kickFeel.Took - kickFeel.Busy) <= 2 * Tick
             && MathF.Abs(powerFeel.Moved - powerFeel.Slide) <= .05f && MathF.Abs(kickFeel.Moved - kickFeel.Slide) <= .05f
-            && powerFeel.Along > .95f && kickFeel.Along > .95f && kickFeel.Away > .95f && powerFeel.Turns == 6 && kickFeel.Turns == 6 && orc.State == OrcState.Ready
+            && powerFeel.Along > .95f && kickFeel.Along > .95f && kickFeel.Away > .95f && powerFeel.Turns >= 6 && kickFeel.Turns >= 6 && orc.State == OrcState.Ready
             && headLeans.All(h => h > .02f),
             FormattableString.Invariant($"switched on, a fast attack leans the orc and leaves it standing, and a power attack and a kick cut it short in no reaction clip ({powerFeel.Clip}), off its footing {powerFeel.Took:0.00} and {kickFeel.Took:0.00} s (the model's {powerFeel.Busy:0.00}, {kickFeel.Busy:0.00}), sliding {powerFeel.Moved:0.00} and {kickFeel.Moved:0.00} m ({powerFeel.Slide:0.00}, {kickFeel.Slide:0.00}) the way its spine, neck and head lean (its head, where its items and hit boxes are, {string.Join(" and ", headLeans.Select(h => h.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} m that way), the power attack's across it, the kick's away from the player; then it stands ready"));
         combat.UseFlinch(false);
@@ -3471,6 +3487,45 @@ host.Call(engine =>
         Face();
         var authoredAgain = Strike(40);
         Check(authoredAgain.Clip.StartsWith("Hit_", StringComparison.Ordinal), $"switched off, a power attack plays the authored hit again: {authoredAgain.Clip}");
+
+        // The arms (R10382-2): a blow on the right arm swings that arm along the impact, the left lagging less, neither
+        // past its limit; the lean and the arms settle and their turns clear.
+        {
+            var flinchRules = combat.Tuning.Orc.Flinch!;
+            combat.UseFlinch(true);
+            Settle();
+            Face();
+            orc.Flinch(flinchRules, new ReactionBlow(new AttackEvent(1.5f, false, ImpactY: 1), false, 12, false, 5, 180));
+            float right = 0, left = 0;
+            int armTurns = 0;
+            for (int i = 0; i < 30; i++)
+            {
+                orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+                right = MathF.Max(right, MathF.Abs(orc.Flinching.Arm(1)));
+                left = MathF.Max(left, MathF.Abs(orc.Flinching.Arm(0)));
+                armTurns = Math.Max(armTurns, orc.LeanTurns().Length);
+            }
+            float settleSeconds = 30 * Tick;
+            while (orc.LeanTurns().Length > 0 && settleSeconds < 10) { orc.Step(Tick, product.Player.Feet, IncomingSwing.None); settleSeconds += Tick; }
+            Check(right > left && right <= flinchRules.ArmLimit + 1e-4f && armTurns > 6 && orc.LeanTurns().Length == 0,
+                FormattableString.Invariant($"a blow on the orc's right arm swings it {right:0.00} rad (its limit {flinchRules.ArmLimit}), the left {left:0.00}, over {armTurns} joint turns; lean and arms settle and clear in {settleSeconds:0.0} s"));
+            combat.UseFlinch(false);
+        }
+
+        // In a replay (R10382-1): the same recording with the procedural reaction off and on. On, the lab's blows on the
+        // followed orc lean it over its recorded pose, and the report says on how many the reaction cut it short as the
+        // donor's orc was; the replay's blows are the same either way (the recording moves and poses the orc).
+        string handPath = Path.Combine(repo!, "local", "recordings", "l01_a-v14-arena-hand.rbrec");
+        if (File.Exists(handPath))
+        {
+            var withAuthored = CombatReplay.Run(combat, handPath, product);
+            combat.UseFlinch(true);
+            var withFlinch = CombatReplay.Run(combat, handPath, product);
+            combat.UseFlinch(false);
+            Console.WriteLine($"  {withFlinch.Flinch}");
+            Check(withAuthored.Flinch is null && withFlinch.Flinch is { Blows: > 5, PeakLean: > .1f } && withFlinch.PlayerBlows.ToString() == withAuthored.PlayerBlows.ToString(),
+                $"{withFlinch.Name} replayed with the procedural reaction: {withFlinch.Flinch}; with the authored clips none; the player's blows the same ({withAuthored.PlayerBlows})");
+        }
         // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
         orc.Spawn();
         orc.Damage(orc.Health * .9f);

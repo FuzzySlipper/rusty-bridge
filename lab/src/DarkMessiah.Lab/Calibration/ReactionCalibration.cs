@@ -102,6 +102,8 @@ internal static class ReactionCalibration
                 var arrows = new Arrows();
                 foreach (var f in arrows.Frames(stream))
                 {
+                    // The orcs a blow struck this frame: a reaction of theirs that ends here is the blow's doing (R10382-3).
+                    var struck = f.Damage.Where(d => d.Damage > 0).Select(d => d.Victim).ToHashSet();
                     for (int p = pending.Count - 1; p >= 0; p--)
                     {
                         var (c, victim, serial, overlaysBefore, start, cycle) = pending[p];
@@ -110,13 +112,7 @@ internal static class ReactionCalibration
                         {
                             var names = f.Sequences.GetValueOrDefault(w.ModelIndex) ?? [];
                             string seq = w.Sequence >= 0 && w.Sequence < names.Length ? names[w.Sequence] : "";
-                            // A hit or push followed to its end (#10382): another sequence, or the same one played again.
-                            if (c.Reaction.Length > 0 && f.Tick > c.Tick + c.Delay && (seq != c.Reaction || w.Cycle < cycle - .05f))
-                            {
-                                var moved = new Vector2(w.OriginX - start.X, w.OriginY - start.Y);
-                                c = c with { Busy = (f.Tick - c.Tick) / 66f, Moved = moved.Length() * SourceSpace.MetresPerUnit, Turned = (w.Yaw - start.Z + 540) % 360 - 180 };
-                                ended = true;
-                            }
+                            (c, ended) = FollowEnd(c, f.Tick, seq, w.Cycle, cycle, struck.Contains(victim), new Vector3(w.OriginX, w.OriginY, w.Yaw), start);
                             if (c.Reaction.Length == 0 && IsReaction(seq) && (seq != c.Before || w.Cycle < c.BeforeCycle - .05f)) c = c with { Reaction = seq, Delay = f.Tick - c.Tick };
                             if (c.Overlay.Length == 0 && Started(Overlays(f, victim, names), overlaysBefore) is { } o) c = c with { Overlay = o };
                             pending[p] = (c, victim, serial, overlaysBefore, start, seq == c.Reaction ? w.Cycle : cycle);
@@ -172,6 +168,22 @@ internal static class ReactionCalibration
             cases.AddRange(pending.Select(p => p.Case));
         }
         return cases;
+    }
+
+    /// <summary>
+    /// A hit or push in the orc's place followed to its end (#10382): it ends when the orc plays another sequence or the
+    /// same one again (its cycle back by more than 0.05 from <paramref name="lastCycle"/>), after the tick it began.
+    /// Ended on its own, its busy time, slide and turn are measured (from <paramref name="start"/>: origin X, Y and yaw,
+    /// to <paramref name="now"/>); ended on a tick a blow <paramref name="struck"/> the orc, it was cut short and stays
+    /// unmeasured (R10382-3). Returns the case and whether it ended.
+    /// </summary>
+    internal static (ReactionCase Case, bool Ended) FollowEnd(ReactionCase c, int tick, string sequence, float cycle, float lastCycle, bool struck,
+        Vector3 now, Vector3 start)
+    {
+        if (c.Reaction.Length == 0 || tick <= c.Tick + c.Delay || sequence == c.Reaction && cycle >= lastCycle - .05f) return (c, false);
+        if (struck) return (c, true);
+        var moved = new Vector2(now.X - start.X, now.Y - start.Y);
+        return (c with { Busy = (tick - c.Tick) / 66f, Moved = moved.Length() * SourceSpace.MetresPerUnit, Turned = (now.Z - start.Z + 540) % 360 - 180 }, true);
     }
 
     /// <summary>A sequence a blow plays: a hit, a push, a stun or a knockdown (other changes are the orc's own doing).</summary>

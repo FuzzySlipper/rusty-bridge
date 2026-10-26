@@ -62,7 +62,9 @@ internal sealed record CombatTuning(float AttackMovementScale, float[] KickWindo
             foreach (var (name, value) in new[] { ("swingMomentum", f.SwingMomentum), ("kickMomentum", f.KickMomentum), ("frequency", f.Frequency),
                 ("damping", f.Damping), ("balance", f.Balance), ("recover", f.Recover), ("stunnedBalance", f.StunnedBalance) })
                 Authored.Positive(Path, $"orc.flinch.{name}", value);
-            foreach (var (name, value) in new[] { ("pushBoost", f.PushBoost), ("pain", f.Pain), ("slide", f.Slide), ("friction", f.Friction) })
+            Authored.Positive(Path, "orc.flinch.armLimit", f.ArmLimit);
+            foreach (var (name, value) in new[] { ("pushBoost", f.PushBoost), ("pain", f.Pain), ("slide", f.Slide), ("friction", f.Friction),
+                ("armKick", f.ArmKick), ("armInertia", f.ArmInertia) })
                 Authored.AtLeast(Path, $"orc.flinch.{name}", value, 0);
         }
         return t;

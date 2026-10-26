@@ -1188,7 +1188,7 @@ recordings serving to tune it rather than to be copied. `Npc/OrcFlinch.cs` is th
 
 **What the recordings say a reaction does.** `ReactionCalibration` now follows each hit or push in the orc's place to its
 end: how long it was off its footing (busy), how far it moved and how far it turned. A reaction cut short by the next blow
-isn't measured. Whether a blow cut the orc short went by the move, not its damage: power attacks 151 of 154, kicks 63 of
+isn't measured, also one that ends or plays again on the very tick a blow lands (R10382-3, `ReactionCalibration.FollowEnd`). Whether a blow cut the orc short went by the move, not its damage: power attacks 151 of 154, kicks 63 of
 79, fast attacks rarely, and every blow on a stunned orc. How long it was out went by the damage: a medium hit's
 0.6 s (to 9 damage), a long one's 1.1 s (from 12), a push's 1.1 to 1.3 s. The orcs moved a median 0.65 m (medium hits)
 to 1.7 m (pushes) and turned 10° to 17°.
@@ -1211,28 +1211,41 @@ Against the 495 recorded blows a reaction rule decides:
 | | Cut short as the donor's | Busy off | Slide off | Turn off |
 | --- | --- | --- | --- | --- |
 | The authored rule (the donor's clips) | 94% | 0.03 s | 0.42 m | 15° |
-| The procedural reaction | 92% | 0.15 s | 0.51 m | 11° |
+| The procedural reaction | 92% | 0.14 s | 0.50 m | 11° |
 
-(medians over the 267 donor reactions that ran to their end). The authored rule plays the donor's own clips, so its busy
+(medians over the 254 donor reactions that ran to their end). The authored rule plays the donor's own clips, so its busy
 time is theirs; it turns nothing, where the procedural reaction turns as the impact runs. By the donor's kind of
 reaction (busy, slide and turn, medians, the donor's then the procedural one's):
 
 | The donor's | Blows | Busy | Slide | Turn |
 | --- | --- | --- | --- | --- |
-| `Hit_<side>_long` | 122 | 1.12 s, 1.24 s | 1.50 m, 0.73 m | 16°, 12° |
-| `Push_<side>_medium` (kicks) | 59 | 1.33 s, 1.23 s | 1.53 m, 1.84 m | 9°, 0° |
-| `Hit_<side>_medium` | 55 | 0.61 s, 1.07 s | 0.52 m, 0.47 m | 14°, 5° |
-| `Push_<side>_long` | 28 | 1.09 s, 1.27 s | 1.13 m, 1.51 m | 17°, 13° |
+| `Hit_<side>_long` | 120 | 1.12 s, 1.22 s | 1.50 m, 0.68 m | 16°, 12° |
+| `Push_<side>_medium` (kicks) | 56 | 1.33 s, 1.25 s | 1.66 m, 1.73 m | 9°, 0° |
+| `Hit_<side>_medium` | 50 | 0.61 s, 1.08 s | 0.63 m, 0.44 m | 17°, 5° |
+| `Push_<side>_long` | 25 | 1.09 s, 1.25 s | 1.09 m, 1.42 m | 17°, 13° |
 
-What it gets wrong: the fit leaves damage almost no say (`pain` 0.05), so a medium hit keeps the orc out about as long
-as a long one (1.07 s against the donor's 0.61); a long hit slides it half as far as the donor's clips carried it; a
+What it gets wrong: the fit leaves damage almost no say (`pain` 0.02), so a medium hit keeps the orc out about as long
+as a long one (1.08 s against the donor's 0.61); a long hit slides it half as far as the donor's clips carried it; a
 kick, straight on, never turns it, where the donor's turned 9°. The smoke prints this table.
 
 Its cleaver, shield and hit boxes follow the lean: while it leans they take the pose with its pose controls.
 
-**Not done.** Replays follow the recorded orc's own sequences, reactions included, so the procedural reaction isn't played
-in them: it is scored on every recorded blow instead, as above. Knockdowns stay the ragdoll's; a partial-physics knockdown
-would want rusty-engine #10383's powered ragdolls. The arms don't react.
+**The arms** (R10382-2): each arm is a spring of its own, a half again quicker than the torso's, turned about the lean's
+axis at its shoulder (0.6 of its turn) and elbow (0.4). A blow on an arm (hit group 4 the left, 5 the right) pushes that
+arm along the impact by `armKick` (1) of the blow's momentum; any other blow, and the other arm, lag the torso by
+`armInertia` (0.5) of it, against it. No arm turns past `armLimit` (0.6 rad). These three are chosen, not fitted: no
+recording streams the donor's arm bones. The smoke strikes the right arm, which swings 0.34 rad to the left's 0.17, and
+the lean and arms settle until their joint turns clear (2.4 s).
+
+**In replays** (R10382-1): replays follow the recorded orc, which moves and poses it; with `orc.flinch.on` the lab's blows
+on it lean it as well, drawn over the recorded pose (no slide or turn: those are the recording's), and the report counts
+on how many the reaction cut it short as the donor's orc was (it began a hit or push within 16 ticks): `procedural
+reaction: N of the lab's blows leaned the followed orc ...`. The smoke replays `l01_a-v14-arena-hand` both ways: the
+player's blows compare the same, and with the reaction on the lab's 7 blows on the orc lean it (peak 0.79 rad), cut
+short as the donor's orc was on 6.
+
+**Not done.** Knockdowns stay the ragdoll's; a partial-physics knockdown would want rusty-engine #10383's powered
+ragdolls. The arms' numbers aren't measured.
 
 ### Perception
 
@@ -1554,7 +1567,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

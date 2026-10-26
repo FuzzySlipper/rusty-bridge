@@ -50,7 +50,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     IReadOnlyList<(int Tick, int Modules, float MaxStamina)>? Rebuilt = null, ShieldWear? Shield = null,
     (int Near, int Ticks, float Worst)? Stamina = null, (int Near, int Ticks, float Median)? Camera = null,
     (int Near, int Ticks, float Worst, int MaxAgree)? Health = null, (int Near, int Ticks, float Median, float Worst)? CameraPlace = null,
-    (int Near, int Ticks, float Worst)? Mana = null)
+    (int Near, int Ticks, float Worst)? Mana = null, FlinchReplay? Flinch = null)
 {
     internal IEnumerable<string> Lines()
     {
@@ -75,6 +75,7 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
             yield return FormattableString.Invariant($"  adrenaline: the lab's gauge, on its own blows from the donor's start, within 1 of the donor's on {a.Near} of {a.Ticks} ticks ({100.0 * a.Near / a.Ticks:0}%)");
         if (Body is { } b) yield return $"  {b}";
         if (Shield is { } shield) yield return $"  {shield}";
+        if (Flinch is { } flinch) yield return $"  {flinch}";
         foreach (var side in new[] { PlayerBlows, OrcBlows })
         {
             yield return $"  {side}";
@@ -84,6 +85,17 @@ internal sealed record ReplayReport(string Name, int Ticks, double Seconds, int 
     }
 
     public override string ToString() => string.Join(Environment.NewLine, Lines());
+}
+
+/// <summary>
+/// The procedural reaction played in a replay (R10382-1, <c>orc.flinch.on</c>): the lab's blows on the followed orc
+/// that leaned it, and on how many the reaction cut it short as the donor's orc was (it began a hit or push within
+/// <see cref="Calibration.ReactionCalibration.Within"/> ticks of the blow); the lean's peak, drawn over the recorded pose.
+/// </summary>
+internal sealed record FlinchReplay(int Blows, int Agree, int DonorCut, int LabCut, float PeakLean)
+{
+    public override string ToString() => FormattableString.Invariant(
+        $"procedural reaction: {Blows} of the lab's blows leaned the followed orc (peak {PeakLean:0.00} rad), cut short as the donor's orc was on {Agree} (the donor's {DonorCut}, the reaction's {LabCut})");
 }
 
 /// <summary>
@@ -311,10 +323,15 @@ internal static class CombatReplay
         PlayerAdrenaline? shadow = null;
         int shadowTicks = 0, shadowNear = 0;
         if (driveBody) body!.Begin();
+        // The procedural reaction's outcomes on the followed orc by the timeline's index, and its lean's peak (R10382-1).
+        var flinches = new List<(int Index, FlinchOutcome Outcome)>();
+        float peakLean = 0;
+        int index = -1;
         try
         {
             foreach (var t in timeline.Ticks)
             {
+                index++;
                 times[t.Tick] = t.Time;
                 if (t.Orc is { } o) followed[t.Tick] = o.Id;
                 // A request while the donor holds gear the lab doesn't play isn't compared, like its moves (R10140-3).
@@ -360,6 +377,8 @@ internal static class CombatReplay
                 combat.Step(t.Seconds, (ulong)t.Tick, t.Armed && t.Held.HasFlag(InputButtons.Attack), t.Armed && t.Held.HasFlag(InputButtons.Attack2),
                     t.Armed && (t.KickHeld || t.Kick), t.Eye, t.Forward, t.Feet, t.Orc ?? Absent, t.Move, grounded && !donorFalling, t.Sprint, t.Held.HasFlag(InputButtons.Duck));
                 if (combat.Sword.SwingStarted || combat.Sword.Drawing && combat.Sword.Move != lastMove) labSwings.Add(new DonorSwing(t.Tick, t.Time, combat.Sword.Clip.Clip));
+                for (int f = flinches.Count; f < combat.Orc.FollowedFlinches.Count; f++) flinches.Add((index, combat.Orc.FollowedFlinches[f]));
+                peakLean = MathF.Max(peakLean, combat.Orc.Flinching.Lean);
                 // The lab's camera in place against the donor's drawn one, every tick (R10161-4): the eyes attachment of
                 // the arms posed at the recorded eye.
                 if (t.Camera is { } drawnCamera)
@@ -490,6 +509,25 @@ internal static class CombatReplay
             combat.Reset();
             combat.God = god;
             combat.BlowsPunch = true;
+        }
+
+        FlinchReplay? flinchReplay = null;
+        if (flinches.Count > 0)
+        {
+            int agree = 0, donorCut = 0, labCut = 0;
+            foreach (var (i, outcome) in flinches)
+            {
+                var at = timeline.Ticks[i];
+                bool cut = false;
+                for (int k = i + 1; !cut && k < timeline.Ticks.Count && timeline.Ticks[k].Tick <= at.Tick + Calibration.ReactionCalibration.Within; k++)
+                    cut = timeline.Ticks[k].Orc is { } o && o.Id == at.Orc?.Id && Calibration.ReactionCalibration.IsReaction(o.Sequence)
+                        && !o.Sequence.StartsWith("hit_stunned", StringComparison.Ordinal) && !o.Sequence.StartsWith("StandUp", StringComparison.Ordinal)
+                        && (o.Sequence != at.Orc.Sequence || o.Cycle < at.Orc.Cycle - .05f);
+                if (cut) donorCut++;
+                if (outcome.Interrupted) labCut++;
+                if (cut == outcome.Interrupted) agree++;
+            }
+            flinchReplay = new FlinchReplay(flinches.Count, agree, donorCut, labCut, peakLean);
         }
 
         double TimeOf(int tick) => times.TryGetValue(tick, out var s) ? s : double.NaN;
@@ -630,7 +668,7 @@ internal static class CombatReplay
             cameraTicks > 0 ? (cameraNear, cameraTicks, cameraOffs.Order().ElementAt(cameraOffs.Count / 2)) : null,
             healthTicks > 0 ? (healthNear, healthTicks, healthWorst, maxAgree) : null,
             placeOffs.Count > 0 ? (placeOffs.Count(o => o <= CameraPlaceTolerance), placeOffs.Count, placeOffs.Order().ElementAt(placeOffs.Count / 2), placeOffs.Max()) : null,
-            manaTicks > 0 ? (manaNear, manaTicks, manaWorst) : null);
+            manaTicks > 0 ? (manaNear, manaTicks, manaWorst) : null, flinchReplay);
     }
 
     /// <summary>

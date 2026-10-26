@@ -233,6 +233,8 @@ internal sealed partial class Orc : IDisposable
             : Layer?.Contains("parry", StringComparison.OrdinalIgnoreCase) == true || Clip.Contains("parry", StringComparison.OrdinalIgnoreCase) ? OrcState.Parry
             : Clip.StartsWith("attack", StringComparison.OrdinalIgnoreCase) || Layer?.StartsWith("layer_attack", StringComparison.OrdinalIgnoreCase) == true ? OrcState.Attack
             : OrcState.Ready;
+        // The procedural reaction's lean settles over the recorded pose (R10382-1); its slide and turn are the recording's.
+        if (tuning.Flinch is { On: true } flinchTuning) flinch.Advance(flinchTuning, seconds);
         var blows = new List<OrcBlow>();
         if (State == OrcState.Down) return blows;
         // An attack plays as the main sequence, or, on the move, as a layer_attack_* overlay.
@@ -285,6 +287,8 @@ internal sealed partial class Orc : IDisposable
     internal void StopFollowing()
     {
         Following = false;
+        flinch.Reset();
+        FollowedFlinches.Clear();
         body = ownBody;
         holdsCleaver = holdsShield = true;
         followed = null;
@@ -628,8 +632,11 @@ internal sealed partial class Orc : IDisposable
     /// </summary>
     internal FlinchOutcome Flinch(FlinchTuning rules, ReactionBlow blow)
     {
-        if (!Alive || Following || State is OrcState.Down or OrcState.KnockedDown or OrcState.Backstabbed or OrcState.Dodging) return default;
+        if (!Alive || State is OrcState.Down or OrcState.KnockedDown or OrcState.Backstabbed or OrcState.Dodging) return default;
         var outcome = flinch.Hit(rules, blow, State == OrcState.Stunned, Facing);
+        // Followed in a replay (R10382-1), the recording moves and poses it: the lean is drawn over the recorded pose, and
+        // what the reaction would have done is kept for the replay's report.
+        if (Following) { FollowedFlinches.Add(outcome); return outcome; }
         if (!outcome.Interrupted) return outcome;
         Layer = null;
         hitLayer = null;
@@ -637,6 +644,9 @@ internal sealed partial class Orc : IDisposable
         staggered = true;
         return outcome;
     }
+
+    /// <summary>Each procedural reaction to a blow while it was followed in a replay (R10382-1), in order.</summary>
+    internal List<FlinchOutcome> FollowedFlinches { get; } = [];
 
     /// <summary>The procedural reaction's state (#10382).</summary>
     internal OrcFlinch Flinching => flinch;
@@ -1007,7 +1017,7 @@ internal sealed partial class Orc : IDisposable
     /// </summary>
     JointPose[] Lean(JointPose[] pose)
     {
-        var turns = ragdoll is null && !ragdollPending && !Following ? flinch.Overrides(body.Model, pose, Facing) : [];
+        var turns = ragdoll is null && !ragdollPending ? flinch.Overrides(body.Model, pose, Facing) : [];
         if (turns.Length == 0 && !leaning) return pose;
         engine.Animation.SetPose(new(body.Instance, ReadOnlyMemory<TwoBoneIk>.Empty, turns));
         leaning = turns.Length > 0;

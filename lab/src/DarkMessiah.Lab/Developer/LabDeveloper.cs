@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text.Json;
 using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Interaction;
+using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Scene;
@@ -99,6 +100,29 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         var outcome = orc.Struck(new DarkMessiah.Combat.AttackEvent(1, false, ChanceToFall: 1, ImpactX: sideways == 0 ? 1 : 0, ImpactY: sideways), 0, from, false, 1);
         changed();
         return DebugCommandResult.Success($"{outcome}; {RagdollText()}");
+    }
+
+    [DebugCommand("lab.orc.react", Description = "Strike the orc with a blow that takes no health, KIND fast (a fast attack's impactcoeff 0.5, swinging to the attacker's left), power (a power attack's, likewise) or kick, from DEGREES about it (0 in front of it, 90 its left): it reacts as the lab has it, by the authored clips or procedurally (lab.orc.flinch).")]
+    public DebugCommandResult React(string kind, float degrees)
+    {
+        if (!float.IsFinite(degrees)) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "DEGREES must be a finite number.");
+        var (blow, damage) = kind switch
+        {
+            "fast" => (new DarkMessiah.Combat.AttackEvent(.7f, false, ImpactY: 1, ImpactCoeff: .5f), 4f),
+            "power" => (new DarkMessiah.Combat.AttackEvent(1.5f, false, ImpactY: 1), 12f),
+            "kick" => (null, 1f),
+            _ => ((DarkMessiah.Combat.AttackEvent?)null, -1f),
+        };
+        if (damage < 0) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "KIND is fast, power or kick.");
+        var orc = combat.Orc;
+        // The attacker stands at DEGREES about the orc, facing it.
+        var struck = new ReactionBlow(blow, kind == "kick", damage, false, 2, degrees + 180);
+        orc.React(struck, OrcReactions.Pick(struck, orc.State == OrcState.Stunned, orc.SinceSmallHit),
+            Vector3.Transform(-orc.Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180)), kind == "kick" ? combat.Tuning.KickPush : 0);
+        changed();
+        var last = orc.Flinching.Last;
+        return DebugCommandResult.Success(FormattableString.Invariant(
+            $"{(combat.Tuning.Orc.Flinch?.On == true ? "procedural" : "authored")}: {orc.State} {orc.Clip}, over it {orc.HitLayer ?? "nothing"}; lean peak {last.Peak:0.00} rad, cut short {last.Interrupted}, busy {last.Busy:0.00} s, slide {last.Moved:0.00} m, turn {last.Turned:0}°"));
     }
 
     [DebugCommand("lab.orc.ragdoll", Description = "Read the orc's ragdoll: falling, lying or blending back, the side it fell to and lies on, and every knockdown so far (fell as, lay on, seconds to getting up).")]

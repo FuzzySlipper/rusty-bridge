@@ -29,9 +29,16 @@ namespace DarkMessiah.Lab.Npc;
 /// <param name="Slide">How fast it slides off its feet, metres a second for each radian a second of lean.</param>
 /// <param name="Friction">How fast the slide slows, metres a second, a second.</param>
 /// <param name="Twist">How far a swing across it turns it, degrees for each radian a second of lean (its sign: the swing's way).</param>
+/// <param name="ArmKick">How much of a blow on an arm (hit group 4 or 5) that arm takes, along the impact (R10382-2).</param>
+/// <param name="ArmInertia">How much of any other blow both arms take against it, lagging the torso.</param>
+/// <param name="ArmLimit">The most an arm turns, radians. The arms' three numbers are chosen, not fitted: no recording
+/// streams the donor's arm bones.</param>
 internal sealed record FlinchTuning(bool On, float SwingMomentum, float KickMomentum, float PushBoost, float Pain,
-    float Frequency, float Damping, float Balance, float Recover, float StunnedBalance, float Slide, float Friction, float Twist)
+    float Frequency, float Damping, float Balance, float Recover, float StunnedBalance, float Slide, float Friction, float Twist,
+    float ArmKick = 1, float ArmInertia = .5f, float ArmLimit = .6f)
 {
+    /// <summary>How much quicker the arms' springs are than the torso's: lighter, they settle sooner.</summary>
+    internal const float ArmFrequency = 1.5f;
     /// <summary>How long a lean is followed, seconds: longer than any recorded reaction (1.5 s).</summary>
     internal const float Horizon = 3;
     internal const float Step = 1 / 120f;
@@ -56,6 +63,13 @@ internal sealed class OrcFlinch
     /// <summary>The torso's joints, from the hips up, and each one's share of the lean.</summary>
     static readonly (string Joint, float Share)[] Chain =
         [("SK_Spine_1", .15f), ("SK_Spine_2", .2f), ("SK_Spine_3", .2f), ("SK_Spine_4", .2f), ("SK_Neck", .1f), ("SK_Head", .15f)];
+
+    /// <summary>Each arm's joints and their shares of its turn: the left (0) and the right (1).</summary>
+    static readonly (string Joint, float Share)[][] Arms =
+        [[("SK_L_Shoulder", .6f), ("SK_L_Elbow", .4f)], [("SK_R_Shoulder", .6f), ("SK_R_Elbow", .4f)]];
+
+    /// <summary>The arm a hit group is on (Source's 4 left arm, 5 right arm), or null.</summary>
+    internal static int? ArmOf(int? group) => group switch { 4 => 0, 5 => 1, _ => null };
 
     /// <summary>A hit group's height on the orc, Source units above its feet (Source's groups: 1 head, 2 chest, 3 stomach, 4–5 arms, 6–7 legs).</summary>
     internal static float GroupHeight(int? group) => group switch { 1 => 68, 2 => 52, 3 => 40, 4 or 5 => 50, 6 or 7 => 20, _ => 45 };
@@ -135,6 +149,8 @@ internal sealed class OrcFlinch
 
     // The lean now: its size and rate, along a direction in the orc's frame (radians from its facing, to its left).
     float theta, omega, direction;
+    // Each arm's turn and rate along the same direction (R10382-2), left then right.
+    readonly float[] armTheta = new float[2], armOmega = new float[2];
     // Its slide (metres a second, along a direction in the world) and its turn still to come (degrees).
     Vector3 slideDirection;
     float slideSpeed, turnLeft, turnRate;
@@ -144,6 +160,9 @@ internal sealed class OrcFlinch
 
     /// <summary>The lean now, radians.</summary>
     internal float Lean => MathF.Abs(theta);
+
+    /// <summary>An arm's turn now, radians: 0 the left, 1 the right.</summary>
+    internal float Arm(int side) => armTheta[side];
 
     /// <summary>The way it leans in the world, for an orc facing <paramref name="facing"/>: the last impact's travel.</summary>
     internal Vector3 Toward(Vector3 facing) =>
@@ -159,12 +178,19 @@ internal sealed class OrcFlinch
     /// <param name="facing">The orc's facing in the world, for the slide's direction.</param>
     internal FlinchOutcome Hit(FlinchTuning t, ReactionBlow blow, bool stunned, Vector3 facing)
     {
-        float travel = Travel(blow) * MathF.PI / 180;
-        float along = theta * MathF.Cos(travel - direction), alongRate = omega * MathF.Cos(travel - direction);
+        float travel = Travel(blow) * MathF.PI / 180, projected = MathF.Cos(travel - direction);
+        float along = theta * projected, alongRate = omega * projected;
         var outcome = Predict(t, blow, stunned, along, alongRate);
         direction = travel;
         theta = along;
         omega = alongRate + Kick(t, blow);
+        // The arms: the struck one pushed along the impact, the others lagging the torso against it (R10382-2).
+        float momentum = Momentum(t, blow);
+        for (int side = 0; side < 2; side++)
+        {
+            armTheta[side] *= projected;
+            armOmega[side] = armOmega[side] * projected + (ArmOf(blow.HitGroup) == side ? t.ArmKick * momentum : -t.ArmInertia * momentum);
+        }
         Last = outcome;
         if (!outcome.Interrupted) return outcome;
         Busy = MathF.Max(Busy, outcome.Busy);
@@ -180,8 +206,18 @@ internal sealed class OrcFlinch
     /// <summary>One step: the spring, the slide (metres moved, returned) and the turn (degrees, returned).</summary>
     internal (Vector3 Moved, float Turned) Advance(FlinchTuning t, float seconds)
     {
+        var arms = t with { Frequency = t.Frequency * FlinchTuning.ArmFrequency };
         for (float left = seconds; left > 1e-6f; left -= FlinchTuning.Step)
-            (theta, omega) = Spring(t, theta, omega, MathF.Min(left, FlinchTuning.Step));
+        {
+            float step = MathF.Min(left, FlinchTuning.Step);
+            (theta, omega) = Spring(t, theta, omega, step);
+            for (int side = 0; side < 2; side++)
+            {
+                (armTheta[side], armOmega[side]) = Spring(arms, armTheta[side], armOmega[side], step);
+                // Bounded: at its limit an arm stops there.
+                if (MathF.Abs(armTheta[side]) > t.ArmLimit) { armTheta[side] = MathF.CopySign(t.ArmLimit, armTheta[side]); armOmega[side] = 0; }
+            }
+        }
         Busy = MathF.Max(0, Busy - seconds);
         Vector3 moved = default;
         if (slideSpeed > 0)
@@ -202,6 +238,8 @@ internal sealed class OrcFlinch
     internal void Reset()
     {
         theta = omega = direction = slideSpeed = turnLeft = turnRate = Busy = 0;
+        Array.Clear(armTheta);
+        Array.Clear(armOmega);
         Last = default;
     }
 
@@ -211,18 +249,21 @@ internal sealed class OrcFlinch
     /// </summary>
     internal JointOverride[] Overrides(DonorModel model, JointPose[] pose, Vector3 facing)
     {
-        if (MathF.Abs(theta) < 1e-4f) return [];
+        if (MathF.Abs(theta) < 1e-4f && MathF.Abs(armTheta[0]) < 1e-4f && MathF.Abs(armTheta[1]) < 1e-4f) return [];
         var lean = Toward(facing);
         if (lean.LengthSquared() < 1e-6f) return [];
         var axis = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, Vector3.Normalize(lean)));
-        var turns = new List<JointOverride>(Chain.Length);
-        foreach (var (joint, share) in Chain)
+        var turns = new List<JointOverride>(Chain.Length + 4);
+        void Turn(string joint, float angle)
         {
-            if (!model.Joints.TryGetValue(joint, out int j) || j >= pose.Length) continue;
+            if (MathF.Abs(angle) < 1e-5f || !model.Joints.TryGetValue(joint, out int j) || j >= pose.Length) return;
             var local = Vector3.Transform(axis, Quaternion.Conjugate(pose[j].World.Rotation));
-            if (local.LengthSquared() < 1e-6f) continue;
-            turns.Add(JointOverride.AddLocalRotation((uint)j, Quaternion.CreateFromAxisAngle(Vector3.Normalize(local), theta * share), 1));
+            if (local.LengthSquared() < 1e-6f) return;
+            turns.Add(JointOverride.AddLocalRotation((uint)j, Quaternion.CreateFromAxisAngle(Vector3.Normalize(local), angle), 1));
         }
+        foreach (var (joint, share) in Chain) Turn(joint, theta * share);
+        for (int side = 0; side < 2; side++)
+            foreach (var (joint, share) in Arms[side]) Turn(joint, armTheta[side] * share);
         return [.. turns];
     }
 }

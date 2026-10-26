@@ -530,7 +530,20 @@ host.Call(engine =>
     {
         var reactions = ReactionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
         foreach (var r in reactions)
-            Console.WriteLine(FormattableString.Invariant($"REACT {r.Recording} {r.Tick} {r.Move} dmg {r.Damage:0.##} grp {r.HitGroup} push {r.PushForce} flag {r.DamageFlag:x} {r.Side} {r.Angle:0} hp {r.HealthFraction:0.00} before {r.Before}@{r.BeforeCycle:0.00} -> {r.Reaction} +{r.Delay} ovl {r.Overlay} facing {r.Facing:0} crit {(r.Critical ? 1 : 0)} z {r.HitHeight:0} was {r.OverlayBefore}"));
+            Console.WriteLine(FormattableString.Invariant($"REACT {r.Recording} {r.Tick} {r.Move} dmg {r.Damage:0.##} grp {r.HitGroup} push {r.PushForce} flag {r.DamageFlag:x} {r.Side} {r.Angle:0} hp {r.HealthFraction:0.00} before {r.Before}@{r.BeforeCycle:0.00} -> {r.Reaction} +{r.Delay} ovl {r.Overlay} facing {r.Facing:0} crit {(r.Critical ? 1 : 0)} z {r.HitHeight:0} was {r.OverlayBefore} busy {r.Busy:0.00} moved {r.Moved:0.00} turned {r.Turned:0}"));
+        return;
+    }
+    // RB_FLINCH_FIT=1 fits the procedural hit reaction's numbers (#10382) to every recorded blow, prints them and stops.
+    if (Environment.GetEnvironmentVariable("RB_FLINCH_FIT") == "1")
+    {
+        var reactions = ReactionCalibration.Measure(Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories));
+        var blows = ReactionCalibration.Blows(reactions, product.Combat.Model.Data);
+        var from = product.Combat.Tuning.Orc.Flinch ?? new FlinchTuning(false, 2, 2, 1, .5f, 6, .8f, .35f, .3f, .5f, .5f, 3, 0);
+        var fitted = FlinchCalibration.Fit(blows, from);
+        Console.WriteLine($"authored   {FlinchCalibration.Authored(blows, product.Combat.Orc.BodyModel.Info)}");
+        Console.WriteLine($"start      {FlinchCalibration.Procedural(blows, from)}");
+        Console.WriteLine($"fitted     {FlinchCalibration.Procedural(blows, fitted)}");
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(fitted with { On = from.On }, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, IncludeFields = false }));
         return;
     }
     // RB_KNOCK=1 prints the donor's stuns and knockdowns (#10152) and stops.
@@ -2996,6 +3009,26 @@ host.Call(engine =>
             Console.WriteLine($"  recorded {kind.Key}: {kind.Count()}, the lab's rule the same {kind.Count(x => x.Lab.Equals(x.Donor, StringComparison.OrdinalIgnoreCase))}, same kind {kind.Count(x => Kind(x.Lab) == kind.Key)}");
         Check(scored.Count >= 400 && agree * 10 >= scored.Count * 8,
             FormattableString.Invariant($"the orc's reaction to a blow is the donor's (clip and side) on {agree} of {scored.Count} recorded blows ({100.0 * agree / scored.Count:0}%)"));
+
+        // The procedural reaction (#10382) against the same blows, as the player feels it, beside the authored rule's.
+        var blows = ReactionCalibration.Blows(reactions, combat.Model.Data);
+        var flinchTuning = combat.Tuning.Orc.Flinch!;
+        var authoredFeel = FlinchCalibration.Authored(blows, orc.BodyModel.Info);
+        var proceduralFeel = FlinchCalibration.Procedural(blows, flinchTuning);
+        Console.WriteLine($"  authored: {authoredFeel}");
+        Console.WriteLine($"  procedural: {proceduralFeel}");
+        // How long each kind of the donor's reactions kept it out, and the procedural one's.
+        foreach (var kind in blows.Where(b => FlinchCalibration.DonorInterrupted(b.Case) && !float.IsNaN(b.Case.Busy))
+            .GroupBy(b => System.Text.RegularExpressions.Regex.Replace(b.Case.Reaction, "_(Front|Back|Left|Right|front|back|left|right)", "_<side>")).OrderByDescending(g => g.Count()))
+        {
+            static float Median(IEnumerable<float> v) { var l = v.OrderBy(x => x).ToList(); return l.Count > 0 ? l[l.Count / 2] : float.NaN; }
+            var predicted = kind.Select(b => OrcFlinch.Predict(flinchTuning, b.Blow, b.Stunned)).ToList();
+            Console.WriteLine(FormattableString.Invariant(
+                $"    {kind.Key} ({kind.Count()}): busy {Median(kind.Select(b => b.Case.Busy)):0.00} s, the procedural {Median(predicted.Select(p => p.Busy)):0.00} (cut short {predicted.Count(p => p.Interrupted)}); slide {Median(kind.Select(b => b.Case.Moved)):0.00} m, {Median(predicted.Select(p => p.Moved)):0.00}; turn {Median(kind.Select(b => MathF.Abs(b.Case.Turned))):0}°, {Median(predicted.Select(p => MathF.Abs(p.Turned))):0}°"));
+        }
+        Check(!flinchTuning.On && authoredFeel.Agreement >= .9f && proceduralFeel.Blows == authoredFeel.Blows && proceduralFeel.Agreement >= .88f
+            && proceduralFeel.Busy <= .25f && proceduralFeel.Moved <= .65f && proceduralFeel.Turned <= 15,
+            FormattableString.Invariant($"the procedural reaction (combat.json's orc.flinch, off by default) cuts the orc short as the donor's on {100 * proceduralFeel.Agreement:0}% of {proceduralFeel.Blows} recorded blows (the authored rule {100 * authoredFeel.Agreement:0}%), its busy time {proceduralFeel.Busy:0.00} s, slide {proceduralFeel.Moved:0.00} m and turn {proceduralFeel.Turned:0}° off the donor's (medians; the authored {authoredFeel.Busy:0.00} s, {authoredFeel.Moved:0.00} m, {authoredFeel.Turned:0}°)"));
     }
 
     // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.
@@ -3300,6 +3333,54 @@ host.Call(engine =>
         Check(attacking.StartsWith("attack", StringComparison.Ordinal) && kept && again && orc.State == OrcState.Hurt && orc.Clip == "Hit_left_long",
             $"an attacking orc keeps on under the small hit ({attacking}), plays no second within a second, and a full hit cuts its attack short: {orc.Clip}");
         orc.Hold = true;
+
+        // The procedural reaction (#10382) through the combat, switched on: the same blows play no reaction clip. A fast
+        // attack leans the orc and leaves it standing; a power attack and a kick cut it short, slide it away from the
+        // player and lean it that way, for the time and distance the model gave, and it stands again.
+        Check(combat.UseFlinch(true), "the procedural reaction switches on");
+        Settle();
+        Face();
+        var swiftFeel = Strike(3);
+        bool swiftStands = swiftFeel.State != OrcState.Hurt && swiftFeel.Over is null && orc.Flinching.Last is { Interrupted: false, Peak: > 0 };
+        var headLeans = new List<float>();
+        (bool Cut, string Clip, float Busy, float Took, float Moved, float Slide, float Along, float Away, int Turns) Felled(bool kick)
+        {
+            Settle();
+            Face();
+            var origin = orc.Feet;
+            var feel = Strike(kick ? 1 : 40, kick);
+            var last = orc.Flinching.Last;
+            // The lean starts on its next step.
+            orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+            float took = Tick;
+            int turns = orc.LeanTurns().Length;
+            var lean = Vector3.Normalize(orc.Flinching.Toward(orc.Facing) with { Y = 0 });
+            // Drawn (its lean set as its pose controls), its head in the pose its items and hit boxes take leans that way.
+            for (int i = 0; i < 6; i++) { orc.Step(Tick, product.Player.Feet, IncomingSwing.None); took += Tick; orc.Facts().ToList(); }
+            var (clipHead, posedHead) = orc.Head();
+            headLeans.Add(Vector3.Dot(posedHead - clipHead, lean));
+            float away = Vector3.Dot(lean, Vector3.Normalize((origin - product.Player.Feet) with { Y = 0 }));
+            for (int i = 0; i < 600 && orc.Staggered; i++) { orc.Step(Tick, product.Player.Feet, IncomingSwing.None); took += Tick; }
+            var slid = (orc.Feet - origin) with { Y = 0 };
+            float along = slid.LengthSquared() > 1e-6f ? Vector3.Dot(Vector3.Normalize(slid), lean) : 0;
+            orc.Step(Tick, product.Player.Feet, IncomingSwing.None);
+            return (feel.State == OrcState.Hurt && last.Interrupted, feel.Clip, last.Busy, took, slid.Length(), last.Moved, along, away, turns);
+        }
+        var powerFeel = Felled(false);
+        var kickFeel = Felled(true);
+        Console.WriteLine(FormattableString.Invariant($"  procedural: fast stands {swiftStands}; power {powerFeel}; kick {kickFeel}"));
+        // A power attack's impact runs across the orc (impactdirY 1: the donor's Hit_<side>_long from its side); a kick's straight on.
+        Check(swiftStands && powerFeel.Cut && kickFeel.Cut && powerFeel.Clip == "combatidle" && kickFeel.Clip == "combatidle"
+            && MathF.Abs(powerFeel.Took - powerFeel.Busy) <= 2 * Tick && MathF.Abs(kickFeel.Took - kickFeel.Busy) <= 2 * Tick
+            && MathF.Abs(powerFeel.Moved - powerFeel.Slide) <= .05f && MathF.Abs(kickFeel.Moved - kickFeel.Slide) <= .05f
+            && powerFeel.Along > .95f && kickFeel.Along > .95f && kickFeel.Away > .95f && powerFeel.Turns == 6 && kickFeel.Turns == 6 && orc.State == OrcState.Ready
+            && headLeans.All(h => h > .02f),
+            FormattableString.Invariant($"switched on, a fast attack leans the orc and leaves it standing, and a power attack and a kick cut it short in no reaction clip ({powerFeel.Clip}), off its footing {powerFeel.Took:0.00} and {kickFeel.Took:0.00} s (the model's {powerFeel.Busy:0.00}, {kickFeel.Busy:0.00}), sliding {powerFeel.Moved:0.00} and {kickFeel.Moved:0.00} m ({powerFeel.Slide:0.00}, {kickFeel.Slide:0.00}) the way its spine, neck and head lean (its head, where its items and hit boxes are, {string.Join(" and ", headLeans.Select(h => h.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)))} m that way), the power attack's across it, the kick's away from the player; then it stands ready"));
+        combat.UseFlinch(false);
+        Settle();
+        Face();
+        var authoredAgain = Strike(40);
+        Check(authoredAgain.Clip.StartsWith("Hit_", StringComparison.Ordinal), $"switched off, a power attack plays the authored hit again: {authoredAgain.Clip}");
         // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
         orc.Spawn();
         orc.Damage(orc.Health * .9f);

@@ -1148,6 +1148,60 @@ small ones up by index in each NPC class's sequence cache (+0x2C0F40, read throu
 - **Not read:** the selector in server.dll (the measured rule stands in for it), and the electrocuted, disarmed and
   shield hits (`Hit_electrocuted`, `Hit_Disarmed`, `Hit_Shield`).
 
+#### Procedural reactions (an experiment)
+
+#10382 asks whether a procedural reaction, with no reaction clips, can do what the donor's do for the player, the
+recordings serving to tune it rather than to be copied. `Npc/OrcFlinch.cs` is that reaction; `combat.json`'s
+`orc.flinch` holds its numbers, off by default (`"on": false`; `lab.orc.flinch on|off` switches it live).
+
+**What the recordings say a reaction does.** `ReactionCalibration` now follows each hit or push in the orc's place to its
+end: how long it was off its footing (busy), how far it moved and how far it turned. A reaction cut short by the next blow
+isn't measured. Whether a blow cut the orc short went by the move, not its damage: power attacks 151 of 154, kicks 63 of
+79, fast attacks rarely, and every blow on a stunned orc. How long it was out went by the damage: a medium hit's
+0.6 s (to 9 damage), a long one's 1.1 s (from 12), a push's 1.1 to 1.3 s. The orcs moved a median 0.65 m (medium hits)
+to 1.7 m (pushes) and turned 10° to 17°.
+
+**The model.** A blow carries momentum, from its move: a kick's, or a swing's from its `impactcoeff` (the fast attacks'
+0.5), more if it pushes (`alwayspush`, or `push` on a critical). It leans the torso, a damped spring, along the way the
+impact travels (the move's `impactdir` turned by the attacker's facing, as an angle, not a quarter), a higher hit
+(by its hit group) more. Past its balance (0.35 rad; 0.43 of it stunned) the orc loses its footing: its action is cut
+short, it plays no reaction clip (it stands in `combatidle` under the lean), it slides along the impact's way and turns
+by how far the impact runs across it (`impactdirY`), and it acts again once the lean is back under its recover share of
+the balance, less the harder the damage hurt it. Below its balance it keeps on under the lean, as under the donor's small
+hits. The lean is drawn as additive turns of `SK_Spine_1`–`4`, `SK_Neck` and `SK_Head` over whatever it plays
+(`JointOverride.AddLocalRotation`), cleared as it stands again; the same model would lean any rig with a spine chain.
+
+**The fit.** `FlinchCalibration.Fit` (`RB_FLINCH_FIT=1` with the smoke prints it) searches eleven of its numbers (the balance stays 0.35: the momenta scale to it) for the
+fewest blows cut short wrongly and the smallest busy, slide and turn differences over every donor reaction that ran to
+its end (a reaction rule that left the orc standing is off by all of them, so leaving the hard ones out doesn't pay).
+Against the 495 recorded blows a reaction rule decides:
+
+| | Cut short as the donor's | Busy off | Slide off | Turn off |
+| --- | --- | --- | --- | --- |
+| The authored rule (the donor's clips) | 94% | 0.03 s | 0.42 m | 15° |
+| The procedural reaction | 92% | 0.15 s | 0.51 m | 11° |
+
+(medians over the 267 donor reactions that ran to their end). The authored rule plays the donor's own clips, so its busy
+time is theirs; it turns nothing, where the procedural reaction turns as the impact runs. By the donor's kind of
+reaction (busy, slide and turn, medians, the donor's then the procedural one's):
+
+| The donor's | Blows | Busy | Slide | Turn |
+| --- | --- | --- | --- | --- |
+| `Hit_<side>_long` | 122 | 1.12 s, 1.24 s | 1.50 m, 0.73 m | 16°, 12° |
+| `Push_<side>_medium` (kicks) | 59 | 1.33 s, 1.23 s | 1.53 m, 1.84 m | 9°, 0° |
+| `Hit_<side>_medium` | 55 | 0.61 s, 1.07 s | 0.52 m, 0.47 m | 14°, 5° |
+| `Push_<side>_long` | 28 | 1.09 s, 1.27 s | 1.13 m, 1.51 m | 17°, 13° |
+
+What it gets wrong: the fit leaves damage almost no say (`pain` 0.05), so a medium hit keeps the orc out about as long
+as a long one (1.07 s against the donor's 0.61); a long hit slides it half as far as the donor's clips carried it; a
+kick, straight on, never turns it, where the donor's turned 9°. The smoke prints this table.
+
+Its cleaver, shield and hit boxes follow the lean: while it leans they take the pose with its pose controls.
+
+**Not done.** Replays follow the recorded orc's own sequences, reactions included, so the procedural reaction isn't played
+in them: it is scored on every recorded blow instead, as above. Knockdowns stay the ragdoll's; a partial-physics knockdown
+would want rusty-engine #10383's powered ragdolls. The arms don't react.
+
 ### Perception
 
 An orc can be unaware of the player (#10154; `Npc/OrcPerception.cs`; `combat.json` `orc.spawnUnaware`, off by
@@ -1468,7 +1522,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

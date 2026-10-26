@@ -35,6 +35,21 @@
     "map": "l01_a",
     "squadMate": null,
     "bow": null,
+    "flinch": {
+      "on": false,
+      "swingMomentum": 4.55,
+      "kickMomentum": 8.04,
+      "pushBoost": 0.06,
+      "pain": 0.05,
+      "frequency": 3.28,
+      "damping": 0.91,
+      "balance": 0.35,
+      "recover": 0.305,
+      "stunnedBalance": 0.434,
+      "slide": 0.531,
+      "friction": 3.71,
+      "twist": 2.83
+    },
     "attackLandings": {
       "attack_Bash": [41, 59],
       "attack_Fast": [37, 70],

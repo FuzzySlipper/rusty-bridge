@@ -938,6 +938,17 @@ internal sealed class LabCombat : IDisposable
         if (Mate.Spotted && Orc.Alive) Orc.Call();
     }
 
+    /// <summary>
+    /// The orcs react procedurally (#10382, <c>orc.flinch.on</c>) or by the authored clips, until the file next reloads.
+    /// False when <c>combat.json</c> has no <c>orc.flinch</c> numbers.
+    /// </summary>
+    internal bool UseFlinch(bool on)
+    {
+        if (Tuning.Orc.Flinch is not { } flinch) return false;
+        Retune(Tuning with { Orc = Tuning.Orc with { Flinch = flinch with { On = on } } });
+        return true;
+    }
+
     internal void Retune(CombatTuning next)
     {
         Tuning = next;
@@ -1195,9 +1206,8 @@ internal sealed class LabCombat : IDisposable
         var look = forward with { Y = 0 };
         float angle = look.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f
             ? MathF.Atan2(Vector3.Dot(look, left), Vector3.Dot(look, facing)) * 180 / MathF.PI : 180;
-        var reaction = OrcReactions.Pick(new ReactionBlow(blow, kick, damage, !kick && lastCritical, group, angle),
-            hitOrc.State == OrcState.Stunned, hitOrc.SinceSmallHit);
-        if (reaction.Clip is not null) hitOrc.React(reaction, pushDirection, pushMetres);
+        var struck = new ReactionBlow(blow, kick, damage, !kick && lastCritical, group, angle);
+        hitOrc.React(struck, OrcReactions.Pick(struck, hitOrc.State == OrcState.Stunned, hitOrc.SinceSmallHit), pushDirection, pushMetres);
     }
 
     /// <summary>
@@ -1530,8 +1540,8 @@ internal sealed class LabCombat : IDisposable
         var left = new Vector3(facing.Z, 0, -facing.X);
         float angle = toVictim.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f
             ? MathF.Atan2(Vector3.Dot(toVictim, left), Vector3.Dot(toVictim, facing)) * 180 / MathF.PI : 180;
-        var reaction = OrcReactions.Pick(new ReactionBlow(model.EventOf(attacker), false, asked, false, null, angle), victim.State == OrcState.Stunned, victim.SinceSmallHit);
-        if (reaction.Clip is not null) victim.React(reaction, toVictim.LengthSquared() > 1e-6f ? Vector3.Normalize(toVictim) : -victim.Facing, 0);
+        var struck = new ReactionBlow(model.EventOf(attacker), false, asked, false, null, angle);
+        victim.React(struck, OrcReactions.Pick(struck, victim.State == OrcState.Stunned, victim.SinceSmallHit), toVictim.LengthSquared() > 1e-6f ? Vector3.Normalize(toVictim) : -victim.Facing, 0);
         Message = FormattableString.Invariant($"{(striker == Orc ? "The orc" : "Its mate")} strikes {(victim == Orc ? "the orc" : "its mate")} for {asked:0.#}");
     }
 
@@ -1629,8 +1639,8 @@ internal sealed class LabCombat : IDisposable
         var left = new Vector3(facing.Z, 0, -facing.X);
         var along = arrow.Velocity with { Y = 0 };
         float angle = along.LengthSquared() > 1e-6f && facing.LengthSquared() > 1e-6f ? MathF.Atan2(Vector3.Dot(along, left), Vector3.Dot(along, facing)) * 180 / MathF.PI : 180;
-        var reaction = OrcReactions.Pick(new ReactionBlow(model.EventOf(shooter), false, asked, false, null, angle), victim.State == OrcState.Stunned, victim.SinceSmallHit);
-        if (reaction.Clip is not null) victim.React(reaction, along.LengthSquared() > 1e-6f ? Vector3.Normalize(along) : -victim.Facing, 0);
+        var struck = new ReactionBlow(model.EventOf(shooter), false, asked, false, null, angle);
+        victim.React(struck, OrcReactions.Pick(struck, victim.State == OrcState.Stunned, victim.SinceSmallHit), along.LengthSquared() > 1e-6f ? Vector3.Normalize(along) : -victim.Facing, 0);
         Message = FormattableString.Invariant($"The orc's arrow hits {(victim == Orc ? "the orc" : "its mate")} for {asked:0.#}");
     }
 

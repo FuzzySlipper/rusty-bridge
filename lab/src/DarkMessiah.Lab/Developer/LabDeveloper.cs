@@ -79,6 +79,15 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         return DebugCommandResult.Success(combat.Orc.Hold ? "orc holds" : "orc fights");
     }
 
+    [DebugCommand("lab.orc.flinch", Description = "The orcs react to blows procedurally (on: #10382's lean, slide and turn, no reaction clip) or by the donor's authored clips (off), until combat.json next reloads.")]
+    public DebugCommandResult Flinch(string state)
+    {
+        if (state is not ("on" or "off")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "on or off.");
+        if (!combat.UseFlinch(state == "on")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "combat.json has no orc.flinch numbers.");
+        changed();
+        return DebugCommandResult.Success(state == "on" ? "orcs react procedurally" : "orcs play the authored reactions");
+    }
+
     [DebugCommand("lab.orc.knockdown", Description = "Knock the orc down with a felling blow from the player's side, turned DEGREES about it (0 from the player, 180 from behind it), its impact SIDEWAYS (the move's impactdirY: 1 to the attacker's left as the power attack's, 0 straight on): it falls as a ragdoll (#10216).")]
     public DebugCommandResult Knockdown(float degrees, float sideways)
     {

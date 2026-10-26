@@ -68,6 +68,9 @@ internal sealed partial class Orc : IDisposable
     readonly OrcStamina stamina;
     readonly OrcPerception perception;
     int seenSwing = -1, answeredSwing = -1;
+    // The procedural reaction (#10382): its lean, and whether its footing is lost (Hurt with no reaction clip).
+    readonly OrcFlinch flinch = new();
+    bool staggered, leaning;
     // A small hit playing over whatever it does (#10153), and when the last began.
     string? hitLayer;
     float hitLayerCycle;
@@ -335,6 +338,14 @@ internal sealed partial class Orc : IDisposable
         string playing = Clip;
         Advance(seconds);
         if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt or OrcState.Dodging) RootMotion(playing, before, Cycle);
+        // The procedural reaction's lean goes on over whatever it plays; a slide runs to its end, and off its footing it
+        // turns (back on it, it faces the player again) (#10382).
+        if (tuning.Flinch is { } flinchTuning && !Following)
+        {
+            var (slid, turned) = flinch.Advance(flinchTuning, seconds);
+            Feet += slid;
+            if (Staggered) Facing = Vector3.Normalize(Vector3.Transform(Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, turned * MathF.PI / 180)));
+        }
         // Walking in, it moves at the donor's ground speed, not its walk clip's (R10150-2).
         if (State == OrcState.Approach && distance > 1e-3f) Feet += Facing * tuning.WalkSpeed * SourceSpace.MetresPerUnit * seconds;
         // The bodies keep apart: its feet no nearer the player's than two hulls (BodyGap).
@@ -423,7 +434,7 @@ internal sealed partial class Orc : IDisposable
                 if (done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Hurt:
-                if (done) Play(OrcState.Ready, "combatidle");
+                if (staggered ? flinch.Busy <= 0 : done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Stunned:
                 // hit_stunned_<side>, then Stunned until stunned_duration is spent, then Stunned_out.
@@ -599,6 +610,39 @@ internal sealed partial class Orc : IDisposable
         if (reaction.Push && pushMetres > 0) Push(pushDirection, pushMetres, clip);
         else Play(OrcState.Hurt, clip);
     }
+
+    /// <summary>
+    /// A blow's reaction: the procedural one (#10382, <see cref="OrcFlinch"/>) when <c>orc.flinch.on</c>, else the
+    /// authored clip the rule picked (<paramref name="authored"/>).
+    /// </summary>
+    internal void React(ReactionBlow blow, OrcReaction authored, Vector3 pushDirection = default, float pushMetres = 0)
+    {
+        if (tuning.Flinch is { On: true } f) Flinch(f, blow);
+        else if (authored.Clip is not null) React(authored, pushDirection, pushMetres);
+    }
+
+    /// <summary>
+    /// The procedural reaction (#10382): the blow leans its torso over whatever it plays; past its balance its action is
+    /// cut short and, playing no reaction clip, it slides and turns until it has its footing back. None where the authored
+    /// rule plays none (lying, getting up, dodging, backstabbed, dead).
+    /// </summary>
+    internal FlinchOutcome Flinch(FlinchTuning rules, ReactionBlow blow)
+    {
+        if (!Alive || Following || State is OrcState.Down or OrcState.KnockedDown or OrcState.Backstabbed or OrcState.Dodging) return default;
+        var outcome = flinch.Hit(rules, blow, State == OrcState.Stunned, Facing);
+        if (!outcome.Interrupted) return outcome;
+        Layer = null;
+        hitLayer = null;
+        Play(OrcState.Hurt, "combatidle");
+        staggered = true;
+        return outcome;
+    }
+
+    /// <summary>The procedural reaction's state (#10382).</summary>
+    internal OrcFlinch Flinching => flinch;
+
+    /// <summary>Off its footing from a procedural reaction (#10382): its action cut short, playing no reaction clip.</summary>
+    internal bool Staggered => staggered && State == OrcState.Hurt;
 
     /// <summary>Seconds since its last small hit began.</summary>
     internal double SinceSmallHit => clock - lastSmallHit;
@@ -892,6 +936,7 @@ internal sealed partial class Orc : IDisposable
         hitLayer = null;
         lastSmallHit = double.NegativeInfinity;
         wasAttacking = false;
+        flinch.Reset();
         if (perception.Aware) Play(OrcState.Approach, "CombatWalk");
         else Play(OrcState.Quiet, "idle_0");
     }
@@ -906,7 +951,8 @@ internal sealed partial class Orc : IDisposable
         Present();
         // Ragdolled, its hit boxes are where its bodies drew it.
         var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
-        var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
+        // Leaning (#10382), its hit boxes and items are where the lean drew them.
+        var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement, controls: leaning);
         var targets = new List<PosedTarget> { new(body.Model.Info, body.Model.Joints, pose) };
         foreach (var (item, attachment, held) in new[] { (cleaver, "RightHand", holdsCleaver), (shield, "LeftShield", holdsShield), (bow, "LeftHand_bow", HoldsBow) })
             if (held && Rig.Attached(body.Model, pose, attachment) is Transform at)
@@ -928,11 +974,36 @@ internal sealed partial class Orc : IDisposable
         // Ragdolled, its items hang where its bodies drew it (#10216).
         var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
         var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
+        pose = Lean(pose);
         var facts = new List<AppearanceFact> { body.Fact(Placement) };
         if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
         if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
         if (HoldsBow && Rig.Attached(body.Model, pose, "LeftHand_bow") is Transform bowHand) facts.Add(bow.Fact(bowHand));
         return facts;
+    }
+
+    /// <summary>Where its head is in the clip's pose and in the pose its items and hit boxes take (leaned, #10382).</summary>
+    internal (Vector3 Clip, Vector3 Posed) Head()
+    {
+        int head = body.Model.Joints["SK_Head"];
+        return (Rig.Pose(engine, body, Placement)[head].World.Translation, Targets()[0].Pose[head].World.Translation);
+    }
+
+    /// <summary>The joint turns its lean draws now (#10382), over the clip's pose.</summary>
+    internal JointOverride[] LeanTurns() => flinch.Overrides(body.Model, Rig.Pose(engine, body, Placement), Facing);
+
+    /// <summary>
+    /// The procedural reaction's lean (#10382) as turns of its spine, neck and head over the clip's pose
+    /// (<paramref name="pose"/>), cleared once it has stood back up or a ragdoll has it. Returns the pose leaned, which
+    /// its items hang from.
+    /// </summary>
+    JointPose[] Lean(JointPose[] pose)
+    {
+        var turns = ragdoll is null && !ragdollPending && !Following ? flinch.Overrides(body.Model, pose, Facing) : [];
+        if (turns.Length == 0 && !leaning) return pose;
+        engine.Animation.SetPose(new(body.Instance, ReadOnlyMemory<TwoBoneIk>.Empty, turns));
+        leaning = turns.Length > 0;
+        return leaning ? Rig.Pose(engine, body, Placement, controls: true) : pose;
     }
 
     void Present()
@@ -974,6 +1045,7 @@ internal sealed partial class Orc : IDisposable
 
     void Play(OrcState state, string clip)
     {
+        staggered = false;
         State = state;
         Clip = Wounded ? Hurt(clip) : clip;
         Cycle = 0;

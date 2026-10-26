@@ -42,11 +42,11 @@ internal static class Rig
     /// <summary>
     /// A puppet's joints posed now, placed at <paramref name="placement"/>: its current playback, layers included, once
     /// it has been drawn (the Engine samples playback only for instances in the published scene); before that, its
-    /// main clip alone.
+    /// main clip alone. With <paramref name="controls"/>, its pose controls too (an orc's lean, #10382).
     /// </summary>
-    internal static JointPose[] Pose(IEngineContext engine, Puppet puppet, Transform placement) =>
+    internal static JointPose[] Pose(IEngineContext engine, Puppet puppet, Transform placement, bool controls = false) =>
         engine.Animation.SampleJointPose(puppet.Drawn
-            ? AnimationPoseSampleRequest.OfCurrentPlayback(puppet.Instance, placement, applyPoseControls: false)
+            ? AnimationPoseSampleRequest.OfCurrentPlayback(puppet.Instance, placement, applyPoseControls: controls)
             : AnimationPoseSampleRequest.OfClip(puppet.Instance, puppet.Playing.Clip, Math.Clamp(puppet.Playing.Cycle, 0, 1), placement, normalized: true, applyPoseControls: false)).ToArray();
 
     /// <summary>A model at rest, placed: an item's joints, which no clip moves.</summary>

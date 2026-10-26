@@ -57,6 +57,14 @@ internal sealed record CombatTuning(float AttackMovementScale, float[] KickWindo
         Authored.Positive(Path, "orc.walkSpeed", o.WalkSpeed);
         foreach (var (attack, window) in o.AttackLandings)
             Authored.Require(window.Length == 2 && window[0] <= window[1], Path, $"orc.attackLandings.{attack}", "must be [low, high], Source units.");
+        if (o.Flinch is { } f)
+        {
+            foreach (var (name, value) in new[] { ("swingMomentum", f.SwingMomentum), ("kickMomentum", f.KickMomentum), ("frequency", f.Frequency),
+                ("damping", f.Damping), ("balance", f.Balance), ("recover", f.Recover), ("stunnedBalance", f.StunnedBalance) })
+                Authored.Positive(Path, $"orc.flinch.{name}", value);
+            foreach (var (name, value) in new[] { ("pushBoost", f.PushBoost), ("pain", f.Pain), ("slide", f.Slide), ("friction", f.Friction) })
+                Authored.AtLeast(Path, $"orc.flinch.{name}", value, 0);
+        }
         return t;
     }
 }
@@ -101,8 +109,10 @@ internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases
 /// <param name="SquadMate">Where a second orc of its squad stands (R10154-1), or none: it answers the first's call.</param>
 /// <param name="Bow">The first orc's bow, an archer's (#10169: the maps' <c>npc_orc_bow</c>, its <c>rangeweapon</c> the long
 /// bow), or none: a swordsman.</param>
+/// <param name="Flinch">The procedural hit reaction's numbers (#10382, <see cref="Npc.FlinchTuning"/>), fitted to the recorded
+/// blows; with <c>on</c> it reacts this way in place of the authored clips. None: the authored clips.</param>
 internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings, bool SpawnUnaware = false,
-    string Map = "l01_a", float[]? SquadMate = null, string? Bow = null);
+    string Map = "l01_a", float[]? SquadMate = null, string? Bow = null, Npc.FlinchTuning? Flinch = null);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

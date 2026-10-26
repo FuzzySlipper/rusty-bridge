@@ -1,0 +1,139 @@
+{
+  "description": "Held items' look (#10395): the game's own screenshots (jpeg) of a still orc (its AI off) with its cleaver, from 100 units in front, to its right and to its left at eye height, the viewmodel and HUD hidden; a second orc spawned with weapon_arxshield as its second weapon, the same three views; then the player's short sword in first person looking ahead and 30 degrees down, and with weapon_arxshield on the arm. Marked with echo rb_hl.",
+  "seconds": 70,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2500 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orca\"",
+    "ent_fire orca addoutput \"health 100000\"",
+    "ent_fire orca addoutput \"origin 0 -2250 -12\"",
+    {
+      "wait": 1
+    },
+    "setpos 300 -2500 0",
+    "setang 15 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxshield 0",
+    {
+      "wait": 2
+    },
+    "ent_fire npc_orc_sword addoutput \"targetname orcb\"",
+    "ent_fire orcb addoutput \"health 100000\"",
+    "ent_fire orcb addoutput \"origin 300 -2250 -12\"",
+    {
+      "wait": 2
+    },
+    "ai_disable",
+    {
+      "wait": 1
+    },
+    "r_drawviewmodel 0",
+    "cl_drawhud 0"
+  ],
+  "play": [
+    "echo rb_hl held items look",
+    "setpos 0 -2350 -12",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_a_front 95",
+    "setpos -100 -2250 -12",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_a_right 95",
+    "setpos 100 -2250 -12",
+    "setang 0 180 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_a_left 95",
+    "setpos 300 -2350 -12",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_b_front 95",
+    "setpos 200 -2250 -12",
+    "setang 0 0 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_b_right 95",
+    "setpos 400 -2250 -12",
+    "setang 0 180 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_b_left 95",
+    "r_drawviewmodel 1",
+    "setpos 0 -2700 -12",
+    "setang 0 270 0",
+    {
+      "wait": 2
+    },
+    "jpeg rb_hl_fp_ahead 95",
+    "setang 30 270 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_fp_down 95",
+    "give weapon_arxshield",
+    "use weapon_arxshield",
+    {
+      "wait": 3
+    },
+    "setang 0 270 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_fp_shield_ahead 95",
+    "setang 30 270 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_hl_fp_shield_down 95",
+    "cl_drawhud 1",
+    {
+      "wait": 2
+    }
+  ]
+}

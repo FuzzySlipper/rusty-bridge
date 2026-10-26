@@ -12,7 +12,7 @@
   "jumpBufferSeconds": 0.12,
   "coyoteSeconds": 0.1,
   "pointerRadiansPerUnit": 0.002,
-  "fieldOfViewDegrees": 75,
+  "fieldOfViewDegrees": 69,
   "farPlane": 120,
   "headBobMetres": 0,
   "headBobStrideMetres": 1.7,

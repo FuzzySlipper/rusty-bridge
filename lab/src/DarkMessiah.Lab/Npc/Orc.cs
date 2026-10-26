@@ -944,6 +944,14 @@ internal sealed partial class Orc : IDisposable
     /// <summary>The orc as Dark Messiah's combat model sees it.</summary>
     internal Party Party() => new("npc_orc_sword", Clip, Layer is null ? [] : [Layer], Cycle, "#2", Model);
 
+    /// <summary>Where its cleaver and shield hang now (each null when it doesn't hold it), as they're drawn.</summary>
+    internal (Transform? Cleaver, Transform? Shield) Held()
+    {
+        Present();
+        var pose = Rig.Pose(engine, body, Placement, controls: leaning);
+        return (holdsCleaver ? Rig.Attached(body.Model, pose, "RightHand") : null, holdsShield ? Rig.Attached(body.Model, pose, "LeftShield") : null);
+    }
+
     /// <summary>Its body and items posed now, for a sweep: the body by hit boxes, the cleaver and shield by their hulls.</summary>
     internal List<PosedTarget> Targets()
     {

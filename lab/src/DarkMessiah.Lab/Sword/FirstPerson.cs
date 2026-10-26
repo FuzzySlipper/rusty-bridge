@@ -13,7 +13,8 @@ namespace DarkMessiah.Lab.Sword;
 /// the lean), and the weapon
 /// (the build's, <see cref="Equip"/>; the short sword until one is) on the attachment the donor parents it to
 /// (<see cref="HandOf"/>), the daggers' second blade on <c>RightHand_Daggers</c>, a shield (<see cref="Shield"/>) on
-/// <c>Leftshield</c> (attachment 6, which the donor parents <c>weapon_arxshield</c> to: <c>l01_a-v17-shield</c>). It also places the blade
+/// <c>Leftshield</c> (attachment 6, which the donor parents <c>weapon_arxshield</c> to: <c>l01_a-v17-shield</c>), each
+/// seated by its own <c>handle</c> attachment where it has one (<see cref="Seated"/>, #10395). It also places the blade
 /// for the swing traces: the donor traces from the eye toward the blade, out to the weapon's <c>rangeattack</c> (100
 /// units for the short sword), and records each blow's trace that way.
 /// </summary>
@@ -181,7 +182,11 @@ internal sealed class FirstPerson : IDisposable
         var turn = HeadMotion.Rotation(turned, look, up);
         var turnedForward = Vector3.Transform(look, turn);
         var turnedUp = Vector3.Transform(up, turn);
-        Arms = new Transform(leaned, Rig.Facing(turnedForward, turnedUp), Vector3.One);
+        // The arms pitch with the view by ViewmodelPitch of its pitch, turned by the head as the camera is.
+        var armsLook = PitchedLook(look);
+        var armsUp = Vector3.Cross(right, armsLook);
+        var armsTurn = HeadMotion.Rotation(turned, armsLook, armsUp);
+        Arms = new Transform(leaned, Rig.Facing(Vector3.Transform(armsLook, armsTurn), Vector3.Transform(armsUp, armsTurn)), Vector3.One);
         var pose = Rig.Pose(engine, arms, Arms);
         // The camera: the measured offset from the (leaned) eye, turned by the head and the lean.
         var rest = CameraOffset * SourceSpace.MetresPerUnit;
@@ -189,9 +194,9 @@ internal sealed class FirstPerson : IDisposable
         var offset = Camera.Position - eye;
         View = new CameraRig(new Vector3(Vector3.Dot(offset, right), Vector3.Dot(offset, up), Vector3.Dot(offset, look)), turned);
         var (main, other) = HandOf(Weapon.Class);
-        Sword = Rig.Attached(arms.Model, pose, main) ?? Arms;
-        OffHand = offHand is not null && other is not null ? Rig.Attached(arms.Model, pose, other) ?? Arms : null;
-        ShieldAt = shield is not null ? Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms : null;
+        Sword = Seated(sword, Rig.Attached(arms.Model, pose, main) ?? Arms);
+        OffHand = offHand is not null && other is not null ? Seated(offHand, Rig.Attached(arms.Model, pose, other) ?? Arms) : null;
+        ShieldAt = shield is not null ? Seated(shield, Rig.Attached(arms.Model, pose, "Leftshield") ?? Arms) : null;
         if (Bow is { } drawn)
         {
             bowPuppet = Loaded(drawn.Model);
@@ -243,6 +248,91 @@ internal sealed class FirstPerson : IDisposable
 
     /// <summary>A clip's length in seconds on the arms (0 when the model lacks it).</summary>
     internal float ClipSeconds(string clip) => arms.Model.Clip(clip).Seconds;
+
+    /// <summary>
+    /// Where an attachment of the arms is with <paramref name="clip"/> held at <paramref name="cycle"/> alone and the arms
+    /// at <paramref name="at"/> (#10395).
+    /// </summary>
+    internal Transform? AttachedAt(string clip, float cycle, Transform at, string attachment) =>
+        arms.Model.Info.Clips.ContainsKey(clip)
+            ? Rig.Attached(arms.Model, engine.Animation.SampleJointPose(AnimationPoseSampleRequest.OfClip(arms.Instance, clip, Math.Clamp(cycle, 0, 1), at, normalized: true, applyPoseControls: false)).ToArray(), attachment)
+            : null;
+
+    /// <summary>
+    /// How much of the view's pitch the arms take (#10395): the donor's view model pitched 0.399 of the client's view
+    /// (the 10th to 90th percentile 0.397 to 0.403, 110 samples of <c>l01_a-v14-arena-hand</c> looking 5° or more up or
+    /// down; <c>held-look</c>'s 30° down, 12°), its yaw the view's. The camera takes the whole view.
+    /// </summary>
+    internal const float ViewmodelPitch = .4f;
+
+    /// <summary>The arms' look for a view along <paramref name="look"/>: its heading, and <see cref="ViewmodelPitch"/> of its pitch.</summary>
+    internal static Vector3 PitchedLook(Vector3 look)
+    {
+        var flat = look with { Y = 0 };
+        if (flat.LengthSquared() < 1e-8f) return look;
+        float pitch = MathF.Asin(Math.Clamp(look.Y, -1, 1)) * ViewmodelPitch;
+        return Vector3.Normalize(flat) * MathF.Cos(pitch) + Vector3.UnitY * MathF.Sin(pitch);
+    }
+
+    // Each held model's handle attachment, in its model frame at rest; null for a model without one.
+    readonly Dictionary<Puppet, Transform?> handles = [];
+
+    /// <summary>
+    /// Where a held item is drawn in first person: its own <c>handle</c> attachment brought to the hand's attachment
+    /// (<paramref name="hand"/>), not its origin. Dark Messiah's view model draws its weapons so (#10395): posed as the
+    /// recorded view model was, the short sword hung by its origin points right, out of view at rest, where the game's
+    /// own screenshots (<c>held-look</c>) show it rising from below the frame to (910, 330) of 1280×720; seated by its
+    /// handle (a 120° turn of its axes for every sword, the identity for the daggers) it rises to (907, 312). The
+    /// server's weapon entity and the NPCs' items hang by their origin (the recordings, within 1°), and so does the
+    /// mirror's.
+    /// </summary>
+    internal Transform Seated(Puppet item, Transform hand)
+    {
+        if (!handles.TryGetValue(item, out var handle))
+        {
+            // The handle in the model's frame at rest; with none, a one-joint item's joint, which the hand then holds.
+            var rest = Rig.Rest(engine, item.Instance, new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One));
+            handles[item] = handle = item.Model.Info.Attachments.ContainsKey("handle") ? Rig.Attached(item.Model, rest, "handle")
+                : rest.Length == 1 ? rest[0].World : null;
+        }
+        if (handle is not Transform h) return hand;
+        var turn = Quaternion.Inverse(h.Rotation);
+        return new Transform(hand.Translation - Vector3.Transform(Vector3.Transform(h.Translation, turn), hand.Rotation),
+            Quaternion.Normalize(hand.Rotation * turn), hand.Scale);
+    }
+
+    /// <summary>
+    /// Where the weapon's grip and blade tip are, in the arms' frame (glTF: +Z ahead, +Y up, +X to the left), with
+    /// <paramref name="clip"/> held at <paramref name="cycle"/>, seated by its handle or, with <paramref name="seated"/>
+    /// off, hung by its origin (#10395).
+    /// </summary>
+    internal (Vector3 Grip, Vector3 Tip)? BladeIn(string clip, float cycle, bool seated = true)
+    {
+        var (main, _) = HandOf(Weapon.Class);
+        if (AttachedAt(clip, cycle, new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One), main) is not Transform hand) return null;
+        var pose = Rig.Rest(engine, sword.Instance, seated ? Seated(sword, hand) : hand);
+        if (!sword.Model.Joints.TryGetValue(blade.Joint, out int j)) return null;
+        return (pose[j].World.Translation, Vector3.Transform(blade.Tip, pose[j].World.Rotation) + pose[j].World.Translation);
+    }
+
+    /// <summary>
+    /// The held item's collision hull points (<paramref name="shield"/>: the shield, else the weapon) with the arms at
+    /// <paramref name="armsAt"/> holding <paramref name="clip"/> at <paramref name="cycle"/>, the item seated
+    /// (<see cref="Seated"/>) or hung by its origin (#10395: drawn over the donor's screenshots).
+    /// </summary>
+    internal List<Vector3> HullAt(bool shield, string clip, float cycle, Transform armsAt, bool seated)
+    {
+        var item = shield ? this.shield : sword;
+        if (item is null) return [];
+        var (main, _) = HandOf(Weapon.Class);
+        if (AttachedAt(clip, cycle, armsAt, shield ? "Leftshield" : main) is not Transform hand) return [];
+        var pose = Rig.Rest(engine, item.Instance, seated ? Seated(item, hand) : hand);
+        var points = new List<Vector3>();
+        foreach (var hull in item.Model.Info.Collision)
+            if (item.Model.Joints.TryGetValue(hull.Joint, out int j))
+                points.AddRange(hull.Points.Select(p => Vector3.Transform(p, pose[j].World.Rotation) + pose[j].World.Translation));
+        return points;
+    }
 
     internal IEnumerable<AppearanceFact> Facts()
     {

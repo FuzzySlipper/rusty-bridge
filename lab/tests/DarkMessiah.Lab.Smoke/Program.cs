@@ -533,6 +533,71 @@ host.Call(engine =>
             Console.WriteLine(FormattableString.Invariant($"REACT {r.Recording} {r.Tick} {r.Move} dmg {r.Damage:0.##} grp {r.HitGroup} push {r.PushForce} flag {r.DamageFlag:x} {r.Side} {r.Angle:0} hp {r.HealthFraction:0.00} before {r.Before}@{r.BeforeCycle:0.00} -> {r.Reaction} +{r.Delay} ovl {r.Overlay} facing {r.Facing:0} crit {(r.Critical ? 1 : 0)} z {r.HitHeight:0} was {r.OverlayBefore} busy {r.Busy:0.00} moved {r.Moved:0.00} turned {r.Turned:0}"));
         return;
     }
+    // RB_VIEW=path prints the client's view every second of a recording (#10395): the eye, the drawn camera and the view
+    // model's origin in the eye's frame (forward, left, up, Source units), the view model's turn from the view, the
+    // fields of view and the view model's sequence; and stops.
+    if (Environment.GetEnvironmentVariable("RB_VIEW") is { Length: > 0 } viewPath)
+    {
+        using var stream = File.OpenRead(viewPath);
+        int last = -1000;
+        foreach (var f in RecordingReader.Frames(stream))
+        {
+            var v = f.ClientView;
+            if (v.Player == WireLayout.NoEntity || f.Tick - last < 66) continue;
+            last = f.Tick;
+            var eye = new Vector3(v.OriginX + v.ViewOffsetX, v.OriginY + v.ViewOffsetY, v.OriginZ + v.ViewOffsetZ);
+            float p = v.ViewPitch * MathF.PI / 180, y = v.ViewYaw * MathF.PI / 180;
+            var fwd = new Vector3(MathF.Cos(p) * MathF.Cos(y), MathF.Cos(p) * MathF.Sin(y), -MathF.Sin(p));
+            var left = new Vector3(-MathF.Sin(y), MathF.Cos(y), 0);
+            var up = Vector3.Cross(fwd, left);
+            Vector3 Local(Vector3 w) { var d = w - eye; return new(Vector3.Dot(d, fwd), Vector3.Dot(d, left), Vector3.Dot(d, up)); }
+            var vm = Local(new Vector3(v.ViewmodelX, v.ViewmodelY, v.ViewmodelZ));
+            var cam = Local(new Vector3(v.CameraX, v.CameraY, v.CameraZ));
+            Console.WriteLine(FormattableString.Invariant(
+                $"VIEW {f.Tick} view {v.ViewPitch:0.0} {v.ViewYaw:0.0} | camera {cam.X:0.0} {cam.Y:0.0} {cam.Z:0.0} ({v.CameraPitch:0.0} {v.CameraYaw:0.0} {v.CameraRoll:0.0}) | viewmodel {vm.X:0.0} {vm.Y:0.0} {vm.Z:0.0} ({v.ViewmodelPitch:0.0} {v.ViewmodelYaw:0.0} {v.ViewmodelRoll:0.0}) | fov {v.Fov:0.0} viewmodel {v.FovViewmodel:0.0} {v.ScreenWidth}x{v.ScreenHeight} near {v.ZNear:0.0} | seq {v.ViewmodelSequence} {v.ViewmodelCycle:0.00} | layers {string.Join(", ", v.ViewmodelLayers.Select(l => $"{l.Sequence}@{l.Cycle:0.00}x{l.Weight:0.00}"))}"));
+        }
+        return;
+    }
+    // RB_HULLS=file writes the first-person sword's and shield's hull points as they'd fall in the donor's 1280x720
+    // screenshots of held-look (looking ahead and 30° down), hung by their origin and seated, for drawing over them (#10395).
+    if (Environment.GetEnvironmentVariable("RB_HULLS") is { Length: > 0 } hullsPath)
+    {
+        var fp = product.Combat.FirstPerson;
+        fp.Wear(LabShield.Of(product.Combat.Donor, "models/items/armors/shield_orc/shield_orc_small.mdl", 3));
+        float half = MathF.Tan(101.4f / 2 * MathF.PI / 180);
+        var lines = new List<string>();
+        foreach (float pitch in new[] { 0f, 30f })
+        {
+            // The view looks along -Z, pitched down; the arms by 0.4 of it; the camera 2.1 ahead and 9 up in the view's frame.
+            float p = -pitch * MathF.PI / 180;
+            var look = new Vector3(0, MathF.Sin(p), -MathF.Cos(p));
+            var up = new Vector3(0, MathF.Cos(p), MathF.Sin(p));
+            var armsLook = FirstPerson.PitchedLook(look);
+            var armsAt = new Transform(Vector3.Zero, Rig.Facing(armsLook, Vector3.Cross(Vector3.UnitX, armsLook)), Vector3.One);
+            var camera = (look * 2.1f + up * 9) * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+            var right = Vector3.Cross(look, up);
+            foreach (bool shield in new[] { false, true })
+                foreach (bool seated in new[] { false, true })
+                {
+                    var pts = fp.HullAt(shield, "layer_sword_shield_idle", .25f, armsAt, seated).Select(w =>
+                    {
+                        var d = w - camera;
+                        float z = Vector3.Dot(d, look);
+                        return z <= .01f ? null : FormattableString.Invariant($"{640 + 640 * Vector3.Dot(d, right) / z / half:0} {360 - 640 * Vector3.Dot(d, up) / z / half:0}");
+                    }).Where(x => x is not null);
+                    lines.Add($"{pitch} {(shield ? "shield" : "sword")} {(seated ? "seated" : "origin")}: {string.Join(",", pts)}");
+                }
+        }
+        File.WriteAllLines(hullsPath, lines);
+        return;
+    }
+    // RB_HELD=path compares where the lab hangs a recorded orc's cleaver and shield, posed as the recording streams it,
+    // with where the donor's were (their streamed origin and angles), and stops (#10395).
+    if (Environment.GetEnvironmentVariable("RB_HELD") is { Length: > 0 } heldPath)
+    {
+        foreach (var error in HeldItemCalibration.Measure(product.Combat.Orc, heldPath)) Console.WriteLine(error);
+        return;
+    }
     // RB_FLINCH_FIT=1 fits the procedural hit reaction's numbers (#10382) to every recorded blow, prints them and stops.
     if (Environment.GetEnvironmentVariable("RB_FLINCH_FIT") == "1")
     {
@@ -3029,6 +3094,31 @@ host.Call(engine =>
         Check(!flinchTuning.On && authoredFeel.Agreement >= .9f && proceduralFeel.Blows == authoredFeel.Blows && proceduralFeel.Agreement >= .88f
             && proceduralFeel.Busy <= .25f && proceduralFeel.Moved <= .65f && proceduralFeel.Turned <= 15,
             FormattableString.Invariant($"the procedural reaction (combat.json's orc.flinch, off by default) cuts the orc short as the donor's on {100 * proceduralFeel.Agreement:0}% of {proceduralFeel.Blows} recorded blows (the authored rule {100 * authoredFeel.Agreement:0}%), its busy time {proceduralFeel.Busy:0.00} s, slide {proceduralFeel.Moved:0.00} m and turn {proceduralFeel.Turned:0}° off the donor's (medians; the authored {authoredFeel.Busy:0.00} s, {authoredFeel.Moved:0.00} m, {authoredFeel.Turned:0}°)"));
+    }
+
+    // Held items (#10395): the orc's as the donor's server placed them, the first-person sword as the game draws it.
+    {
+        string held = Path.Combine(repo!, "local", "recordings", "l01_a-v10-held.rbrec");
+        if (File.Exists(held))
+        {
+            var errors = HeldItemCalibration.Measure(orc, held);
+            foreach (var error in errors) Console.WriteLine($"  {error}");
+            Check(errors.Count == 2 && errors.All(e => e.Metres90 <= .03f && e.Degrees90 <= 1),
+                $"the orc's cleaver and shield hang where the donor's did, posed as l01_a-v10-held streams it: {string.Join("; ", errors)}");
+        }
+        // Held-look's screenshot looking ahead (rb_hl_fp_ahead, 1280x720): the camera 2.1 units ahead of the eye and 9
+        // above, 101.4° across; the blade's tip at (905, 317).
+        var camera = new Vector3(0, 9, 2.1f) * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        float half = MathF.Tan(101.4f / 2 * MathF.PI / 180);
+        Vector2? Screen(Vector3 p) => p.Z - camera.Z <= .01f ? null : new(640 - 640 * (p.X - camera.X) / (p.Z - camera.Z) / half, 360 - 640 * (p.Y - camera.Y) / (p.Z - camera.Z) / half);
+        var fp = combat.FirstPerson;
+        var seated = fp.BladeIn("layer_sword_noshield_idle", .25f);
+        var hung = fp.BladeIn("layer_sword_noshield_idle", .25f, seated: false);
+        var tip = seated is var (_, t) ? Screen(t) : null;
+        var hungTip = hung is var (_, h) ? Screen(h) : null;
+        float pitched = MathF.Asin(FirstPerson.PitchedLook(new Vector3(0, -MathF.Sin(MathF.PI / 6), -MathF.Cos(MathF.PI / 6))).Y) * 180 / MathF.PI;
+        Check(tip is Vector2 at && Vector2.Distance(at, new Vector2(905, 317)) <= 15 && hungTip is Vector2 off && (off.X > 1280 || off.Y > 720) && MathF.Abs(pitched + 12) < .01f,
+            FormattableString.Invariant($"the first-person short sword, seated by its handle, puts its tip at ({tip?.X:0}, {tip?.Y:0}) of the donor's screenshot, where the game drew it (905, 317); hung by its origin it would be at ({hungTip?.X:0}, {hungTip?.Y:0}), out of view; looking 30° down, the arms pitch {-pitched:0.0}° (the donor's 12)"));
     }
 
     // Stuns and knockdowns (#10152): the rules against every recorded player blow on an orc, then the lab's orc played through.

@@ -926,7 +926,8 @@ Mantling is #10329 (its trigger in server.dll's movement code, 0x223F2707, not y
 
 The camera the donor draws with (Wire v9's client view, its `CViewSetup`) against the player's view (#10161;
 `FirstPerson`, `HeadMotion`):
-- **Where it sits:** the view model (`first_basic`) stands at the eye, turned with the camera, and the camera 9 units
+- **Where it sits:** the view model (`first_basic`) stands at the eye, turned with the camera's heading and 0.4 of its
+  pitch (see "Held items"), and the camera 9 units
   above the eye and 2.1 ahead in the view's frame, turned with it (`FirstPerson.CameraOffset`), never at the eye
   itself: so on 5057 of the `movement` scenario's ticks, crouched (the eye 35 units up, not 61) as standing, and
   through every swing and kick. Not the arms' `eyes` attachment (6.8 up, 4 to 6 ahead, moving with each clip), nor its
@@ -980,6 +981,37 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
   compared; `RB_CAMERA=1` the head's and the `eyes` attachment's curves by clip; `RB_LEAN=path` the drawn camera
   against the eye every tick.
 - **Not measured:** `mm_player_lean_eye` (72), and the head clips of moves the lab doesn't play.
+- **Field of view:** 69° high (`player.json`), the donor's: 85° across at 4:3, which Source keeps high as the screen
+  widens (the recorded `fov` is 101.4° across at 1280×720, the view model's the same). It was fptester's 75° before
+  #10395.
+
+### Held items
+
+Where the hands hold what they hold (#10395), checked against the game's own screenshots (`held-look`, docs/recording.md)
+and the recordings, not set by eye:
+- **The orcs' items** hang at their holder's attachment by their origin: the cleaver on `RightHand` (7), the shield on
+  `LeftShield` (11), as Wire v10 streams them parented. Posed as `l01_a-v10-held` streams its orcs, the lab's cleaver
+  and shield are within 1.8 cm and 0.0° of the donor's streamed transforms at 834 and 417 ticks
+  (`HeldItemCalibration`; `RB_HELD=path` prints a recording's). The mirror, hanging them the same way, draws
+  `held-look`'s orcs as the game's screenshots show them (cleavers down along the leg in their idle). A frozen orc's
+  (`ai_disable`) streamed items aren't updated, so `held-look`'s own are off by 80°: only fighting orcs measure.
+- **First-person items are seated by their handle**, not hung by their origin (`FirstPerson.Seated`): the item's
+  `handle` attachment is brought to the hand's attachment, or, without one, a one-joint item's joint (the shields'). Every
+  sword's handle is a 120° turn of its axes and the daggers' the identity. Hung by its origin, as the server's weapon
+  entity is (within 1 cm and 3° of the lab's hand attachment in the idle), the short sword pointed right, out of view at
+  rest; the game draws it rising from below the frame, its tip at (905, 317) of `rb_hl_fp_ahead` (1280×720). Seated,
+  its tip projects to (907, 312), and its collision hull drawn over the screenshots (`RB_HULLS=file`) lies on the
+  game's blade, looking ahead and 30° down. The shield, seated by its joint, lies low and wide at the bottom left as
+  the game's does looking down; its hull can't tell its face from its back, so which side faces up is not confirmed.
+- **The arms pitch 0.4 of the view** (`FirstPerson.ViewmodelPitch`): the recorded view model turned 0.399 of the
+  client's view pitch (0.397 to 0.403 over 110 samples of `l01_a-v14-arena-hand`), its heading the view's. The camera
+  takes the whole view, so looking down brings the hands and what they hold up into it.
+- **The view model's clips** play as the donor's: its main sequence stays `anm_reference` and every move is an overlay
+  layer (Wire v9's client layers: `layer_sword_noshield_idle` at weight 1 at rest); `first_basic` and its seven
+  `$includemodel` animation files share one skeleton, so the lab's playing the layer as its main clip poses the same.
+- **Not done:** the bow, its arrow and other multi-joint items in the hands keep their origin (no `handle`, and no
+  screenshot of them yet); the Engine's landmark pairs (docs/playtest-inspection.md) measure a grip as drawn and would
+  check palm against handle, but the cause here was the seating rule, which the screenshots and recordings settled.
 
 ## The orc
 

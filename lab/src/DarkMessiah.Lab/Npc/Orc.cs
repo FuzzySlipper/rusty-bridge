@@ -176,11 +176,13 @@ internal sealed partial class Orc : IDisposable
     internal List<OrcBlow> Follow(OrcPose pose, float seconds)
     {
         Following = true;
+        // Handed back by the procedural reaction this step (R10382-5): what the recording played meanwhile is past.
+        bool handback = false;
         if (pose.Id != followed)
         {
             followed = pose.Id;
             landed.Clear();
-            if (staggered) { staggered = false; ReleasedAt = (Feet, Facing); ReleasedFor = "the replay followed another orc"; }
+            if (staggered) { staggered = false; handback = true; ReleasedAt = (Feet, Facing); ReleasedFor = "the replay followed another orc"; }
         }
         // Taken over by the procedural reaction (R10382-1): off its footing, it plays no recorded sequence, overlay or
         // blow, and slides and turns as the model has it, until it has its footing back and follows the recording again.
@@ -193,6 +195,7 @@ internal sealed partial class Orc : IDisposable
             Advance(seconds);
             if (flinch.Busy > 0 && pose.Health > 0) return [];
             staggered = false;
+            handback = true;
             ReleasedAt = (Feet, Facing);
             ReleasedFor = pose.Health > 0 ? "its footing back" : "the recorded orc died";
         }
@@ -259,6 +262,14 @@ internal sealed partial class Orc : IDisposable
         // An attack plays as the main sequence, or, on the move, as a layer_attack_* overlay.
         if (Clip != clipBefore) landed.RemoveWhere(x => x.Clip == Clip);
         if (Layer != layerBefore) landed.RemoveWhere(x => x.Clip == Layer);
+        // On the handback the recorded attack, main or layer, takes up where the recording has it: the events it crossed
+        // while the orc reeled are landed, not struck now; those still ahead strike as they're crossed (R10382-5).
+        if (handback)
+        {
+            Elapsed(Clip, Cycle);
+            if (Layer is not null) Elapsed(Layer, LayerCycle);
+            return blows;
+        }
         Cross(Clip, Clip == clipBefore ? before : 0, Cycle, blows);
         if (Layer is not null) Cross(Layer, Layer == layerBefore ? layerCycleBefore : 0, LayerCycle, blows);
         return blows;
@@ -281,6 +292,15 @@ internal sealed partial class Orc : IDisposable
         if (!parts && played.At(CombatData.WindowOpen).FirstOrDefault(float.NaN) is var open && played.At(CombatData.WindowClose).FirstOrDefault(float.NaN) is var close
             && float.IsFinite(open) && float.IsFinite(close) && to >= open && from <= close && !landed.Contains((clip, WindowPart, open)))
             blows.Add(new OrcBlow(0, clip, Math.Clamp(to, open, close), Window: open));
+    }
+
+    /// <summary>Marks the attack parts <paramref name="clip"/> has passed by <paramref name="to"/> as landed this play, striking none.</summary>
+    void Elapsed(string clip, float to)
+    {
+        var played = body.Model.Clip(clip);
+        for (int part = 0; part < PartEvents.Length; part++)
+            foreach (float at in played.At(PartEvents[part]))
+                if (at <= to) landed.Add((clip, part, at));
     }
 
     // The landed key's part for a strike window.

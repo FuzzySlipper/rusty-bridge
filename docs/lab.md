@@ -1268,7 +1268,9 @@ the lean and arms settle until their joint turns clear (2.4 s).
 **In replays** (R10382-1): replays follow the recorded orc. With `orc.flinch.on` the reaction governs it: each of the
 lab's blows leans it over its recorded pose, and one the model says cuts it short takes it over (`Orc.Follow`): it plays
 no recorded sequence, overlay or blow, slides and turns as the model has it, and follows the recording again once it has
-its footing back (or once the recording follows another orc or its orc dies). The report sets each blow against the
+its footing back (or once the recording follows another orc or its orc dies). Given back partway through a recorded
+attack, main sequence or `layer_attack_*`, it takes the attack up where the recording has it: the strikes it passed
+while taken over count as landed, not struck on the handback, and the next play strikes as usual (R10382-5). The report sets each blow against the
 donor's orc (`CombatReplay.DonorReaction`: a hit or push begun from the blow's own tick to 16 ticks on that it wasn't
 already playing, R10382-4) and, where both were cut short and the lab's ran its course, its busy time, slide and turn
 against the donor's. The smoke replays `l01_a-v14-arena-hand` both ways: off, the orc follows the recording throughout;
@@ -1276,8 +1278,8 @@ on, its 7 blows lean the orc, 6 cut short as the donor's orc was, and the one th
 held it 1.26 s and slid it 1.73 m (the model's 1.25 s and 1.73 m; the donor's orc 1.40 s and 2.28 m), with no blow while
 taken over; the other was given back when the recording followed another orc.
 
-**Not done.** Knockdowns stay the ragdoll's; a partial-physics knockdown would want rusty-engine #10383's powered
-ragdolls. The arms' numbers aren't measured.
+**Not done.** Knockdowns stay the ragdoll's; a partial-physics knockdown would use rusty-engine #10383's powered
+ragdolls, which the Engine now has but the lab doesn't use yet. The arms' numbers aren't measured.
 
 ### Perception
 

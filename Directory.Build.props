@@ -3,6 +3,6 @@
        `rusty install` installs it; only `rusty update` (from mirror/ or lab/) changes it. Projects that
        don't use the Engine (wire, import, combat) ignore it. -->
   <PropertyGroup>
-    <RustyEnginePackageVersion>0.1.0-dev.aa58bc0f834b</RustyEnginePackageVersion>
+    <RustyEnginePackageVersion>0.1.0-dev.ed8377c10f15</RustyEnginePackageVersion>
   </PropertyGroup>
 </Project>

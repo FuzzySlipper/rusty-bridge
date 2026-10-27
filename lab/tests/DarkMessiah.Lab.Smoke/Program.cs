@@ -3577,6 +3577,37 @@ host.Call(engine =>
                 && withFlinch.Flinch.Blows.All(b => b.LabCut == b.Model.Interrupted),
                 $"{withFlinch.Name} replayed with the procedural reaction governing: {withFlinch.Flinch}; each orc it cut short taken over for the model's busy time and slide (or until the recording followed another orc or the orc died), making no blow meanwhile, then following the recording again; with the authored clips none");
         }
+        // Given back onto an attack the recording has partway played (R10382-5): the strikes it passed while the orc reeled
+        // aren't struck on the handback, main sequence or attack layer, and the next play of each strikes as it crosses them.
+        {
+            combat.UseFlinch(true);
+            var flinchRules = combat.Tuning.Orc.Flinch!;
+            string? layerAttack = orc.BodyModel.Info.Clips.Keys.FirstOrDefault(k => k.StartsWith("layer_attack", StringComparison.OrdinalIgnoreCase));
+            OrcPose Pose(string id, string sequence, float cycle, float layerCycle, bool fresh = true) =>
+                new(id, orc.Feet, orc.Facing, 100, sequence, cycle, 1, layerAttack, layerCycle, fresh);
+            // Each clip's own strikes up to .8 of it, played through as followed.
+            int Played(string id, float to)
+            {
+                int blows = orc.Follow(Pose(id, "attack_Fast", 0, 0), Tick).Count;
+                for (float c = .05f; c <= to + 1e-4f; c += .05f) blows += orc.Follow(Pose(id, "attack_Fast", c, c), Tick).Count;
+                return blows;
+            }
+            int through = Played("#9.1", .8f);
+            orc.Follow(Pose("#9.2", "combatidle", 0, 0), Tick);
+            FlinchOutcome taken = default;
+            for (float pow = 1.5f; pow < 20 && !taken.Interrupted; pow *= 1.5f)
+                taken = orc.Flinch(flinchRules, new ReactionBlow(new AttackEvent(pow, false, ImpactY: 1), false, 40, false, null, 180));
+            int during = 0, steps = 0;
+            for (; orc.Staggered && steps < 600; steps++) during += orc.Follow(Pose("#9.2", "attack_Fast", .8f, .8f), Tick).Count;
+            // The step that gave it back is the last of the loop; on to the end of that play, then a new one.
+            int after = orc.Follow(Pose("#9.2", "attack_Fast", .9f, .9f), Tick).Count;
+            int nextPlay = Played("#9.2", .8f);
+            Console.WriteLine($"  handback: {through} strikes in a followed attack_Fast and {layerAttack} to .8; taken {taken.Interrupted}, {steps} steps, {during} strikes taken over and on the handback, {after} after, {nextPlay} on its next play");
+            Check(through >= 2 && taken.Interrupted && steps > 0 && !orc.Staggered && during == 0 && after == 0 && nextPlay == through,
+                $"given back onto an attack_Fast and {layerAttack} .8 played, the replayed orc strikes none of the {through} strikes it passed meanwhile, on the handback or after, and all of them on the next play");
+            orc.StopFollowing();
+            combat.UseFlinch(false);
+        }
         // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
         orc.Spawn();
         orc.Damage(orc.Health * .9f);

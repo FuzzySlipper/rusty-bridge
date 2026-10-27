@@ -1272,9 +1272,12 @@ the lean and arms settle until their joint turns clear (2.4 s).
 **In replays** (R10382-1): replays follow the recorded orc. With `orc.flinch.on` the reaction governs it: each of the
 lab's blows leans it over its recorded pose, and one the model says cuts it short takes it over (`Orc.Follow`): it plays
 no recorded sequence, overlay or blow, slides and turns as the model has it, and follows the recording again once it has
-its footing back (or once the recording follows another orc or its orc dies). Given back partway through a recorded
-attack, main sequence or `layer_attack_*`, it takes the attack up where the recording has it: the strikes it passed
-while taken over count as landed, not struck on the handback, and the next play strikes as usual (R10382-5). The report sets each blow against the
+its footing back (or once the recording follows another orc or its orc dies). While taken over it keeps
+track of what the recording plays (fresh poses as streamed, played on between them), and given back it takes that up,
+main sequence, `layer_attack_*` and overlays, whether or not the handback's step brought a fresh pose: the strikes the
+recording passed meanwhile count as landed, not struck, those it reaches after the handback strike, and so does the next
+play (R10382-5, R10382-6). Given back because the recording followed another orc, it takes up that orc's attack at its
+next fresh pose. The report sets each blow against the
 donor's orc (`CombatReplay.DonorReaction`: a hit or push begun from the blow's own tick to 16 ticks on that it wasn't
 already playing, R10382-4) and, where both were cut short and the lab's ran its course, its busy time, slide and turn
 against the donor's. The smoke replays `l01_a-v14-arena-hand` both ways: off, the orc follows the recording throughout;

@@ -166,6 +166,12 @@ internal sealed partial class Orc : IDisposable
     // The overlays as last streamed: a change is taken as it arrives, whether or not the main sequence moved.
     IReadOnlyList<(string Clip, float Cycle, float Weight)>? streamedOverlays;
     readonly HashSet<(string Clip, int Part, float At)> landed = [];
+    // What the followed orc plays: its sequence, cycle and rate, the layer that decides its state, and its overlays.
+    readonly record struct Played(string Clip, float Cycle, float Rate, string? Layer, float LayerCycle, (string Clip, float Cycle, float Weight)[] Overlays);
+    // While the procedural reaction has it (R10382-6): what the recording plays meanwhile, taken up on the handback.
+    Played recorded;
+    // Given back to a recording it hadn't tracked (another orc's): that orc's next fresh pose takes up its attack.
+    bool resyncOnFresh;
 
     /// <summary>
     /// One replayed step: the orc stands, faces, plays and has the health the recording gives it, and plays on
@@ -176,28 +182,38 @@ internal sealed partial class Orc : IDisposable
     internal List<OrcBlow> Follow(OrcPose pose, float seconds)
     {
         Following = true;
-        // Handed back by the procedural reaction this step (R10382-5): what the recording played meanwhile is past.
+        // Handed back by the procedural reaction this step: what the recording played meanwhile is past.
         bool handback = false;
         if (pose.Id != followed)
         {
             followed = pose.Id;
             landed.Clear();
-            if (staggered) { staggered = false; handback = true; ReleasedAt = (Feet, Facing); ReleasedFor = "the replay followed another orc"; }
+            if (staggered) { staggered = false; resyncOnFresh = true; ReleasedAt = (Feet, Facing); ReleasedFor = "the replay followed another orc"; }
         }
         // Taken over by the procedural reaction (R10382-1): off its footing, it plays no recorded sequence, overlay or
         // blow, and slides and turns as the model has it, until it has its footing back and follows the recording again.
-        if (staggered && tuning.Flinch is { On: true } overriding)
+        if (staggered)
         {
-            var (slid, turned) = flinch.Advance(overriding, seconds);
-            Feet += slid;
-            Facing = Vector3.Normalize(Vector3.Transform(Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, turned * MathF.PI / 180)));
-            Health = pose.Health;
-            Advance(seconds);
-            if (flinch.Busy > 0 && pose.Health > 0) return [];
+            if (tuning.Flinch is { On: true } overriding)
+            {
+                var (slid, turned) = flinch.Advance(overriding, seconds);
+                Feet += slid;
+                Facing = Vector3.Normalize(Vector3.Transform(Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, turned * MathF.PI / 180)));
+                Health = pose.Health;
+                Advance(seconds);
+                if (flinch.Busy > 0 && pose.Health > 0)
+                {
+                    recorded = Track(recorded, pose, seconds);
+                    return [];
+                }
+            }
             staggered = false;
-            handback = true;
             ReleasedAt = (Feet, Facing);
-            ReleasedFor = pose.Health > 0 ? "its footing back" : "the recorded orc died";
+            ReleasedFor = pose.Health <= 0 ? "the recorded orc died" : tuning.Flinch is { On: true } ? "its footing back" : "the procedural reaction was switched off";
+            // Given back (R10382-5, R10382-6): it takes up what the recording played meanwhile, fresh this step or not, so
+            // the attack events that passed while it reeled are landed below and not struck.
+            (Clip, Cycle, followRate, Layer, LayerCycle, overlays) = recorded;
+            handback = true;
         }
         // The recorded body model, if the import has it; else the lab's. A body that lacks the clip playing (the
         // one-clip ragdoll bodies) takes the pose's sequence, or its idle, or its only clip.
@@ -221,36 +237,8 @@ internal sealed partial class Orc : IDisposable
             holdsShield = kit.Any(m => m.Equals(Shield, StringComparison.OrdinalIgnoreCase));
         }
         var (clipBefore, before, layerBefore, layerCycleBefore) = (Clip, Cycle, Layer, LayerCycle);
-        if (pose.Fresh && body.Model.Info.Clips.ContainsKey(pose.Sequence))
-        {
-            Clip = pose.Sequence;
-            Cycle = pose.Cycle;
-            followRate = pose.Rate > 0 ? pose.Rate : 1;
-            Layer = pose.Layer is { } l && body.Model.Info.Clips.ContainsKey(l) ? l : null;
-            LayerCycle = pose.LayerCycle;
-        }
-        else
-        {
-            var clip = body.Model.Clip(Clip);
-            Cycle += clip.Seconds > 0 ? seconds * followRate / clip.Seconds : 1;
-            Cycle = Looping(Clip) || clip.Looping ? Cycle - MathF.Floor(Cycle) : MathF.Min(Cycle, 1);
-            if (Layer is not null) LayerCycle = MathF.Min(1, LayerCycle + (body.Model.Clip(Layer).Seconds is > 0 and var s ? seconds / s : 1));
-        }
-        if (pose.Overlays is { } streamed && (streamedOverlays is null || !streamed.SequenceEqual(streamedOverlays)))
-        {
-            streamedOverlays = streamed;
-            overlays = [.. streamed.Where(o => body.Model.Info.Clips.ContainsKey(o.Clip))];
-        }
-        else
-        {
-            for (int i = 0; i < overlays.Length; i++)
-            {
-                var (name, at, weight) = overlays[i];
-                var played = body.Model.Clip(name);
-                at += played.Seconds > 0 ? seconds / played.Seconds : 1;
-                overlays[i] = (name, played.Looping ? at - MathF.Floor(at) : MathF.Min(at, 1), weight);
-            }
-        }
+        bool adopted = pose.Fresh && body.Model.Info.Clips.ContainsKey(pose.Sequence);
+        (Clip, Cycle, followRate, Layer, LayerCycle, overlays) = Track(new(Clip, Cycle, followRate, Layer, LayerCycle, overlays), pose, seconds);
         State = Health <= 0 ? OrcState.Down
             : Layer?.Contains("parry", StringComparison.OrdinalIgnoreCase) == true || Clip.Contains("parry", StringComparison.OrdinalIgnoreCase) ? OrcState.Parry
             : Clip.StartsWith("attack", StringComparison.OrdinalIgnoreCase) || Layer?.StartsWith("layer_attack", StringComparison.OrdinalIgnoreCase) == true ? OrcState.Attack
@@ -263,8 +251,10 @@ internal sealed partial class Orc : IDisposable
         if (Clip != clipBefore) landed.RemoveWhere(x => x.Clip == Clip);
         if (Layer != layerBefore) landed.RemoveWhere(x => x.Clip == Layer);
         // On the handback the recorded attack, main or layer, takes up where the recording has it: the events it crossed
-        // while the orc reeled are landed, not struck now; those still ahead strike as they're crossed (R10382-5).
-        if (handback)
+        // while the orc reeled are landed, not struck now; those still ahead strike as they're crossed (R10382-5). Given
+        // back to an orc it hadn't tracked, it waits for that orc's next fresh pose to know where its attack is (R10382-6).
+        if (resyncOnFresh && adopted) (handback, resyncOnFresh) = (true, false);
+        if (handback || resyncOnFresh)
         {
             Elapsed(Clip, Cycle);
             if (Layer is not null) Elapsed(Layer, LayerCycle);
@@ -273,6 +263,40 @@ internal sealed partial class Orc : IDisposable
         Cross(Clip, Clip == clipBefore ? before : 0, Cycle, blows);
         if (Layer is not null) Cross(Layer, Layer == layerBefore ? layerCycleBefore : 0, LayerCycle, blows);
         return blows;
+    }
+
+    /// <summary>
+    /// What the followed orc plays after <paramref name="seconds"/> more of <paramref name="was"/>: the pose's sequence and
+    /// layer when it streamed them fresh, else played on at the recorded rate; its overlays as streamed, else played on.
+    /// </summary>
+    Played Track(Played was, OrcPose pose, float seconds)
+    {
+        var has = body.Model.Info.Clips;
+        var next = was;
+        if (pose.Fresh && has.ContainsKey(pose.Sequence))
+            next = was with { Clip = pose.Sequence, Cycle = pose.Cycle, Rate = pose.Rate > 0 ? pose.Rate : 1,
+                Layer = pose.Layer is { } l && has.ContainsKey(l) ? l : null, LayerCycle = pose.LayerCycle };
+        else
+        {
+            var clip = body.Model.Clip(was.Clip);
+            float cycle = was.Cycle + (clip.Seconds > 0 ? seconds * was.Rate / clip.Seconds : 1);
+            next = was with { Cycle = Looping(was.Clip) || clip.Looping ? cycle - MathF.Floor(cycle) : MathF.Min(cycle, 1) };
+            if (was.Layer is not null) next = next with { LayerCycle = MathF.Min(1, was.LayerCycle + (body.Model.Clip(was.Layer).Seconds is > 0 and var s ? seconds / s : 1)) };
+        }
+        if (pose.Overlays is { } streamed && (streamedOverlays is null || !streamed.SequenceEqual(streamedOverlays)))
+        {
+            streamedOverlays = streamed;
+            return next with { Overlays = [.. streamed.Where(o => has.ContainsKey(o.Clip))] };
+        }
+        var overlaid = new (string Clip, float Cycle, float Weight)[was.Overlays.Length];
+        for (int i = 0; i < overlaid.Length; i++)
+        {
+            var (name, at, weight) = was.Overlays[i];
+            var played = body.Model.Clip(name);
+            at += played.Seconds > 0 ? seconds / played.Seconds : 1;
+            overlaid[i] = (name, played.Looping ? at - MathF.Floor(at) : MathF.Min(at, 1), weight);
+        }
+        return next with { Overlays = overlaid };
     }
 
     /// <summary>Adds the attack parts <paramref name="clip"/> crossed from <paramref name="from"/> to <paramref name="to"/>, once per play.</summary>
@@ -334,6 +358,7 @@ internal sealed partial class Orc : IDisposable
         overlays = [];
         streamedOverlays = null;
         landed.Clear();
+        resyncOnFresh = false;
         Spawn();
     }
 
@@ -681,6 +706,7 @@ internal sealed partial class Orc : IDisposable
             // The reaction governs (R10382-1): cut short, the recorded orc's action stops until it has its footing back.
             if (outcome.Interrupted && Alive)
             {
+                if (!staggered) recorded = new(Clip, Cycle, followRate, Layer, LayerCycle, overlays);
                 Layer = null;
                 hitLayer = null;
                 overlays = [];

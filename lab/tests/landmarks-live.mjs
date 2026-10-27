@@ -2,7 +2,8 @@
 // `rusty dev --headless` (a headless Chromium keeps the world drawing, so the renderer measures the pairs on the poses it
 // drew; the smoke's test host has no renderer). It reads `engine.inspect.landmarks held.landmarks` with the first-person
 // sword seated by its handle, as the game draws it, then hung by its origin as before #10395, which the blade and palm
-// pairs should catch.
+// pairs should catch; and the orc's cleaver as the donor hangs it, then drawn turned 90° in its hand, which its palm
+// pair should catch.
 //
 //   node lab/tests/landmarks-live.mjs            starts its own session in lab/, and stops it after
 //   LAB_URL=http://127.0.0.1:PORT node ...     uses a running `rusty dev --live-debug` session instead
@@ -48,7 +49,7 @@ try {
   await exec('lab.held.seat on');
   await sleep(2);
   const seated = await measured();
-  const names = ['player.blade', 'player.palm', 'player.guard', 'orc.guard', 'orc.shield'];
+  const names = ['player.blade', 'player.palm', 'player.guard', 'orc.palm', 'orc.guard', 'orc.shield'];
   check(names.every((n) => seated[n]?.drawn && seated[n].within),
     `seated by its handle, every grip pair is within: ${names.map((n) => `${n} ${show(seated[n])}`).join('; ')}`);
 
@@ -58,6 +59,13 @@ try {
   check(!hung['player.blade'].within && hung['player.blade'].angle > 60 && !hung['player.palm'].within,
     `hung by its origin (before #10395), the pairs catch the turned sword: player.blade ${show(hung['player.blade'])}, player.palm ${show(hung['player.palm'])}, player.guard ${show(hung['player.guard'])}`);
   await exec('lab.held.seat on');
+
+  await exec('lab.held.turn 90');
+  await sleep(1.5);
+  const turned = await measured();
+  check(!turned['orc.palm'].within && turned['orc.palm'].angle > 60,
+    `the orc's cleaver turned 90° in its hand, its palm pair catches it: orc.palm ${show(turned['orc.palm'])}, orc.guard ${show(turned['orc.guard'])}`);
+  await exec('lab.held.turn 0');
 } catch (error) {
   check(false, `the run failed: ${error.message}`);
 } finally {

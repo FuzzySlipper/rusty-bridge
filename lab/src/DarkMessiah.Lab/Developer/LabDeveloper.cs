@@ -156,6 +156,15 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         return DebugCommandResult.Success(state == "on" ? "items seated by their handle" : "items hung by their origin");
     }
 
+    [DebugCommand("lab.held.turn", Description = "Draw the orc's cleaver turned DEGREES in its hand off the donor's hang (0 as the donor hangs it), to see the grip's landmark pairs catch a turned hold.")]
+    public DebugCommandResult HeldTurn(float degrees)
+    {
+        if (!float.IsFinite(degrees)) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "DEGREES must be a finite number.");
+        combat.Orc.CleaverTurn = degrees;
+        changed();
+        return DebugCommandResult.Success(FormattableString.Invariant($"the orc's cleaver drawn turned {degrees:0}°"));
+    }
+
     [DebugCommand("lab.orc.ragdoll", Description = "Read the orc's ragdoll: falling, lying or blending back, the side it fell to and lies on, and every knockdown so far (fell as, lay on, seconds to getting up).")]
     public DebugCommandResult Ragdoll() => DebugCommandResult.Success(RagdollText());
 

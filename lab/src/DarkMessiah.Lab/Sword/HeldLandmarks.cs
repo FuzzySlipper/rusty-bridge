@@ -8,12 +8,14 @@ namespace DarkMessiah.Lab.Sword;
 /// The grips as the Engine's landmark pairs (#10395, R10395-2; docs/playtest-inspection.md, "Landmark pairs"): what a
 /// right hold is, measured by the renderer on the poses it drew, published as the overlay set <see cref="Set"/> and read
 /// with <c>engine.inspect.landmarks held.landmarks</c> or <c>lab.held.landmarks</c> (<c>lab/tests/landmarks-live.mjs</c>).
-/// The player's right hand on its weapon: the blade along the knuckles' line (<see cref="BladeAlong"/>), the palm's
-/// surface facing the grip's line (the weapon's <c>handle</c>, along its blade) within <see cref="GripReach"/> of it, the
-/// web near the guard (<c>blade_start</c>, <see cref="GuardReach"/>). The orc's: the web near its cleaver's guard, the
-/// middle of its forearm near its shield's middle (its hull's centre, <see cref="StrapReach"/>). The reaches are the
-/// donor's own holds, measured on poses the recordings confirm (its hands grip 7.7 to 9.2 cm below the guard, its forearm
-/// is 15.9 cm from its shield's middle), with a little over; the blade and palm pairs are what tell a turned grip.
+/// The player's right hand closes round its weapon's grip: the knuckles' line along the blade (<see cref="BladeAlong"/>),
+/// the palm facing the grip's line (the weapon's <c>handle</c>, along its blade) within <see cref="GripReach"/> of it, the
+/// web near the guard (<c>blade_start</c>, <see cref="GuardReach"/>). The orc's three-fingered hand holds its cleaver as
+/// the donor hangs it (<see cref="Hold.OutOfPalm"/>): the haft runs out of the palm, handle before it and guard behind
+/// (<see cref="HaftOut"/>), the palm on it; the middle of its forearm is near its shield's middle (its hull's centre,
+/// <see cref="StrapReach"/>). The reaches are the donor's own holds, measured on poses the recordings confirm (its hands
+/// grip 7.7 to 9.2 cm below the guard, the orc's palm is 1.6 cm from its haft, its forearm 15.9 cm from its shield's
+/// middle), with a little over; the angles are what tell a turned grip.
 /// </summary>
 internal static class HeldLandmarks
 {
@@ -27,8 +29,22 @@ internal static class HeldLandmarks
     internal const float GuardReach = .11f;
     /// <summary>The most the blade may turn from the knuckles' line (pinky to index), degrees: a fist's grip runs along it.</summary>
     internal const float BladeAlong = 35;
+    /// <summary>The most the orc's haft may turn from its palm's normal (guard to handle), degrees: the donor's is 8° off.</summary>
+    internal const float HaftOut = 30;
     /// <summary>How near the shield's middle the forearm's is, metres.</summary>
     internal const float StrapReach = .18f;
+
+    /// <summary>How a hand holds its weapon.</summary>
+    internal enum Hold
+    {
+        /// <summary>Closed round the grip: the knuckles along it, the palm facing it (the player's).</summary>
+        Fist,
+        /// <summary>
+        /// The haft out of the palm, the handle before it: the orc's cleaver, which the donor hangs at its <c>RightHand</c>
+        /// with its blade across the hand's plane (its knuckles run 82° from the blade, whatever the pose).
+        /// </summary>
+        OutOfPalm,
+    }
 
     /// <summary>A hand's joints: the wrist, then thumb, index, middle, ring and pinky chains from their bases.</summary>
     internal sealed record HandJoints(string Wrist, string[] Thumb, string[] Index, string[] Middle, string[] Ring, string[] Pinky);
@@ -42,12 +58,12 @@ internal static class HeldLandmarks
         ["SK_R_Finger_C1", "SK_R_Finger_C2", "SK_R_Finger_C3"], ["SK_Finger_D1", "SK_Finger_D2", "SK_Finger_D3"]);
 
     /// <summary>
-    /// The orc's right hand: three fingers and a thumb. The Engine's hand rig asks for four (a palm needs index, middle
-    /// and pinky bases), so its last finger, C, stands for both the ring and the pinky.
+    /// The orc's right hand: three fingers and a thumb, so no ring finger and its last, C, the pinky (the Engine's
+    /// three-fingered hand rig, rusty-engine #10402).
     /// </summary>
     internal static readonly HandJoints OrcRight = new("SK_R_Hand", ["SK_R_Thumb_1", "SK_R_Thumb_2", "SK_R_Thumb_3"],
         ["SK_R_Finger_A1", "SK_R_Finger_A2", "SK_R_Finger_A3"], ["SK_R_Finger_B1", "SK_R_Finger_B2", "SK_R_Finger_B3"],
-        ["SK_R_Finger_C1", "SK_R_Finger_C2", "SK_R_Finger_C3"], ["SK_R_Finger_C1", "SK_R_Finger_C2", "SK_R_Finger_C3"]);
+        [], ["SK_R_Finger_C1", "SK_R_Finger_C2", "SK_R_Finger_C3"]);
 
     internal static HandRig Hand(IEngineContext engine, DonorModel holder, ulong id, HandJoints h) =>
         HandRig.FromJoints(engine.Animation.ReadJoints(holder.Mesh).Span, id, HandSide.Right, h.Wrist, h.Thumb, h.Index, h.Middle, h.Ring, h.Pinky);
@@ -67,25 +83,22 @@ internal static class HeldLandmarks
     }
 
     /// <summary>
-    /// The pairs a hand holding a weapon is judged by: <c>PREFIX.blade</c>, the blade along the knuckles' line from the
-    /// pinky's base (<paramref name="holder"/>'s joints) to the index's; <c>PREFIX.palm</c>, the palm's surface facing the
-    /// grip's line and near it; <c>PREFIX.guard</c>, the web at the guard. With <paramref name="fingers"/> off, the guard
-    /// alone: the orc's three-fingered hand gives the Engine's four-fingered hand rig no knuckles' line or palm to trust (on
-    /// a pose the recordings confirm, its cleaver read 82° off the line and 90° off the palm).
+    /// The pairs a hand holding a weapon is judged by. <see cref="Hold.Fist"/>: <c>PREFIX.blade</c>, the knuckles' line
+    /// along the blade; <c>PREFIX.palm</c>, the palm facing the grip's line and near it. <see cref="Hold.OutOfPalm"/>:
+    /// <c>PREFIX.palm</c>, the palm's normal along the haft from guard to handle and near the handle. Both:
+    /// <c>PREFIX.guard</c>, the web at the guard. The palm is the Engine's default, which reads how a fist faces a handle
+    /// it closes round (rusty-engine #10403).
     /// </summary>
-    internal static IEnumerable<LandmarkPair> Grip(string prefix, HandRig hand, DonorModel holder, ulong holderId, HandJoints joints, DonorModel weapon, ulong id,
-        bool fingers = true)
+    internal static IEnumerable<LandmarkPair> Grip(string prefix, HandRig hand, DonorModel weapon, ulong id, Hold hold)
     {
         if (Weapon(weapon, id) is not var (place, grip, along, guard)) yield break;
-        if (!fingers)
+        if (hold == Hold.Fist)
         {
-            yield return LandmarkPair.Distance($"{prefix}.guard", hand.Web(), Landmark.At(place, guard), GuardReach);
-            yield break;
+            var line = Landmark.At(place, grip, along);
+            yield return LandmarkPair.Facing($"{prefix}.blade", hand.Knuckles(), line, LandmarkAim.Axis, BladeAlong);
+            yield return LandmarkPair.Facing($"{prefix}.palm", hand.Palm(), line, LandmarkAim.Line, PalmFacing, GripReach);
         }
-        if (holder.Joints.TryGetValue(joints.Pinky[0], out int pinky) && holder.Joints.TryGetValue(joints.Index[0], out int index))
-            yield return LandmarkPair.Facing($"{prefix}.blade", Landmark.Between(holderId, (uint)pinky, (uint)index, .5f), Landmark.At(place, grip, along),
-                LandmarkAim.Axis, BladeAlong);
-        yield return LandmarkPair.Facing($"{prefix}.palm", hand.Palm(depth: 0), Landmark.At(place, grip, along), LandmarkAim.Line, PalmFacing, GripReach);
+        else yield return LandmarkPair.Facing($"{prefix}.palm", hand.Palm(), Landmark.At(place, grip, -along), LandmarkAim.Axis, HaftOut, GripReach);
         yield return LandmarkPair.Distance($"{prefix}.guard", hand.Web(), Landmark.At(place, guard), GuardReach);
     }
 

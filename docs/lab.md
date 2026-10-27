@@ -1025,19 +1025,23 @@ tick):
 - **Landmark pairs** (R10395-2, `Sword/HeldLandmarks.cs`; docs/playtest-inspection.md, "Landmark pairs"): the grips
   are published as the overlay set `held.landmarks` and measured by the renderer on the poses it drew
   (`engine.inspect.landmarks held.landmarks`, `lab.held.landmarks`; `lab/tests/landmarks-live.mjs` checks them in a
-  headless session, the smoke's test host having no renderer). The player's hand: `player.blade`, the blade along the
-  knuckles' line (`Landmark.Between` the pinky's and index's bases, `LandmarkAim.Axis`, within 35°); `player.palm`, the
-  palm's surface facing the grip's line and within 5 cm (`LandmarkAim.Line`); `player.guard`, the web within 11 cm of the
-  guard. The orc's: `orc.guard`, and `orc.shield`, its forearm's middle within 18 cm of its shield's middle. Seated, all
-  are within (blade 5°, palm 2.9 cm and 52°, guard 9.2 cm; the orc's 7.7 and 15.9 cm); hung by its origin as before
-  (`lab.held.seat off`), the pairs catch the turned sword (blade 91°, palm 78°, guard 12.9 cm). The reaches are the
-  donor's own holds with a little over; the blade pair is the one that tells.
-- **What the landmark tooling lacked:** `HandRig` and `Landmark.Palm` assume four fingers (a palm needs index, middle and
-  pinky bases); the orc's hand has three and a thumb, so its last finger stands for both ring and pinky, and its knuckle
-  line and palm read 82° and 90° off on a pose the recordings confirm, so the orc's grip is judged by its guard alone. The
-  palm's default depth (out of the palm) put its reference point inside a closed fist on the grip, where the angle to the
-  grip's line is noise: the pairs measure from the palm's surface (`depth: 0`). Neither is filed as an Engine task: a
-  three-fingered rig option and a fist-aware palm would be worth one.
+  headless session, the smoke's test host having no renderer). The player's hand closes round its grip: `player.blade`,
+  the blade along the knuckles' line (`HandRig.Knuckles`, `LandmarkAim.Axis`, within 35°); `player.palm`, the palm
+  facing the grip's line and within 5 cm (`HandRig.Palm`, `LandmarkAim.Line`, within 60°); `player.guard`, the web within
+  11 cm of the guard. Seated, all are within (blade 5°, palm 2.4 cm and 52°, guard 9.2 cm); hung by its origin as before
+  (`lab.held.seat off`), the pairs catch the turned sword (blade 91°, palm out).
+- **The orc's hold** (`HeldLandmarks.Hold.OutOfPalm`): its hand rig has its three fingers and thumb (no ring finger, its
+  last finger the pinky; rusty-engine #10402). The donor hangs the cleaver at `RightHand` with its haft across the hand's
+  plane, out of the palm: the handle 2.5 cm before it and the guard behind, the knuckles 82° from the blade and the
+  hand's length 90°, the same in every pose since the cleaver and the finger bases both hang from `SK_R_Hand`. That is
+  the donor's hold (the lab hangs the cleaver within 1.8 cm and 0° of the server's, and the mirror draws it as the
+  game's screenshots do), so the pairs say it: `orc.palm`, the palm's normal along the haft from guard to handle within
+  30° and the palm within 5 cm of the handle (8° and 1.6 cm, in `combatidle`, `attack_Fast` and `Hit_left_long`
+  alike); `orc.guard`, the web within 11 cm of the guard (7.7 cm); `orc.shield`, its forearm's middle within 18 cm of its
+  shield's middle (15.9 cm). `lab.held.turn DEGREES` draws the cleaver turned in the hand: at 45° and 90° `orc.palm`
+  reads 45° and 90°, out. The reaches are the donor's own holds with a little over; the angles are what tell a turned grip.
+- **The palm in a fist:** the Engine's palm now aims from its joints' plane (rusty-engine #10403), so the default
+  `Palm()` reads how a fist faces a grip it closes round; the lab measured the same angles with `depth: 0` before.
 - **Not done:** the bow, its arrow and other multi-joint items in the hands keep their origin (no `handle`, and no
   screenshot of them yet).
 
@@ -1601,7 +1605,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

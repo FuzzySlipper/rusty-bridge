@@ -393,7 +393,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         string key = $"{fp.WeaponId}:{orcKey}";
         if (key == landmarksFor) return;
         landmarksFor = key;
-        var pairs = HeldLandmarks.Grip("player", HeldLandmarks.Hand(engine, fp.ArmsModel, FirstPerson.ArmsId, HeldLandmarks.PlayerRight), fp.ArmsModel, FirstPerson.ArmsId, HeldLandmarks.PlayerRight, fp.WeaponModel, fp.WeaponId)
+        var pairs = HeldLandmarks.Grip("player", HeldLandmarks.Hand(engine, fp.ArmsModel, FirstPerson.ArmsId, HeldLandmarks.PlayerRight), fp.WeaponModel, fp.WeaponId, HeldLandmarks.Hold.Fist)
             .Concat(orcPairs).ToArray();
         engine.Graphics.PublishOverlaySet(new OverlaySetRequest(HeldLandmarks.Set, [], pairs));
     }

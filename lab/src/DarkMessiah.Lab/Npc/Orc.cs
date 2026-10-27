@@ -1035,10 +1035,16 @@ internal sealed partial class Orc : IDisposable
     internal (string Key, LandmarkPair[] Pairs) Landmarks()
     {
         var pairs = new List<LandmarkPair>();
-        if (holdsCleaver) pairs.AddRange(HeldLandmarks.Grip("orc", HeldLandmarks.Hand(engine, body.Model, body.Id, HeldLandmarks.OrcRight), body.Model, body.Id, HeldLandmarks.OrcRight, cleaver.Model, cleaver.Id, fingers: false));
+        if (holdsCleaver) pairs.AddRange(HeldLandmarks.Grip("orc", HeldLandmarks.Hand(engine, body.Model, body.Id, HeldLandmarks.OrcRight), cleaver.Model, cleaver.Id, HeldLandmarks.Hold.OutOfPalm));
         if (holdsShield && HeldLandmarks.Strap(body.Model, body.Id, shield.Model, shield.Id) is { } strap) pairs.Add(strap);
         return ($"{body.Id}:{holdsCleaver}:{holdsShield}", [.. pairs]);
     }
+
+    /// <summary>
+    /// Degrees its cleaver is drawn turned in its hand, about the item's Z (across its blade's flat), off the donor's hang
+    /// (<c>lab.held.turn</c>): to see the grip's landmark pairs catch a turned hold (#10395). Drawn only; it strikes as hung.
+    /// </summary>
+    internal float CleaverTurn { get; set; }
 
     /// <summary>Where its cleaver and shield hang now (each null when it doesn't hold it), as they're drawn.</summary>
     internal (Transform? Cleaver, Transform? Shield) Held()
@@ -1080,7 +1086,8 @@ internal sealed partial class Orc : IDisposable
         var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
         pose = Lean(pose);
         var facts = new List<AppearanceFact> { body.Fact(Placement) };
-        if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand) facts.Add(cleaver.Fact(hand));
+        if (holdsCleaver && Rig.Attached(body.Model, pose, "RightHand") is Transform hand)
+            facts.Add(cleaver.Fact(CleaverTurn == 0 ? hand : hand with { Rotation = hand.Rotation * Quaternion.CreateFromAxisAngle(Vector3.UnitZ, CleaverTurn * MathF.PI / 180) }));
         if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
         if (HoldsBow && Rig.Attached(body.Model, pose, "LeftHand_bow") is Transform bowHand) facts.Add(bow.Fact(bowHand));
         return facts;

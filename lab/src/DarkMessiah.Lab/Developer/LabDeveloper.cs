@@ -173,7 +173,7 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
             $"{a.Clip}@{a.Cycle:0.00} facing {a.Yaw:0} body_yaw {a.BodyYaw:0} move_yaw {a.MoveYaw:0}{string.Concat(a.Layers.Select(l => $", {l.Clip}@{l.Cycle:0.00}x{l.Weight:0.00}"))}; {(body.Shown ? "drawn" : "not drawn")}"));
     }
 
-    [DebugCommand("lab.body.show", Description = "Draw the player's body (on) or not (off, the default): until the Engine can collapse a joint (rusty-engine #10436) its head and arms show, which the donor's don't.")]
+    [DebugCommand("lab.body.show", Description = "Draw the player's body under the view (on, the default) or not (off).")]
     public DebugCommandResult BodyShow(string state)
     {
         if (state is not ("on" or "off")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "on or off.");

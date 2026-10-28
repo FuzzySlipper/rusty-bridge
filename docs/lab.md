@@ -1094,8 +1094,13 @@ the arms, striding, crouching, kicking and jumping. How the donor does it, from 
   refused (the calibration can't see stamina before v15).
 - **In the lab:** `PlayerBody` plays the rules from the lab's own movement, sprint as stamina admits it, crouch, kick
   (as the sword starts one) and jumps, at the player's feet. `lab.body` reads it.
-- **Not drawn yet:** the Engine can't scale a joint, so the lab can't collapse the head and arms (asked as rusty-engine
-  #10436); drawn, they'd sit round the camera. `lab.body.show on` draws it anyway, to look at.
+- **Drawn:** `PlayerBody` scales `SK_Neck` and each `SK_*_Shoulder` to 0 (the Engine's joint scale, rusty-engine
+  #10436), which takes the head and arms with them and leaves the collar and sleeve tops open where the donor's close
+  shots have them; the collarbones and chest stay. Looking down from the lab's eye it shows as body-look's `stand_*`
+  shots do: nothing at 45°, a toe from about 60°, the belt and hips from 75°, the chest straight down, under the view
+  model's arms. The smoke reads the collapse back from the pose (the head at the neck, the hands at the shoulders, the
+  legs as the clip has them); the side-by-sides are `local/recordings/experiments/body-look/compare/`. `lab.body.show
+  off` hides it.
 - **Not done:** the aim layers (`body_rot_x`, `_y`, `_z`, delta clips by `body_pitch`, `body_yaw` and `body_roll`) and
   the client's lean roll aren't played; ladders, mantling and grabs aren't (their clips are `player_basic`'s too). The
   arms' kick is always `kick_medium`, where the donor's arms play `kick_low` past 50° down as the body does.
@@ -1663,7 +1668,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, `lab.body` reads the player's body and `lab.body.show on|off` draws it, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, `lab.body` reads the player's body and `lab.body.show on|off` draws it or hides it, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

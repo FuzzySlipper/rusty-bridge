@@ -1058,6 +1058,16 @@ host.Call(engine =>
         var crouchMove = a.Clip;
         Run(5, Vector2.Zero, moving: false, crouch: true);
         var crouchStill = a.Clip;
+        // Drawn, its neck and arms are collapsed into their joints as the donor's are, and its legs are as the clip has them.
+        var drawnBody = product.Body;
+        var joints = drawnBody.Joints(new Transform(Vector3.Zero, Quaternion.Identity, Vector3.One));
+        var bodyJoints = drawnBody.BodyModel.Joints;
+        float Scale(string j) => joints[bodyJoints[j]].World.Scale.Length();
+        float Gap(string j, string into) => Vector3.Distance(joints[bodyJoints[j]].World.Translation, joints[bodyJoints[into]].World.Translation);
+        Check(drawnBody.Shown && Scale("SK_Head") < 1e-4f && Scale("SK_L_Hand") < 1e-4f && Scale("SK_R_Hand") < 1e-4f && Gap("SK_Head", "SK_Neck") < 1e-3f
+                && Gap("SK_L_Hand", "SK_L_Shoulder") < 1e-3f && Gap("SK_R_Hand", "SK_R_Shoulder") < 1e-3f && Scale("SK_L_Knee") > .5f
+                && Gap("SK_L_Knee", "SK_L_Leg") > .3f,
+            FormattableString.Invariant($"the player's body is drawn with its head and hands collapsed into its neck and shoulders (scale {Scale("SK_Head"):0.###}, {Scale("SK_L_Hand"):0.###}, {Scale("SK_R_Hand"):0.###}; {Gap("SK_Head", "SK_Neck") * 100:0.#} cm, {Gap("SK_L_Hand", "SK_L_Shoulder") * 100:0.#} cm, {Gap("SK_R_Hand", "SK_R_Shoulder") * 100:0.#} cm away) and its legs as its clip has them (the knee {Gap("SK_L_Knee", "SK_L_Leg") * 100:0} cm below the hip)"));
         Check(started.Clip == "Walk" && MathF.Abs(started.Cycle - BodyAnimator.GaitStart) < .03f && running.Clip == "run" && running.Cycle > started.Cycle
                 && onTo == "run" && stopped == "idle_rightfoot" && MathF.Abs(MathF.Abs(backing) - 180) < 1 && MathF.Abs(strafing - 90) < 1
                 && waited.StartsWith("idle_", StringComparison.Ordinal) && turning == "Player_Turn_45_Right" && turned.StartsWith("idle_", StringComparison.Ordinal)

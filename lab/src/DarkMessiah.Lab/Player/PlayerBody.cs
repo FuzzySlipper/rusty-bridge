@@ -11,27 +11,38 @@ namespace DarkMessiah.Lab.Player;
 /// third-person model, <c>player_basic</c>, at the player's feet, played by <see cref="BodyAnimator"/>'s rules from the
 /// lab's movement, kick and jumps. Walking, running, sprinting and crouching blend the clip's two <c>move_yaw</c>
 /// columns either side of the direction of travel (the import's <c>NAME@COLUMN</c> clips, 45° apart from −180).
-/// The donor collapses its head and arms into their joints, so only its legs and hips show under the view; the Engine
-/// can't scale a joint yet (rusty-engine #10436), so it isn't drawn (<see cref="Shown"/>) until it can.
+/// The donor collapses its neck and arms into their joints, so only its legs, hips and chest show under the view: the
+/// lab scales <see cref="Collapsed"/> to 0 (the Engine's joint scale, rusty-engine #10436), which leaves the collar and
+/// sleeve stubs open as the donor's does.
 /// </summary>
 internal sealed class PlayerBody : IDisposable
 {
     internal const string Model = "models/npc/player/player_basic.mdl";
     internal const ulong Id = 0x4C41_0500;
 
+    readonly IEngineContext engine;
     readonly Puppet puppet;
 
     internal PlayerBody(IEngineContext engine, DonorContent donor)
     {
+        this.engine = engine;
         puppet = new Puppet(engine, donor.Model(Model), Id);
         Animator = new BodyAnimator(puppet.Model.Info);
+        var collapse = Collapsed.Where(puppet.Model.Joints.ContainsKey).Select(j => JointOverride.LocalScale((uint)puppet.Model.Joints[j], 0)).ToArray();
+        engine.Animation.SetPose(new(puppet.Instance, ReadOnlyMemory<TwoBoneIk>.Empty, collapse));
     }
+
+    /// <summary>
+    /// The joints collapsed, their subtrees with them: the neck (the head under it) and each shoulder (the arm under it),
+    /// cut where the donor's own third-person shots show it, at the collar and the sleeves' tops.
+    /// </summary>
+    internal static readonly string[] Collapsed = ["SK_Neck", "SK_L_Shoulder", "SK_R_Shoulder"];
 
     internal BodyAnimator Animator { get; }
     internal DonorModel BodyModel => puppet.Model;
 
-    /// <summary>Drawn; off until the Engine can collapse its head and arms as the donor does (rusty-engine #10436).</summary>
-    internal bool Shown { get; set; }
+    /// <summary>Drawn under the view, as the donor draws it; <c>lab.body.show off</c> hides it.</summary>
+    internal bool Shown { get; set; } = true;
 
     /// <summary>Back standing in <c>idle_leftfoot</c>, facing <paramref name="forward"/>.</summary>
     internal void Reset(Vector3 forward) => Animator.Reset(Yaw(forward));
@@ -56,6 +67,13 @@ internal sealed class PlayerBody : IDisposable
         float yaw = Animator.Yaw * MathF.PI / 180;
         var facing = SourceSpace.Direction(new Vector3(MathF.Cos(yaw), MathF.Sin(yaw), 0));
         yield return puppet.Fact(new Transform(feet, Rig.Facing(facing, Vector3.UnitY), Vector3.One));
+    }
+
+    /// <summary>Its joints as drawn at <paramref name="placement"/>: its clip at its cycle, the collapsed joints scaled to 0.</summary>
+    internal JointPose[] Joints(Transform placement)
+    {
+        var (clip, cycle, _) = Pose();
+        return engine.Animation.SampleJointPose(AnimationPoseSampleRequest.OfClip(puppet.Instance, clip, Math.Clamp(cycle, 0, 1), placement, normalized: true, applyPoseControls: true)).ToArray();
     }
 
     /// <summary>

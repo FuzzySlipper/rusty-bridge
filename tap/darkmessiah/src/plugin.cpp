@@ -925,6 +925,30 @@ static void WriteWizardEye(wire::WizardEye* we) {
     }
 }
 
+// v21: the player's pose parameters, CBaseAnimating::m_flPoseParameter (+0xEC8, 24 floats), in its datadesc
+// (CheckPoseOffset).
+static const int kPoseParameterOffset = 0xEC8;
+static bool g_poseOk = false;
+
+static void WritePlayerPose(wire::PlayerPose* pp) {
+    memset(pp, 0, sizeof *pp);
+    pp->player = wire::kNoEntity;
+    if (!g_poseOk) return;
+    const char* cls = ClassNameAt(1);
+    if (!cls || strcmp(cls, "player") != 0) return;
+    __try {
+        const unsigned char* p = *(const unsigned char**)(g_edicts + 1 * g_stride + g_unkOff);
+        if (!p) return;
+        memcpy(pp->pose, p + kPoseParameterOffset, sizeof pp->pose);
+        pp->count = wire::kMaxPoseParameters;
+        pp->player = 1;
+        pp->valid = 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_faults;
+        pp->valid = 0;
+    }
+}
+
 // --- The client's view (Wire v8) --------------------------------------------
 //
 // In single player client.dll and engine.dll run in the tap's process. Their
@@ -1298,6 +1322,7 @@ static void WireWrite() {
     WritePlayerInput((wire::PlayerInput*)(slotBase + wire::kInputOffset));
     WritePlayerStats((wire::PlayerStats*)(slotBase + wire::kStatsOffset));
     WriteWizardEye((wire::WizardEye*)(slotBase + wire::kWizardEyeOffset));
+    WritePlayerPose((wire::PlayerPose*)(slotBase + wire::kPoseOffset));
     {
         wire::SweepBlock* sweeps = (wire::SweepBlock*)(slotBase + wire::kSweepsOffset);
         memcpy(sweeps->records, g_pendingSweeps, g_sweepCount * sizeof(wire::Sweep));
@@ -1597,6 +1622,26 @@ static void CheckWizardEyeOffsets() {
     g_wizardEyeOk = failed == nullptr;
     if (failed) Log("wizard eye: unexpected bytes for %s, not recording it", failed);
     else Log("wizard eye: offsets checked (%d datadesc fields)", (int)(sizeof kWizardEyeDatadesc / sizeof *kWizardEyeDatadesc));
+}
+
+// v21: CBaseAnimating's datadesc entry for m_flPoseParameter (server.dll+0x7978BC: its type, then the name pointer
+// and the offset).
+static const DatadescField kPoseDatadesc = { 0x227978C0, "m_flPoseParameter", kPoseParameterOffset };
+
+static void CheckPoseOffset() {
+    unsigned char* base = (unsigned char*)GetModuleHandleA("server.dll");
+    if (!base) return;
+    bool ok = false;
+    __try {
+        const unsigned char* slot = base + (kPoseDatadesc.slot - kServerImageBase);
+        const char* name = *(const char* const*)slot;
+        ok = name && strcmp(name, kPoseDatadesc.name) == 0 && *(const int*)(slot + 4) == kPoseDatadesc.offset;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = false;
+    }
+    g_poseOk = ok;
+    if (ok) Log("pose: m_flPoseParameter at +0x%X checked against the datadesc", kPoseParameterOffset);
+    else Log("pose: unexpected bytes for m_flPoseParameter, not recording the player's pose");
 }
 
 static void CheckStatsOffsets() {
@@ -2267,6 +2312,7 @@ public:
         ControlOpen();
         CheckStatsOffsets();
         CheckWizardEyeOffsets();
+        CheckPoseOffset();
         InstallDamageHook();
         InstallUsercmdHook();
         InstallDefenseHook();

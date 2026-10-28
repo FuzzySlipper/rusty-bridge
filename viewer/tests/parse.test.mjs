@@ -37,7 +37,7 @@ function recording(frames, version = 6) {
   u32(0x45524252); u32(0x31303043); u32(version); u32(0);
   record(1, () => { u32(1); f32(0.015); str('l01_a'); });
   ['npc_orc_sword', 'prop_ragdoll', 'player'].forEach((name, id) => record(2, () => { u16(id); str(name); }));
-  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null, stats = null, sweeps = [], eye = null }, i) => record(4, () => {
+  frames.forEach(({ tick, entities, damage = [], wall = 0, slow = null, slowCalls = [], client = null, input = null, stats = null, sweeps = [], eye = null, pose = null }, i) => record(4, () => {
     u32(i); u32(0); u32(tick); f32(tick * 0.015); u8(1);           // frame, tick, curtime, key flag
     u32(entities.length);
     for (const e of entities) {                                      // 56-byte WireEntity (64 from v7)
@@ -99,6 +99,10 @@ function recording(frames, version = 6) {
     if (version >= 20) {                                             // v20: the player's wizard eye, 36 bytes
       u16(eye ? 1 : 0xffff); u8(eye ? 1 : 0); u8(eye?.enabled ? 1 : 0);
       for (const x of [eye?.duration ?? 0, 0, 0, eye?.lightmapAdd ?? 0, 0, 0, eye?.propsAdd ?? 0, eye?.fade ?? 0]) f32(x);
+    }
+    if (version >= 21) {                                             // v21: the player's pose parameters, 100 bytes
+      u16(pose ? 1 : 0xffff); u8(pose ? 1 : 0); u8(24);
+      for (let k = 0; k < 24; k++) f32(pose?.[k] ?? 0);
     }
   }));
   return new Uint8Array(bytes).buffer;
@@ -250,6 +254,17 @@ test('v20: the player\'s wizard eye after the sweeps', () => {
   assert.equal(JSON.stringify(rec.frames[0].wizardEye), '{"enabled":true,"duration":30,"lightmapAdd":0.5,"propsAdd":0.25,"fade":1}');
   assert.equal(rec.frames[0].sweeps[0].range, 120);
   assert.equal(rec.frames[1].wizardEye, null);
+});
+
+test('v21: the player\'s pose parameters after the wizard eye', () => {
+  const rec = context.parseRecording(recording([
+    { tick: 10, entities: [player, orc], wall: 1.0, input: { buttons: 0, pressed: 0 }, eye: { enabled: true, duration: 30, lightmapAdd: .5, propsAdd: .25, fade: 1 }, pose: [.5, .25, .75, .5] },
+    { tick: 11, entities: [player, orc], wall: 1.1, input: { buttons: 0, pressed: 0 } },
+  ], 21));
+  assert.deepEqual(rec.frames[0].pose.slice(0, 4), [.5, .25, .75, .5]);
+  assert.equal(rec.frames[0].pose.length, 24);
+  assert.equal(rec.frames[0].wizardEye.duration, 30);
+  assert.equal(rec.frames[1].pose, null);
 });
 
 test('v18: an NPC\'s alert level and state every tick', () => {

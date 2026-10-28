@@ -197,7 +197,7 @@ function parseRecording(buf) {
   const v = new DataView(buf);
   if (v.getUint32(0, true) !== MAGIC_LO || v.getUint32(4, true) !== MAGIC_HI) throw new Error("This file is not a Rusty Bridge recording (.rbrec).");
   const version = v.getUint32(8, true);
-  if (version < 1 || version > 20) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 20).`);
+  if (version < 1 || version > 21) throw new Error(`Recording version ${version} is newer than this viewer (versions 1 to 21).`);
   // Record sizes by version; v5 adds EHANDLE serials, v7 an entity's link (a knocked-down NPC's ragdoll and back),
   // v19 Arkane's size and shrink.
   const ENTITY_BYTES = version === 1 ? 32 : version < 5 ? 52 : version < 7 ? 56 : version < 10 ? 64 : version < 19 ? 80 : 88;
@@ -390,6 +390,12 @@ function parseRecording(buf) {
         fr.wizardEye = v.getUint8(p + 2) ? { enabled: !!v.getUint8(p + 3), duration: v.getFloat32(p + 4, true), lightmapAdd: v.getFloat32(p + 16, true),
                                             propsAdd: v.getFloat32(p + 28, true), fade: v.getFloat32(p + 32, true) } : null;
         p += 36;
+      }
+      // v21: the player's pose parameters (100 bytes), each normalized 0 to 1: player_basic's move_yaw, body_pitch,
+      // body_yaw and body_roll first.
+      if (version >= 21) {
+        fr.pose = v.getUint8(p + 2) ? Array.from({ length: Math.min(v.getUint8(p + 3), 24) }, (_, k) => v.getFloat32(p + 4 + 4 * k, true)) : null;
+        p += 100;
       }
       for (const index of gone) { const t = live.get(index); if (t) { close(t, fi); live.delete(index); } }
       if (key) for (const [index, t] of live) if (!seen.has(index)) { close(t, fi); live.delete(index); }

@@ -72,6 +72,12 @@ A studio model is one skinned GLB:
   animation events, `events` lists them as `[cycle, id]` pairs. Those are
   Arkane's ids: 2186 opens a hit window and 2190 closes it, and 2102 and
   2139 are the struck parts. A few events with a non-finite cycle are left out.
+- **Blends:** a sequence that blends a grid of animations plays its centre (the neutral pose of an aim matrix, the
+  forward one of a `move_yaw` walk). A one-row grid also gets a clip per column, `NAME@COLUMN`, after every sequence's
+  (#10394): `player_basic`'s `Walk@0` to `Walk@8` are south, south-east and so on round to south again, `move_yaw` −180
+  to 180. Each blended clip's extras name what it blends over (`parameters`: the pose parameter, and its value at the
+  first and last column), and each column's which sequence it's of (`cellOf`), its column (`cell`) and its value (`at`).
+  Grids of more than one row still play their centre only.
   When the sequence's animation has root motion (Source's `mstudiomovement_t`, which
   it keeps out of the root bone), `movement` lists `[cycle, x, y, angle]` at each
   piece's end, cumulative, in the model's frame (Source units, X forward, Y left;

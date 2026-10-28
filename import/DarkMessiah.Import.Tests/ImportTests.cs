@@ -238,6 +238,32 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
     }
 
     [Fact]
+    public void BlendColumnsBecomeClips()
+    {
+        if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }
+        var files = new DonorFiles(new RustyBridge.Wire.Donor.VpkIndex(vpks));
+        var log = new ImportLog();
+        string dir = Directory.CreateTempSubdirectory("dm-import-").FullName;
+        try
+        {
+            // The player's walk blends nine animations by move_yaw (#10394): the sequence plays the forward one, and each
+            // column is a clip of its own after every sequence's.
+            var result = new ModelImport(files, new Materials(files, log), log).Import("models/npc/player/player_basic.mdl", Path.Combine(dir, "player.glb"));
+            var glb = File.ReadAllBytes(result.File);
+            var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
+            var clips = json["animations"]!.AsArray().ToDictionary(a => a!["name"]!.GetValue<string>(), a => a!["extras"]!);
+            Assert.Equal("a_WalkN", clips["Walk"]["animation"]!.GetValue<string>());
+            Assert.Equal("move_yaw", clips["Walk"]["parameters"]![0]!["name"]!.GetValue<string>());
+            Assert.Equal(("a_WalkS", -180f), (clips["Walk@0"]["animation"]!.GetValue<string>(), clips["Walk@0"]["at"]!.GetValue<float>()));
+            Assert.Equal(("a_WalkE", -90f), (clips["Walk@2"]["animation"]!.GetValue<string>(), clips["Walk@2"]["at"]!.GetValue<float>()));
+            Assert.Equal(("a_WalkN", 0f, "Walk", 4), (clips["Walk@4"]["animation"]!.GetValue<string>(), clips["Walk@4"]["at"]!.GetValue<float>(),
+                clips["Walk@4"]["cellOf"]!.GetValue<string>(), clips["Walk@4"]["cell"]!.GetValue<int>()));
+            Assert.Equal("body_pitch", clips["body_rot_x@0"]["parameters"]![0]!["name"]!.GetValue<string>());
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void OrcClipsFollowTheWiresSequenceNumbering()
     {
         if (Vpks() is not string vpks) { output.WriteLine("no local/donor/vpks; skipped"); return; }
@@ -250,13 +276,17 @@ public sealed class DonorImportTests(Xunit.Abstractions.ITestOutputHelper output
             var result = new ModelImport(files, new Materials(files, log), log).Import(orc, Path.Combine(dir, "orc.glb"));
             var names = RustyBridge.Wire.Donor.StudioModel.SequenceNames(orc, files.Read);
             Assert.Equal(names, result.Sequences);
-            Assert.Equal(names.Count, result.Clips);
             Assert.Equal(54, result.Bones);
 
-            // One GLB holds every sequence as a clip, in the Wire's order.
+            // One GLB holds every sequence as a clip, in the Wire's order, then a clip per column of each one-row blend
+            // (#10394), NAME@COLUMN.
             var glb = File.ReadAllBytes(result.File);
             var json = JsonNode.Parse(Encoding.UTF8.GetString(glb, 20, BitConverter.ToInt32(glb, 12)))!;
-            Assert.Equal(names, json["animations"]!.AsArray().Select(a => a!["name"]!.GetValue<string>()));
+            var clips = json["animations"]!.AsArray().Select(a => a!["name"]!.GetValue<string>()).ToList();
+            Assert.Equal(names, clips.Take(names.Count));
+            Assert.Equal(clips.Count, result.Clips);
+            Assert.All(clips.Skip(names.Count), c => Assert.Contains(c.Split('@')[0], names));
+            Assert.All(clips.Skip(names.Count), c => Assert.True(int.TryParse(c.Split('@')[1], out _)));
 
             // Its default hitbox set, in order: hitbox 6 (group 4, the left arm) is on SK_L_Elbow, from
             // -1 to 13 units along the bone's X, which is glTF's Z.

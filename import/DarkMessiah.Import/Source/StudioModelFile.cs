@@ -23,12 +23,19 @@ public sealed record StudioAnimation(string Name, float Fps, int Flags, int Fram
     public bool IsDelta => (Flags & Delta) != 0;
 }
 
-/// <summary>A sequence: a blend grid of animations (row-major, <see cref="Columns"/> wide) and an optional per-bone weight list.</summary>
+/// <summary>
+/// A sequence: a blend grid of animations (row-major, <see cref="Columns"/> wide) and an optional per-bone weight list.
+/// <see cref="Parameters"/> are what its columns and rows blend over: an index into its file's
+/// <see cref="StudioModelFile.PoseParameters"/> (-1 for none) and the values at its first and last column or row.
+/// </summary>
 public sealed record StudioSequence(string Label, string Activity, int Flags, int Columns, int Rows, short[] Animations, float[]? BoneWeights,
-    float FadeIn, float FadeOut, int EventCount)
+    float FadeIn, float FadeOut, int EventCount, (int Index, float Start, float End)[]? Parameters = null)
 {
     public const int Looping = 0x1, Delta = 0x4, Autoplay = 0x8, Post = 0x10;
 }
+
+/// <summary>A pose parameter: what a blend grid's column or row runs over, from <paramref name="Start"/> to <paramref name="End"/>, wrapping every <paramref name="Loop"/> when it loops (0 when not).</summary>
+public sealed record StudioPoseParameter(string Name, int Flags, float Start, float End, float Loop);
 
 /// <summary>A named point on a bone (weapon grips, eyes, effects): a Source 3×4 transform local to the bone.</summary>
 public sealed record StudioAttachment(string Name, int Bone, float[] Local);
@@ -74,6 +81,8 @@ public sealed class StudioModelFile
     /// <summary>The first hitbox set's boxes, in their order: a trace's hitbox index counts them.</summary>
     public StudioHitbox[] Hitboxes { get; }
     public int FlexCount { get; }
+    /// <summary>The model's own pose parameters, in its order: what its sequences' blend grids name.</summary>
+    public StudioPoseParameter[] PoseParameters { get; }
 
     public StudioModelFile(string path, byte[] b)
     {
@@ -123,8 +132,18 @@ public sealed class StudioModelFile
                 weights = new float[Bones.Length];
                 for (int k = 0; k < weights.Length; k++) weights[k] = F(o + weightList + 4 * k);
             }
+            // paramindex[2] at +76, paramstart[2] at +84, paramend[2] at +92.
+            var parameters = new[] { (I(o + 76), F(o + 84), F(o + 92)), (I(o + 80), F(o + 88), F(o + 96)) };
             Sequences[i] = new StudioSequence(Str(o + I(o + 4)), Str(o + I(o + 8)), I(o + 12), columns, rows, anims, weights,
-                F(o + 104), F(o + 108), I(o + 24));
+                F(o + 104), F(o + 108), I(o + 24), parameters);
+        }
+
+        // numlocalposeparameters at +300, localposeparamindex at +304: 20 bytes each (name, flags, start, end, loop).
+        PoseParameters = new StudioPoseParameter[Math.Max(0, I(300))];
+        for (int i = 0; i < PoseParameters.Length; i++)
+        {
+            int o = I(304) + i * 20;
+            PoseParameters[i] = new StudioPoseParameter(Str(o + I(o)), I(o + 4), F(o + 8), F(o + 12), F(o + 16));
         }
 
         Textures = new string[I(204)];

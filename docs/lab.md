@@ -1045,6 +1045,61 @@ tick):
 - **Not done:** the bow, its arrow and other multi-joint items in the hands keep their origin (no `handle`, and no
   screenshot of them yet).
 
+### The player's body
+
+Dark Messiah draws the player's own body in first person (#10394): looking down, the legs, hips and belt show under
+the arms, striding, crouching, kicking and jumping. How the donor does it, from its own screenshots (`body-look` and
+`body-look-close`, docs/recording.md), Wire v21 recordings and server.dll:
+- **The model:** the body is the player entity's own third-person model, `player_basic` (one body part, six meshes:
+  head, gloves, leather and trousers), drawn under the camera at the player's feet. The arms are the view model's,
+  `first_basic`; hiding the view model leaves the legs. Looking down the feet show from about 60°, the belt and hips
+  from 75°.
+- **The head and arms:** never seen. In third person up close the body has neither: it's cut at the neck and shoulders,
+  sleeve stubs and seams open, as a joint scaled to nothing leaves a skinned mesh. So the donor collapses them on the
+  model itself at run time. Where client.dll does it isn't traced (its `SK_Head` references are blood effects).
+- **What it plays:** the server picks the body's clip, and the Wire has always carried the player entity's sequence
+  and cycle, and its layers since v6; since v21 its pose parameters too (docs/wire.md, "The player's pose"). The rules, as
+  `BodyAnimator` plays them (`Player/BodyAnimator.cs`):
+
+  | What | The donor's rule | How it was found |
+  | --- | --- | --- |
+  | Moving | `sprint` sprinting, else `run`, or `Walk` under 75 units/s; `Crouch` crouched | switches to `run` at a median 78 units/s (363 starts); backing (59) and the speed key (45) stay `Walk` |
+  | Starting | a gait from standing starts at cycle 0.75; between gaits the cycle carries on | every start is at 0.78 a tick in, whatever the idle's cycle |
+  | Stopping | let go, the gait plays on to its next stop point: a run's right foot at 0.25, left at 0.75, both at its end; a walk's left at 0.25, both at 0.5 and its end; a sprint's both at its end | 140 stops, from the key's release |
+  | Standing | `idle_rightfoot`, `_leftfoot` or `_middle` as it stopped; `idle_middle` after a walk shifts onto the left foot (`idle_middle_to_leftfoot`) 2.03 s on; `idle_leftfoot` after a kick, a crouch or a get-up | 330 stops; 23 of 23 shifts at 2.03 s |
+  | Turning on the spot | standing, the view more than 90° aside for 0.5 s, more than 100° for 0.1 s, or more than 45° looking more than 60° down: `Player_Turn_45_Right` (view to its left) or `_Left`, the facing following the cycle to the view in 0.5 s, back to the idle it had | server.dll's `mm_player_angle_for_turn`, `_time_to_turn`, `_max_angle_no_turn`, `_time_to_turn_fast`, `_angle_for_special_turn`, `_pitch_for_special_turn`; the turns in body-look |
+  | Facing | moving, the view's; standing, its own, `body_yaw` taking the difference up to its ±47.7° | median 0.1° off moving |
+  | `move_yaw` | the direction of travel from the facing (−180 backing, 90 strafing left), kept when it stops | v21 pose parameters |
+  | Kicks | `attack_kick_low` with the view more than 50° down, else `attack_kick_medium`, standing at 0.76 | server.dll+0x44A145 compares the pitch with `mm_player_minangle_to_medium_kick`; the kicks end at 0.76–0.77 |
+  | In the air | `jump_idle` over it, in at once; landing, `jump_out_idle`, `_walk`, `_run` or `_sprint` by the speed once over it while `jump_idle` fades in 0.3 s | body-look's jumps |
+  | Pitch and lean | `body_pitch` stays 0 for any view pitch, `body_roll` 0 leaning: the lean's roll is the client's | v21 pose parameters |
+
+  Every clip plays at its own rate (Source's playback rate 1), the turn faster. The walk, run, sprint and crouch are
+  9-way blends by `move_yaw`; the import gives each column its own clip (docs/import.md, "Clips"), and the lab blends the
+  two either side of the direction.
+- **Against the recordings:** `BodyCalibration` tells the rules what the donor's player did each tick (its velocity over
+  two ticks, its view, keys, sprint and duck; a kick where the donor's began, since whether one goes is the sword's) and
+  compares what they play with the player entity's own. The smoke runs it (`RB_BODY=path[,path]` prints it alone):
+
+  | Recording | Same clip | Cycle off (median) | Facing off (median) |
+  | --- | --- | --- | --- |
+  | `l01_a-v14-arena-bot` | 80% | 0.009 | 0.0° |
+  | `l01_a-v14-arena-hand` | 57% | 0.130 | 1.3° |
+  | `l01_a-v14-arena-hand2` | 74% | 0.054 | 0.4° |
+  | `l01_a-v21-movement` | 74% | 0.018 | 0.0° (`move_yaw` 0.0°) |
+  | `l01_a-v21-body-look` | 93% | 0.007 | 0.0° |
+
+  The rest is mostly which idle a stop picks when the lab's cycle has drifted a little from the donor's (a stop point
+  missed by a tick flips the foot, and the idle can last 30 s), a few turns' timing, and sprints the donor's stamina
+  refused (the calibration can't see stamina before v15).
+- **In the lab:** `PlayerBody` plays the rules from the lab's own movement, sprint as stamina admits it, crouch, kick
+  (as the sword starts one) and jumps, at the player's feet. `lab.body` reads it.
+- **Not drawn yet:** the Engine can't scale a joint, so the lab can't collapse the head and arms (asked as rusty-engine
+  #10436); drawn, they'd sit round the camera. `lab.body.show on` draws it anyway, to look at.
+- **Not done:** the aim layers (`body_rot_x`, `_y`, `_z`, delta clips by `body_pitch`, `body_yaw` and `body_roll`) and
+  the client's lean roll aren't played; ladders, mantling and grabs aren't (their clips are `player_basic`'s too). The
+  arms' kick is always `kick_medium`, where the donor's arms play `kick_low` past 50° down as the body does.
+
 ## The orc
 
 The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the donor's recorded orcs
@@ -1608,7 +1663,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, `lab.body` reads the player's body and `lab.body.show on|off` draws it, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

@@ -606,6 +606,19 @@ host.Call(engine =>
         foreach (var error in HeldItemCalibration.Measure(product.Combat.Orc, heldPath)) Console.WriteLine(error);
         return;
     }
+    // RB_BODY=path[,path...] plays the lab's body rules against each recording's player body (#10394), prints how they
+    // agree and stops.
+    if (Environment.GetEnvironmentVariable("RB_BODY") is { Length: > 0 } bodyPaths)
+    {
+        var bodyInfo = product.Donor.Model(DarkMessiah.Lab.Player.PlayerBody.Model).Info;
+        foreach (var bodyPath in bodyPaths.Split(','))
+        {
+            var match = BodyCalibration.Measure(bodyInfo, bodyPath, Environment.GetEnvironmentVariable("RB_BODY_TRACE") is { } window
+                && window.Split('-') is [var from, var to] ? (int.Parse(from), int.Parse(to)) : null);
+            Console.WriteLine(match);
+        }
+        return;
+    }
     // RB_FLINCH_FIT=1 fits the procedural hit reaction's numbers (#10382) to every recorded blow, prints them and stops.
     if (Environment.GetEnvironmentVariable("RB_FLINCH_FIT") == "1")
     {
@@ -961,8 +974,9 @@ host.Call(engine =>
         var (stood, facing, waited) = (product.Player.Position, product.Player.LookState.YawRadians * 180 / MathF.PI, combat.Orc.Feet);
         combat.Reset();
         Feed(1, Key(KeyboardControl.KeyW, InputEdge.Pressed), Key(KeyboardControl.ShiftLeft, InputEdge.Pressed));
-        Feed(1);
+        for (int i = 0; i < 20; i++) Feed(1);
         bool fresh = product.Player.Sprinted && combat.Stamina.Sprinting;
+        string sprintBody = product.Body.Animator.Clip;
         for (int i = 0; i < 600 && combat.Stamina.Value > 0; i++) Feed(1);
         Feed(1);
         bool spent = !product.Player.Sprinted && !combat.Stamina.Sprinting;
@@ -974,6 +988,11 @@ host.Call(engine =>
         Feed(1, Key(KeyboardControl.ShiftLeft, InputEdge.Released), Key(KeyboardControl.KeyW, InputEdge.Released));
         Check(fresh && spent && low, FormattableString.Invariant(
             $"the body sprints as stamina admits: from full ({fresh}), not once spent ({spent}), not from {combat.Stamina.Value:0.0} ({low})"));
+        // Let go, the player's body (#10394) plays its gait on to a stop point and stands.
+        for (int i = 0; i < 60; i++) Feed(1);
+        string stoodBody = product.Body.Animator.Clip;
+        Check(sprintBody == "sprint" && stoodBody.StartsWith("idle_", StringComparison.Ordinal),
+            $"the player's body sprints with the lab's sprint ({sprintBody}) and stands once it's let go ({stoodBody})");
         Feed(1);
         product.Player.Place(stood, facing);
         combat.Orc.PlaceAt(waited);
@@ -981,6 +1000,84 @@ host.Call(engine =>
     }
     combat.Orc.Hold = false;
     combat.Orc.Spawn();
+
+    // The player's body (#10394): BodyAnimator's rules on player_basic, step by step, and against the recordings.
+    {
+        var bodyInfo = product.Donor.Model(PlayerBody.Model).Info;
+        var a = new BodyAnimator(bodyInfo);
+        a.Reset(90);
+        const float T = 1 / 66f;
+        void Run(int ticks, Vector2 velocity, float viewYaw = 90, float pitch = 0, bool moving = true, bool sprint = false, bool crouch = false, bool grounded = true, bool kick = false)
+        {
+            for (int i = 0; i < ticks; i++) a.Step(new BodyInput(T, velocity, viewYaw, pitch, moving, sprint, crouch, grounded, kick && i == 0));
+        }
+        var north = new Vector2(0, 1);
+        Run(1, north * 20);
+        var started = (a.Clip, a.Cycle);
+        Run(10, north * 180);
+        var running = (a.Clip, a.Cycle);
+        // Let go before 0.25: it runs on to 0.25, its right foot down.
+        while (!(a.Clip == "run" && a.Cycle is > .05f and < .2f)) Run(1, north * 180);
+        Run(1, north * 180, moving: false);
+        var onTo = a.Clip;
+        Run(20, Vector2.Zero, moving: false);
+        var stopped = a.Clip;
+        // Backing and strafing left set move_yaw.
+        Run(20, -north * 59);
+        float backing = a.MoveYaw;
+        Run(20, new Vector2(-180, 0));
+        float strafing = a.MoveYaw;
+        Run(60, Vector2.Zero, moving: false);
+        // The view 95° to the side turns it after 0.5 s, 110° after 0.1 s, each turn taking 0.5 s.
+        a.Reset(90);
+        Run(30, Vector2.Zero, viewYaw: 185, moving: false);
+        var waited = a.Clip;
+        Run(4, Vector2.Zero, viewYaw: 185, moving: false);
+        var turning = a.Clip;
+        Run(36, Vector2.Zero, viewYaw: 185, moving: false);
+        var (turned, facing) = (a.Clip, a.Yaw);
+        Run(8, Vector2.Zero, viewYaw: 185 + 110, moving: false);
+        var quick = a.Clip;
+        // Kicks: low past 50° down, medium else, standing by 0.76.
+        a.Reset(90);
+        Run(1, Vector2.Zero, pitch: 60, moving: false, kick: true);
+        var low = a.Clip;
+        a.Reset(90);
+        Run(1, Vector2.Zero, pitch: 10, moving: false, kick: true);
+        var medium = a.Clip;
+        Run(50, Vector2.Zero, pitch: 10, moving: false);
+        var afterKick = a.Clip;
+        // Off the ground jump_idle plays over it; landing, jump_out_idle.
+        a.Reset(90);
+        Run(20, Vector2.Zero, moving: false, grounded: false);
+        bool airborne = a.Layers.Any(l => l.Clip == "jump_idle" && l.Weight > .99f);
+        Run(1, Vector2.Zero, moving: false);
+        bool landed = a.Layers.Any(l => l.Clip == "jump_out_idle");
+        // Crouched: Crouch moving, Crouch_Idle still.
+        Run(5, north * 50, crouch: true);
+        var crouchMove = a.Clip;
+        Run(5, Vector2.Zero, moving: false, crouch: true);
+        var crouchStill = a.Clip;
+        Check(started.Clip == "Walk" && MathF.Abs(started.Cycle - BodyAnimator.GaitStart) < .03f && running.Clip == "run" && running.Cycle > started.Cycle
+                && onTo == "run" && stopped == "idle_rightfoot" && MathF.Abs(MathF.Abs(backing) - 180) < 1 && MathF.Abs(strafing - 90) < 1
+                && waited.StartsWith("idle_", StringComparison.Ordinal) && turning == "Player_Turn_45_Right" && turned.StartsWith("idle_", StringComparison.Ordinal)
+                && MathF.Abs(BodyAnimator.Wrap(facing - 185)) < 1 && quick == "Player_Turn_45_Right" && low == "attack_kick_low" && medium == "attack_kick_medium"
+                && afterKick == "idle_leftfoot" && airborne && landed && crouchMove == "Crouch" && crouchStill == "Crouch_Idle",
+            FormattableString.Invariant($"the player's body: a start walks from {started.Clip}@{started.Cycle:0.00} into {running.Clip}@{running.Cycle:0.00}, let go before 0.25 it runs on ({onTo}) into {stopped}; backing move_yaw {backing:0}, strafing left {strafing:0}; the view 95° aside it waits ({waited}), turns ({turning}) and stands ({turned}) facing {facing:0}, 110° aside it turns in 0.1 s ({quick}); kicks {low} 60° down, {medium} 10°, then {afterKick}; jump_idle off the ground ({airborne}), jump_out_idle landing ({landed}); crouched {crouchMove}, {crouchStill}"));
+
+        // Against the recordings (BodyCalibration): the donor's player body each tick against the rules told what it did.
+        string recs = Path.Combine(repo!, "local", "recordings");
+        var bodyRecs = new (string Path, float Agree)[] { (Path.Combine(recs, "l01_a-v14-arena-bot.rbrec"), .75f), (Path.Combine(recs, "l01_a-v14-arena-hand.rbrec"), .5f),
+            (Path.Combine(recs, "l01_a-v14-arena-hand2.rbrec"), .7f), (Path.Combine(recs, "experiments", "l01_a-v21-movement.rbrec"), .7f),
+            (Path.Combine(recs, "experiments", "l01_a-v21-body-look.rbrec"), .9f) }.Where(r => File.Exists(r.Path)).ToList();
+        if (bodyRecs.Count > 0)
+        {
+            var matches = bodyRecs.Select(r => (Match: BodyCalibration.Measure(bodyInfo, r.Path), r.Agree)).ToList();
+            foreach (var (m, _) in matches) Console.WriteLine($"  {m}");
+            Check(matches.All(x => x.Match.Agreement >= x.Agree && x.Match.Cycle < .15f && x.Match.Yaw < 2 && (x.Match.MoveTicks == 0 || x.Match.MoveYaw < 5)),
+                $"the player's body against {matches.Count} recordings: the same clip on {string.Join(", ", matches.Select(x => $"{x.Match.Agreement:P0} (at least {x.Agree:P0})"))} of their ticks, its cycle, facing and move_yaw close where it is");
+        }
+    }
     Console.WriteLine($"donor content: {product.Donor.Source}");
     Check(combat.FirstPerson.Range > 2.4f && combat.FirstPerson.Range < 2.6f, FormattableString.Invariant($"the short sword's range is its rangeattack, 100 units: {combat.FirstPerson.Range:0.00} m"));
     // The gameplay tables (#10138): the scripts, item .qct and item models dm-import copies, read through the lab.

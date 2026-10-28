@@ -31,6 +31,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private readonly PlayerController player;
     private readonly CubeInteraction cubes;
     private readonly LabCombat combat;
+    // The player's own body under the camera (#10394).
+    private readonly PlayerBody playerBody;
     private readonly WorldTime time;
     private readonly InputDiagnostics diagnostics = new();
     private readonly LabDeveloper developer;
@@ -67,6 +69,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         player = new PlayerController(engine, scene.Session, scene.Entities, scene.PlayerEntity, PlayerTuning.Load(engine));
         player.Ladders = scene.Definition.Ladders.Select(LabScene.Ladder).ToArray();
         combat = new LabCombat(engine, donor, CombatTuning.Load(engine));
+        playerBody = new PlayerBody(engine, donor);
         cubes = new CubeInteraction(engine, scene, player, combat);
         // A fireball meets the arena where a ray along its step does (the player's body aside).
         combat.WorldRay = (from, to) =>
@@ -113,7 +116,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
         combat.Rebuild(BuildFile.Load(engine), draw: false);
         time = new WorldTime(engine);
-        developer = new LabDeveloper(engine, scene, player, cubes, combat, time, donor.Source, this, Observe, Publish);
+        developer = new LabDeveloper(engine, scene, player, cubes, combat, playerBody, time, donor.Source, this, Observe, Publish);
         hud = engine.Ui.OpenStream(new UiStreamRequest("darkmessiah-lab", "rusty-bridge.lab.hud"));
         notice = $"Donor content: {donor.Source}";
         PlaceAtSpawn();
@@ -123,6 +126,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     internal LabCombat Combat => combat;
     internal PlayerController Player => player;
     internal DonorContent Donor => donor;
+    /// <summary>The player's body under the camera (#10394).</summary>
+    internal PlayerBody Body => playerBody;
     internal CubeInteraction Cubes => cubes;
     internal LabScene Scene => scene;
 
@@ -197,11 +202,14 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
             if (throwPending && cubes.Held is not null) cubes.Throw();
             usePending = throwPending = false;
             player.Lean.Step(delta, leanLeft, leanRight);
+            bool kicking = combat.Sword.Move == SwordMove.Kick;
             combat.Step(delta, scene.SimulationStep, attackHeld || attackPending, blockHeld || blockPending, kickHeld || kickPending, player.Eye, player.Forward, player.Feet,
                 move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
                 crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value, zoomHeld: zoomHeld);
             player.Zoom = (combat.Zoom, Ranged.BowRules.ZoomedDegrees);
             kickPending = attackPending = blockPending = false;
+            playerBody.Step(delta, player.Motion.ControlledVelocity with { Y = 0 }, player.Forward, frame.Movement != Vector2.Zero, sprintAsked && combat.Stamina.Admits(sprintAsked),
+                player.Motion.Stance == CharacterStance.Crouched, player.Motion.Grounded, !kicking && combat.Sword.Move == SwordMove.Kick);
             // The first person draws from above the eye, turned by the head (#10161).
             player.Camera = combat.FirstPerson.View;
             scene.Step(delta, cubes.PrepareStep(delta));
@@ -278,6 +286,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         arrowLook.Dispose();
         eyeLight.Dispose();
         combat.Dispose();
+        playerBody.Dispose();
         hud.Dispose();
         donor.Dispose();
     }
@@ -375,7 +384,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private void Publish()
     {
         player.Publish(worldSeconds);
-        scene.Publish(combat.Facts().Concat(FireballFacts()).Concat(ArrowFacts()));
+        scene.Publish(combat.Facts().Concat(playerBody.Facts(player.Feet)).Concat(FireballFacts()).Concat(ArrowFacts()));
         PublishLandmarks();
         float eye = combat.WizardEye.Light;
         if (eye != eyeLightIntensity) engine.Graphics.UpdateLight(new LightUpdateRequest(eyeLight, EyeLight(eyeLightIntensity = eye)));
@@ -472,6 +481,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         scene.Reset();
         combat.Reset();
         PlaceAtSpawn();
+        playerBody.Reset(player.Forward);
         player.Lean.Reset();
         player.ResetCounters();
         ClearPending();

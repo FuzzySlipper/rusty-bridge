@@ -21,7 +21,7 @@ namespace DarkMessiah.Lab.Developer;
 /// clearance adapters).
 /// </summary>
 internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, PlayerController player, CubeInteraction cubes,
-    LabCombat combat, WorldTime time, string donorSource, IReplayBody replayBody, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
+    LabCombat combat, PlayerBody body, WorldTime time, string donorSource, IReplayBody replayBody, Func<DebugCommandResult> observe, Action changed) : IDebugCommandModule
 {
     private const float ProbeLimit = 8, ClearanceLimit = 8;
     // The most cells one grid readout answers.
@@ -163,6 +163,23 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         combat.Orc.CleaverTurn = degrees;
         changed();
         return DebugCommandResult.Success(FormattableString.Invariant($"the orc's cleaver drawn turned {degrees:0}°"));
+    }
+
+    [DebugCommand("lab.body", Description = "Read the player's body (#10394): the clip it plays and its cycle, its facing and move_yaw (degrees, Source's), its layers, and whether it is drawn.")]
+    public DebugCommandResult Body()
+    {
+        var a = body.Animator;
+        return DebugCommandResult.Success(FormattableString.Invariant(
+            $"{a.Clip}@{a.Cycle:0.00} facing {a.Yaw:0} body_yaw {a.BodyYaw:0} move_yaw {a.MoveYaw:0}{string.Concat(a.Layers.Select(l => $", {l.Clip}@{l.Cycle:0.00}x{l.Weight:0.00}"))}; {(body.Shown ? "drawn" : "not drawn")}"));
+    }
+
+    [DebugCommand("lab.body.show", Description = "Draw the player's body (on) or not (off, the default): until the Engine can collapse a joint (rusty-engine #10436) its head and arms show, which the donor's don't.")]
+    public DebugCommandResult BodyShow(string state)
+    {
+        if (state is not ("on" or "off")) return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "on or off.");
+        body.Shown = state == "on";
+        changed();
+        return DebugCommandResult.Success(body.Shown ? "the body drawn" : "the body not drawn");
     }
 
     [DebugCommand("lab.orc.ragdoll", Description = "Read the orc's ragdoll: falling, lying or blending back, the side it fell to and lies on, and every knockdown so far (fell as, lay on, seconds to getting up).")]

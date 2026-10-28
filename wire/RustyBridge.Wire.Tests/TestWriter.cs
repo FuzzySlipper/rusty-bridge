@@ -83,6 +83,7 @@ sealed unsafe class TestWriter : IDisposable
         _sweeps.CopyTo(new Span<WireSweep>((byte*)s + WireLayout.SweepsOffset + 8, _sweeps.Length));
         _sweeps = Array.Empty<WireSweep>();
         *(WireWizardEye*)((byte*)s + WireLayout.WizardEyeOffset) = _wizardEye;
+        *(WirePlayerPose*)((byte*)s + WireLayout.PoseOffset) = _pose;
         _layers.CopyTo(new Span<WireLayer>((byte*)s + WireLayout.LayersOffset, _layers.Length));
         s->LayerCount = (uint)_layers.Length;
         _layers = Array.Empty<WireLayer>();
@@ -102,6 +103,8 @@ sealed unsafe class TestWriter : IDisposable
     public void Sweeps(params WireSweep[] sweeps) => _sweeps = sweeps;
     public void WizardEye(WireWizardEye eye) => _wizardEye = eye;
     WireWizardEye _wizardEye = WireWizardEye.None;
+    public void Pose(WirePlayerPose pose) => _pose = pose;
+    WirePlayerPose _pose = WirePlayerPose.None;
     WireSweep[] _sweeps = Array.Empty<WireSweep>();
     WirePlayerStats _stats = WirePlayerStats.None;
     WirePlayerInput _input = WirePlayerInput.None;

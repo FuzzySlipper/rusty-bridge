@@ -7,7 +7,7 @@ namespace RustyBridge.Wire;
 public static class WireLayout
 {
     public const ulong Magic = 0x3130455249574252ul; // "RBWIRE01"
-    public const uint Version = 20;
+    public const uint Version = 21;
 
     public const int SlotCount = 128;
     public const int MaxEntities = 2048;
@@ -38,7 +38,9 @@ public static class WireLayout
     public static readonly int SweepsOffset = StatsOffset + Marshal.SizeOf<WirePlayerStats>();
     /// <summary>v20: the player's wizard eye, after the sweeps.</summary>
     public static readonly int WizardEyeOffset = SweepsOffset + 8 + MaxSweeps * Marshal.SizeOf<WireSweep>();
-    public static readonly int SlotBytes = WizardEyeOffset + Marshal.SizeOf<WireWizardEye>();
+    /// <summary>v21: the player's pose parameters, after the wizard eye.</summary>
+    public static readonly int PoseOffset = WizardEyeOffset + Marshal.SizeOf<WireWizardEye>();
+    public static readonly int SlotBytes = PoseOffset + Marshal.SizeOf<WirePlayerPose>();
     public static readonly long FileBytes = SlotsOffset + (long)SlotCount * SlotBytes;
 }
 
@@ -238,6 +240,36 @@ public struct WireWizardEye
     public float Fade;
 
     public static WireWizardEye None => new() { Player = WireLayout.NoEntity };
+}
+
+/// <summary>
+/// v21: the player's pose parameters (docs/wire.md, "The player's pose"): <c>CBaseAnimating::m_flPoseParameter</c>
+/// (+0xEC8), each normalized 0 to 1 over its model's range. <c>player_basic</c>'s are <c>move_yaw</c>, <c>body_pitch</c>,
+/// <c>body_yaw</c> and <c>body_roll</c>, in that order.
+/// </summary>
+[StructLayout(LayoutKind.Sequential, Pack = 4)]
+public unsafe struct WirePlayerPose
+{
+    public const int MaxParameters = 24;
+    /// <summary>The edict the parameters were read from; <see cref="WireLayout.NoEntity"/> when none.</summary>
+    public ushort Player;
+    /// <summary>1 when read.</summary>
+    public byte Valid;
+    /// <summary><see cref="MaxParameters"/>.</summary>
+    public byte Count;
+    fixed float pose[MaxParameters];
+
+    /// <summary>Parameter <paramref name="index"/>, normalized 0 to 1; NaN when not read.</summary>
+    public float this[int index] => Valid != 0 && index >= 0 && index < Math.Min((int)Count, MaxParameters) ? pose[index] : float.NaN;
+
+    public static WirePlayerPose None => new() { Player = WireLayout.NoEntity };
+
+    public static WirePlayerPose Of(ushort player, params float[] values)
+    {
+        var p = new WirePlayerPose { Player = player, Valid = 1, Count = MaxParameters };
+        for (int i = 0; i < Math.Min(values.Length, MaxParameters); i++) p.pose[i] = values[i];
+        return p;
+    }
 }
 
 /// <summary>

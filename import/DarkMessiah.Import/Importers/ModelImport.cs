@@ -55,6 +55,13 @@ public sealed class ModelImport
         var clips = new List<PendingClip>();
         for (int i = 0; i < sequences.Count; i++)
             if (Clip(mdl, sequences[i].File, sequences[i].Sequence, i) is PendingClip clip) clips.Add(clip);
+        // A one-row blend (the player's walk, run, sprint and crouch over move_yaw; its body_rot_* over the body's pitch,
+        // yaw and roll) also gets a clip per column, NAME@COLUMN, after every sequence's, so a product can blend them by
+        // the parameter as the engine does (#10394).
+        for (int i = 0; i < sequences.Count; i++)
+            if (sequences[i].Sequence is { Rows: 1, Columns: > 1 } blended)
+                for (int column = 0; column < blended.Columns; column++)
+                    if (Clip(mdl, sequences[i].File, blended, i, column) is PendingClip cell) clips.Add(cell);
         clips = WithinBudget(clips, c => (c.Keyframes, c.Values), c => _log.Warn($"{donorPath}: clip {c.Name} is over the Engine's per-GLB animation budget; skipped"));
         // Arkane's animation events, as [cycle, id] pairs: the hit windows (2186 opens, 2190 closes), the struck
         // parts (2102, 2139), sounds and combo windows. The combat lab times its moves by them.
@@ -303,14 +310,17 @@ public sealed class ModelImport
         return result;
     }
 
-    /// <summary>One sequence sampled on the root model's skeleton, or null when it has nothing to play.</summary>
-    PendingClip? Clip(StudioModelFile root, StudioModelFile file, StudioSequence seq, int number)
+    /// <summary>
+    /// One sequence sampled on the root model's skeleton, or null when it has nothing to play: a blend grid's centre (the
+    /// neutral pose of an aim or look matrix, the forward one of a move_yaw blend), or with <paramref name="cell"/> that
+    /// cell's animation, named <c>NAME@CELL</c>.
+    /// </summary>
+    PendingClip? Clip(StudioModelFile root, StudioModelFile file, StudioSequence seq, int number, int? cell = null)
     {
-        // A blend grid plays one animation here: its centre, the neutral pose of an aim or look matrix.
         int center = (seq.Rows / 2) * seq.Columns + seq.Columns / 2;
-        int animIndex = seq.Animations[Math.Min(center, seq.Animations.Length - 1)];
+        int animIndex = seq.Animations[Math.Min(cell ?? center, seq.Animations.Length - 1)];
         if (animIndex < 0 || animIndex >= file.Animations.Length) { _log.Warn($"{file.Path}: sequence {seq.Label} plays missing animation {animIndex}"); return null; }
-        if (seq.Animations.Length > 1) _log.Warn($"{root.Path}: blended sequences ({seq.Columns}x{seq.Rows}) play their centre animation only");
+        if (seq.Animations.Length > 1 && cell is null && seq.Rows > 1) _log.Warn($"{root.Path}: blended sequences ({seq.Columns}x{seq.Rows}) play their centre animation only");
         var anim = file.Animations[animIndex];
 
         // The file's bones by name onto the root's skeleton.
@@ -407,7 +417,28 @@ public sealed class ModelImport
             ["empty"] = empty,
         };
         if (Movement(anim, frames) is { } movement) extras["movement"] = movement;
-        return new PendingClip(seq.Label, times, channels, extras);
+        // What the grid blends over: the parameter's name (the file's pose parameter) and its values at the first and last
+        // column (and row); a cell's own value of the column's parameter.
+        if (seq.Animations.Length > 1 && seq.Parameters is { } parameters)
+        {
+            var named = new JsonArray();
+            foreach (var (index, start, end) in parameters.Take(seq.Rows > 1 ? 2 : 1))
+                named.Add(new JsonObject
+                {
+                    ["name"] = index >= 0 && index < file.PoseParameters.Length ? file.PoseParameters[index].Name : null,
+                    ["start"] = start,
+                    ["end"] = end,
+                });
+            extras["parameters"] = named;
+            if (cell is int c)
+            {
+                var (_, first, last) = parameters[0];
+                extras["cellOf"] = seq.Label;
+                extras["cell"] = c;
+                extras["at"] = seq.Columns > 1 ? first + (last - first) * (c % seq.Columns) / (seq.Columns - 1) : first;
+            }
+        }
+        return new PendingClip(cell is int k ? $"{seq.Label}@{k}" : seq.Label, times, channels, extras);
     }
 
     /// <summary>

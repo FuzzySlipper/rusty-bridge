@@ -34,7 +34,8 @@ player's stats: stamina, mana, the skill modules learned, skill points and the i
 each skill's level. Since v17 each tick carries the melee sweeps the server ran: the start, direction and range of each
 ray it swept for a swing. Since v18 every NPC carries its alert level and state each tick (they were on damage
 records only), so its alertness is seen climbing. Since v19 every entity carries Arkane's size and shrink, so a shrunk
-NPC is seen shrinking (below, "Shrink"). Since v20 each tick carries the player's wizard eye (below, "Wizard eye"). A control file beside the Wire holds the donor
+NPC is seen shrinking (below, "Shrink"). Since v20 each tick carries the player's wizard eye (below, "Wizard eye"), and since v21 the player's pose parameters
+(below, "The player's pose"). A control file beside the Wire holds the donor
 on a tick, steps it, and runs console commands; there's no other input or
 write-back yet.
 
@@ -86,6 +87,7 @@ at 72), then:
 - at 211,176 (v17), the melee sweeps: `count` u32, `dropped` u32, then up to 32 sweep records of 56 bytes (below, "The
   melee sweep")
 - at 212,976 (v20), the 36-byte wizard eye (below, "Wizard eye")
+- at 213,012 (v21), the 100-byte player pose (below, "The player's pose")
 
 Entities:
 
@@ -653,6 +655,25 @@ The wizard eye isn't a remote view: server.dll's `CARXSPELL_Spells::EnterWizardE
 padding, and the spell's numbers in `spells.txt` (`water_1`: `effect_duration` 30, `Lightmap_Max_Add` 0.002,
 `Props_Max_Add` 0.01) and these fields brighten the lightmaps and props for its duration (server.dll also names a
 `wizardeye_tonemap_scale`, 0.3, +0x3DEE9A). What the recording shows of it is in lab.md, "Wizard eye".
+
+## The player's pose
+
+Since v21 each tick carries the player's pose parameters (#10394): `CBaseAnimating::m_flPoseParameter`, 24 floats at
++0xEC8, read from edict 1 after the frame as the stats are. Its datadesc entry (server.dll+0x7978BC: the field type,
+then at +0x7978C0 the name pointer and the offset) is static; the tap checks the name and offset at load and records
+nothing if either differs (`pose: m_flPoseParameter at +0xEC8 checked` in its log).
+
+| Offset | Field | Source |
+| --- | --- | --- |
+| 0 | `player` u16 | edict index (1); 0xFFFF when not read |
+| 2 | `valid` u8 | 1 when read |
+| 3 | `count` u8 | 24 |
+| 4 | `pose` 24×f32 | `m_flPoseParameter`, each normalized 0 to 1 over the model's range |
+
+They're the player model's, in its order: `player_basic`'s are `move_yaw` (−180 to 180°, looping), `body_pitch`
+(−38.4 to 71.4°), `body_yaw` (±47.7°) and `body_roll` (±35.8°), from its `.mdl`. `move_yaw` picks the direction in the
+9-way blends of `Walk`, `run`, `sprint` and `Crouch`; the body ones weight the delta blends `body_rot_x`, `_y`, `_z`.
+The player's body and what it shows in first person are in lab.md, "The player's body".
 
 ## Finding fields: send tables
 

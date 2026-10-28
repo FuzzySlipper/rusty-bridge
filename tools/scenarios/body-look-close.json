@@ -1,0 +1,84 @@
+{
+  "description": "The player's body up close in third person (#10394): set up as body-look, then the third-person camera 70 units off at eye height from the front, the side and behind, and 40 degrees above in front with and without the viewmodel: whether the head and the body's arms are hidden on the model or only in first person. Marked with echo rb_bl.",
+  "seconds": 30,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "cl_drawhud 0"
+  ],
+  "play": [
+    "echo rb_bl body look close",
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    "thirdperson",
+    "cam_idealdist 70",
+    "cam_idealpitch 0",
+    "cam_idealyaw 180",
+    {
+      "wait": 2
+    },
+    "jpeg rb_bl_close_front 95",
+    "cam_idealyaw 90",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_close_side 95",
+    "cam_idealyaw 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_close_back 95",
+    "cam_idealyaw 180",
+    "cam_idealpitch 40",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_close_above 95",
+    "r_drawviewmodel 0",
+    {
+      "wait": 1
+    },
+    "jpeg rb_bl_close_above_novm 95",
+    "r_drawviewmodel 1",
+    "cam_idealpitch 0",
+    "cam_idealdist 150",
+    "firstperson",
+    {
+      "wait": 0.5
+    },
+    "cl_drawhud 1",
+    {
+      "wait": 1
+    }
+  ]
+}

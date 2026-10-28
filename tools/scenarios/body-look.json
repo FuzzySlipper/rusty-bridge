@@ -1,0 +1,302 @@
+{
+  "description": "The player's first-person body (#10394): the level's NPCs removed, the short sword, from (0, -2400) facing north with the HUD hidden. The game's jpeg screenshots (rb_bl_*.jpg) standing looking 45, 60, 75 and 89 degrees down, at 75 with the viewmodel hidden (the body alone), then at 70 down walking, running, sprinting, backing, strafing, crouched and crouch-walking, through a jump and a kick, leaning left and right, and turned 45 degrees on the spot (as it turns and 1.5 s on); then in third person standing, running and kicking. Marked with echo rb_bl.",
+  "seconds": 110,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "cl_drawhud 0"
+  ],
+  "play": [
+    "echo rb_bl body look",
+    "setpos 0 -2400 0",
+    "setang 45 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_stand_45 95",
+    "setpos 0 -2400 0",
+    "setang 60 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_stand_60 95",
+    "setpos 0 -2400 0",
+    "setang 75 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_stand_75 95",
+    "setpos 0 -2400 0",
+    "setang 89 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_stand_89 95",
+    "r_drawviewmodel 0",
+    "setpos 0 -2400 0",
+    "setang 75 90 0",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_stand_75_noarms 95",
+    "r_drawviewmodel 1",
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+walk",
+    "+forward",
+    {
+      "wait": 1.0
+    },
+    "jpeg rb_bl_walk 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_walk_b 95",
+    "-forward",
+    "-walk",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.0
+    },
+    "jpeg rb_bl_run 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_run_b 95",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+sprint",
+    "+forward",
+    {
+      "wait": 1.0
+    },
+    "jpeg rb_bl_sprint 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_sprint_b 95",
+    "-forward",
+    "-sprint",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+back",
+    {
+      "wait": 1.0
+    },
+    "jpeg rb_bl_back 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_back_b 95",
+    "-back",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+moveleft",
+    {
+      "wait": 1.0
+    },
+    "jpeg rb_bl_strafe 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_strafe_b 95",
+    "-moveleft",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+duck",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_crouch 95",
+    "+forward",
+    {
+      "wait": 1
+    },
+    "jpeg rb_bl_crouch_walk 95",
+    "-forward",
+    "-duck",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+jump",
+    {
+      "wait": 0.2
+    },
+    "jpeg rb_bl_jump_a 95",
+    "-jump",
+    {
+      "wait": 0.25
+    },
+    "jpeg rb_bl_jump_b 95",
+    {
+      "wait": 0.35
+    },
+    "jpeg rb_bl_jump_c 95",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+kick",
+    {
+      "wait": 0.2
+    },
+    "jpeg rb_bl_kick_a 95",
+    {
+      "wait": 0.2
+    },
+    "jpeg rb_bl_kick_b 95",
+    "-kick",
+    {
+      "wait": 0.25
+    },
+    "jpeg rb_bl_kick_c 95",
+    {
+      "wait": 1.5
+    },
+    "setpos 0 -2400 0",
+    "setang 70 90 0",
+    {
+      "wait": 1.5
+    },
+    "+leanleft",
+    {
+      "wait": 1
+    },
+    "jpeg rb_bl_lean_left 95",
+    "-leanleft",
+    {
+      "wait": 1
+    },
+    "+leanright",
+    {
+      "wait": 1
+    },
+    "jpeg rb_bl_lean_right 95",
+    "-leanright",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2400 0",
+    "setang 80 90 0",
+    {
+      "wait": 1.5
+    },
+    "setang 80 135 0",
+    {
+      "wait": 0.3
+    },
+    "jpeg rb_bl_turn_a 95",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_turn_b 95",
+    "setpos 0 -2400 0",
+    "setang 15 90 0",
+    "thirdperson",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_bl_third_stand 95",
+    "+forward",
+    {
+      "wait": 1
+    },
+    "jpeg rb_bl_third_run 95",
+    "-forward",
+    {
+      "wait": 1
+    },
+    "+kick",
+    {
+      "wait": 0.3
+    },
+    "jpeg rb_bl_third_kick 95",
+    "-kick",
+    {
+      "wait": 1.5
+    },
+    "firstperson",
+    {
+      "wait": 0.5
+    },
+    "cl_drawhud 1",
+    {
+      "wait": 1
+    }
+  ]
+}

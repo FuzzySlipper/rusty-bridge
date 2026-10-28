@@ -1,4 +1,4 @@
-// Wire v20: the tap's per-tick entity snapshots, in a file the tap maps and
+// Wire v21: the tap's per-tick entity snapshots, in a file the tap maps and
 // readers map read-only. Layout and protocol: docs/wire.md. The C# mirror is
 // wire/RustyBridge.Wire/WireLayout.cs; keep the two in step.
 #pragma once
@@ -7,7 +7,7 @@
 namespace wire {
 
 const uint64_t kMagic = 0x3130455249574252ull; // "RBWIRE01", little-endian
-const uint32_t kVersion = 20;
+const uint32_t kVersion = 21;
 
 const uint32_t kSlotCount = 128;     // ~2 s of history at 66 ticks/s
 const uint32_t kMaxEntities = 2048;  // Source's edict limit
@@ -373,8 +373,20 @@ struct WizardEye {
     float fade;                 // m_fMMWizardEyeFade (+0x1B44)
 };
 
+// v21: the player's pose parameters, CBaseAnimating::m_flPoseParameter (+0xEC8, 24 floats, from its datadesc;
+// docs/wire.md, "The player's pose"), each normalized 0 to 1 over the model's range, read after the frame like the
+// stats. player_basic's are move_yaw, body_pitch, body_yaw and body_roll.
+const uint32_t kMaxPoseParameters = 24;
+struct PlayerPose {
+    uint16_t player;            // edict index the parameters are read from; kNoEntity if none
+    uint8_t valid;              // 1 when read
+    uint8_t count;              // kMaxPoseParameters
+    float pose[kMaxPoseParameters];
+};
+
 #pragma pack(pop)
 
+static_assert(sizeof(PlayerPose) == 100, "PlayerPose layout");
 static_assert(sizeof(WizardEye) == 36, "WizardEye layout");
 static_assert(sizeof(Sweep) == 56, "Sweep layout");
 static_assert(sizeof(PlayerStats) == 112, "PlayerStats layout");
@@ -401,7 +413,8 @@ const uint32_t kInputOffset = kClientViewOffset + sizeof(ClientView);   // v12
 const uint32_t kStatsOffset = kInputOffset + sizeof(PlayerInput);      // v15 (80 bytes; 112 from v16)
 const uint32_t kSweepsOffset = kStatsOffset + sizeof(PlayerStats);   // v17
 const uint32_t kWizardEyeOffset = kSweepsOffset + sizeof(SweepBlock);   // v20
-const uint32_t kSlotBytes = kWizardEyeOffset + sizeof(WizardEye);
+const uint32_t kPoseOffset = kWizardEyeOffset + sizeof(WizardEye);   // v21
+const uint32_t kSlotBytes = kPoseOffset + sizeof(PlayerPose);
 const uint32_t kFileBytes = kSlotsOffset + kSlotCount * kSlotBytes;
 
 // The control file, rustybridge.control beside the Wire: a reader holds the

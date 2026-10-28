@@ -53,7 +53,10 @@ public sealed unsafe class WireReaderTests : IDisposable
         Assert.Equal(36, Marshal.SizeOf<WireWizardEye>());
         Assert.Equal(16, (int)Marshal.OffsetOf<WireWizardEye>(nameof(WireWizardEye.LightmapAdd)));
         Assert.Equal(WireLayout.SweepsOffset + 8 + 32 * 56, WireLayout.WizardEyeOffset);
-        Assert.Equal(27_855_616, WireLayout.FileBytes);
+        // v21: the player's pose parameters after the wizard eye (wire.h PlayerPose).
+        Assert.Equal(100, Marshal.SizeOf<WirePlayerPose>());
+        Assert.Equal(WireLayout.WizardEyeOffset + 36, WireLayout.PoseOffset);
+        Assert.Equal(27_855_616 + 128 * 100, WireLayout.FileBytes);
     }
 
     [Fact]

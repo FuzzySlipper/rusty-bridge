@@ -3621,10 +3621,15 @@ host.Call(engine =>
             var c = TakeOver("#9.4", .2f, unchanged: true);
             int cHandback = orc.Follow(Pose("#9.4", "attack_Fast", .2f, fresh: false), Tick).Count;
             int cLater = Played("#9.4", .25f, .8f);
-            Console.WriteLine($"  handback: {through} strikes in attack_Fast and {layerAttack} to .8, {afterHalf} from .2; fresh handback {a}, then {aAfter}, next play {aNext}; unchanged handback {b}, then {bAfter} at .85 and .9, next play {bNext}; at .2 {c}, {cHandback} on, {cLater} later");
+            // D: as C, on an orc that has already played the attack through .8 (R10382-7): that play's strikes, landed,
+            // keep none of this play's from striking.
+            int dBefore = Played("#9.5", 0, .8f);
+            var d = TakeOver("#9.5", .2f, unchanged: true);
+            int dLater = Played("#9.5", .25f, .8f);
+            Console.WriteLine($"  handback: {through} strikes in attack_Fast and {layerAttack} to .8, {afterHalf} from .2; fresh handback {a}, then {aAfter}, next play {aNext}; unchanged handback {b}, then {bAfter} at .85 and .9, next play {bNext}; at .2 {c}, {cHandback} on, {cLater} later; after a play of {dBefore}, at .2 {d}, {dLater} later");
             Check(through >= 2 && afterHalf >= 1 && a is (true, 0, > 0) && aAfter == 0 && aNext == through && b is (true, 0, > 0) && bAfter == 0 && bNext == through
-                    && c is (true, 0, > 0) && cHandback == 0 && cLater == afterHalf && !orc.Staggered,
-                $"given back onto attack_Fast and {layerAttack} .8 played, the replayed orc strikes none of the {through} strikes passed meanwhile, whether the handback's pose was fresh or the recording's next fresh one came at .85, and all on the next play; given back at .2, the {afterHalf} strikes the recording reaches after strike");
+                    && c is (true, 0, > 0) && cHandback == 0 && cLater == afterHalf && dBefore == through && d is (true, 0, > 0) && dLater == afterHalf && !orc.Staggered,
+                $"given back onto attack_Fast and {layerAttack} .8 played, the replayed orc strikes none of the {through} strikes passed meanwhile, whether the handback's pose was fresh or the recording's next fresh one came at .85, and all on the next play; given back at .2, the {afterHalf} strikes the recording reaches after strike, also where the orc had played the attack through before");
             orc.StopFollowing();
             combat.UseFlinch(false);
         }

@@ -318,9 +318,13 @@ internal sealed partial class Orc : IDisposable
             blows.Add(new OrcBlow(0, clip, Math.Clamp(to, open, close), Window: open));
     }
 
-    /// <summary>Marks the attack parts <paramref name="clip"/> has passed by <paramref name="to"/> as landed this play, striking none.</summary>
+    /// <summary>
+    /// Makes this play of <paramref name="clip"/> the one landed: the attack parts it has passed by <paramref name="to"/>
+    /// landed, striking none, and none of an earlier play's left to keep those ahead from striking (R10382-7).
+    /// </summary>
     void Elapsed(string clip, float to)
     {
+        landed.RemoveWhere(x => x.Clip == clip);
         var played = body.Model.Clip(clip);
         for (int part = 0; part < PartEvents.Length; part++)
             foreach (float at in played.At(PartEvents[part]))

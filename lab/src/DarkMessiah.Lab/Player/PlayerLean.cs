@@ -18,6 +18,9 @@ internal sealed class PlayerLean
     /// <summary>−1 leaning fully left, 1 fully right.</summary>
     internal float Value { get; private set; }
 
+    /// <summary>A lean held whatever the keys (<c>lab.dev.lean</c>), to pose the view as a donor screenshot was.</summary>
+    internal float? Held { get; set; }
+
     /// <summary>The view's roll, Source degrees (right side down positive): −15 leaning left.</summary>
     internal float RollDegrees => Value * Angle;
 
@@ -29,7 +32,7 @@ internal sealed class PlayerLean
 
     internal void Step(float seconds, bool left, bool right)
     {
-        float target = (right ? 1 : 0) - (left ? 1 : 0);
+        float target = Held ?? (right ? 1 : 0) - (left ? 1 : 0);
         Value += (target - Value) * (1 - MathF.Exp(-Speed * seconds));
         if (MathF.Abs(Value - target) < 1e-4f) Value = target;
     }

@@ -616,6 +616,7 @@ host.Call(engine =>
             var match = BodyCalibration.Measure(bodyInfo, bodyPath, Environment.GetEnvironmentVariable("RB_BODY_TRACE") is { } window
                 && window.Split('-') is [var from, var to] ? (int.Parse(from), int.Parse(to)) : null);
             Console.WriteLine(match);
+            Console.WriteLine(BodyCalibration.Leans(bodyPath));
         }
         return;
     }
@@ -993,6 +994,18 @@ host.Call(engine =>
         string stoodBody = product.Body.Animator.Clip;
         Check(sprintBody == "sprint" && stoodBody.StartsWith("idle_", StringComparison.Ordinal),
             $"the player's body sprints with the lab's sprint ({sprintBody}) and stands once it's let go ({stoodBody})");
+        // Leaning (R10394-2) moves and rolls the camera and leaves the body where it stands, unrolled, as the donor's.
+        for (int i = 0; i < 200 && product.Body.Animator.Clip.StartsWith("idle_middle", StringComparison.Ordinal); i++) Feed(1);
+        var (upright, bodyClip, bodyYaw, feetBefore) = (combat.FirstPerson.Camera.Position, product.Body.Animator.Clip, product.Body.Animator.Yaw, product.Player.Feet);
+        Feed(1, Key(KeyboardControl.KeyZ, InputEdge.Pressed));
+        for (int i = 0; i < 40; i++) Feed(1);
+        var leanedCamera = combat.FirstPerson.Camera.Position;
+        var (leanClip, leanYaw, leanFeet) = (product.Body.Animator.Clip, product.Body.Animator.Yaw, product.Player.Feet);
+        Feed(1, Key(KeyboardControl.KeyZ, InputEdge.Released));
+        for (int i = 0; i < 40; i++) Feed(1);
+        float cameraMoved = Vector3.Distance(leanedCamera, upright) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        Check(leanClip == bodyClip && leanYaw == bodyYaw && Vector3.Distance(leanFeet, feetBefore) < 1e-3f && cameraMoved > 20 && cameraMoved < 35,
+            FormattableString.Invariant($"leaning left moves the camera {cameraMoved:0.0} units and leaves the body standing as it stood ({bodyClip} to {leanClip}, facing {bodyYaw:0} to {leanYaw:0})"));
         Feed(1);
         product.Player.Place(stood, facing);
         combat.Orc.PlaceAt(waited);
@@ -1079,11 +1092,27 @@ host.Call(engine =>
         string recs = Path.Combine(repo!, "local", "recordings");
         var bodyRecs = new (string Path, float Agree)[] { (Path.Combine(recs, "l01_a-v14-arena-bot.rbrec"), .75f), (Path.Combine(recs, "l01_a-v14-arena-hand.rbrec"), .5f),
             (Path.Combine(recs, "l01_a-v14-arena-hand2.rbrec"), .7f), (Path.Combine(recs, "experiments", "l01_a-v21-movement.rbrec"), .7f),
-            (Path.Combine(recs, "experiments", "l01_a-v21-body-look.rbrec"), .9f) }.Where(r => File.Exists(r.Path)).ToList();
+            (Path.Combine(recs, "experiments", "l01_a-v21-body-look.rbrec"), .9f), (Path.Combine(recs, "experiments", "l01_a-v21-ladder.rbrec"), .8f),
+            (Path.Combine(recs, "experiments", "l01_a-v21-ladder-2.rbrec"), .9f), (Path.Combine(recs, "experiments", "l01_a-v21-ladder-3.rbrec"), .95f) }
+            .Where(r => File.Exists(r.Path)).ToList();
         if (bodyRecs.Count > 0)
         {
             var matches = bodyRecs.Select(r => (Match: BodyCalibration.Measure(bodyInfo, r.Path), r.Agree)).ToList();
             foreach (var (m, _) in matches) Console.WriteLine($"  {m}");
+            // Leaning (R10394-2): the donor's camera moves and rolls; its body neither rolls (body_roll; the server's
+            // mm_player_body_roll_lean_coeff and _coeff_body are 0) nor moves.
+            if (bodyRecs.FirstOrDefault(r => r.Path.Contains("v21-body-look")).Path is { } leanRec)
+            {
+                var lean = BodyCalibration.Leans(leanRec);
+                Console.WriteLine($"  {lean}");
+                Check(lean.Ticks > 100 && lean.CameraRoll > 14 && lean.Side > 20 && lean.BodyRoll < .5f && lean.Moved < .5f,
+                    $"the donor's body while its player leans: {lean}");
+            }
+            // On l01_a's ladder (R10394-1): on, getting on and off, the same clip nearly throughout.
+            var onLadder = matches.Where(x => x.Match.LadderTicks > 0).ToList();
+            if (onLadder.Count > 0)
+                Check(onLadder.All(x => x.Match.LadderAgreement >= .95f),
+                    $"the player's body on l01_a's ladder: the same clip on {string.Join(", ", onLadder.Select(x => $"{x.Match.LadderSame} of {x.Match.LadderTicks}"))} ticks on it, getting on or off");
             Check(matches.All(x => x.Match.Agreement >= x.Agree && x.Match.Cycle < .15f && x.Match.Yaw < 2 && (x.Match.MoveTicks == 0 || x.Match.MoveYaw < 5)),
                 $"the player's body against {matches.Count} recordings: the same clip on {string.Join(", ", matches.Select(x => $"{x.Match.Agreement:P0} (at least {x.Agree:P0})"))} of their ticks, its cycle, facing and move_yaw close where it is");
         }
@@ -1249,26 +1278,42 @@ host.Call(engine =>
         int stepsToMount = 0;
         for (; stepsToMount < 90 && p.LadderMove is null && p.Climbing is null; stepsToMount++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
         float mountY = p.Feet.Y;
+        string mountBody = product.Body.Animator.Clip;
         int mountSteps = 0;
         for (; mountSteps < 120 && p.Climbing is null; mountSteps++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
         bool mountHeld = MathF.Abs(p.Feet.Y - mountY) < .02f;
         for (int i = 0; i < 6; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        // The body on it (R10394-1): climbing up it plays Player_ladder_downup at the climb over 80 units/s, facing it.
+        string bodyMounting = mountBody;
+        var climbing = (product.Body.Animator.Clip, product.Body.Animator.Cycle, product.Body.Animator.Yaw);
         float y0 = p.Feet.Y;
         for (int i = 0; i < 30; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
         float upSpeed = (p.Feet.Y - y0) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
         for (int i = 0; i < 240 && p.LadderMove is null; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
         // Getting off at the top: a second onto the loft, the controls held off (backing doesn't take it back).
         int exitSteps = 0;
-        for (; exitSteps < 120 && p.LadderMove is not null; exitSteps++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        string exitBody = "";
+        for (; exitSteps < 120 && p.LadderMove is not null; exitSteps++)
+        {
+            climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+            if (exitSteps == 30) exitBody = product.Body.Animator.Clip;
+        }
         for (int i = 0; i < 30; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         var onLoft = p.Feet;
         bool offAtTop = p.Climbing is null && onLoft.X > 20.2f && MathF.Abs(onLoft.Y - 2.5f) < .1f && p.Motion.Grounded;
         // Back off the top, facing on: onto the rail in a second, then down at the same speed to its foot and off.
-        for (int i = 0; i < 150 && p.Climbing is null; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        string onFromTop = "";
+        float turnedAt = float.NaN;
+        for (int i = 0; i < 150 && p.Climbing is null; i++)
+        {
+            climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+            if (i == 5) (onFromTop, turnedAt) = (product.Body.Animator.Clip, product.Body.Animator.Yaw);
+        }
         bool remounted = p.Climbing is not null;
         for (int i = 0; i < 10; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
         float y1 = p.Feet.Y;
         for (int i = 0; i < 30; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        string downBody = product.Body.Animator.Clip;
         float downSpeed = (y1 - p.Feet.Y) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
         for (int i = 0; i < 300 && (p.Climbing is not null || p.LadderMove is not null); i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
         for (int i = 0; i < 20; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
@@ -1278,6 +1323,13 @@ host.Call(engine =>
         for (int i = 0; i < 20; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
         climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
         bool jumpedOff = p.Climbing is null && p.LadderMove is null;
+        for (int i = 0; i < 5; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        var letGo = (product.Body.Animator.Clip, product.Body.Animator.Layers.Count);
+        float ladderFacing = PlayerBody.Yaw(loftLadder.Facing with { Y = 0 });
+        Check(bodyMounting == "Player_ladder_idle" && climbing.Clip == "Player_ladder_downup" && MathF.Abs(BodyAnimator.Wrap(climbing.Yaw - ladderFacing)) < 1
+                && exitBody == "Player_ladder_out_downup" && onFromTop == "Player_ladder_in_updown" && MathF.Abs(MathF.Abs(BodyAnimator.Wrap(turnedAt - ladderFacing)) - 180) < 30
+                && downBody == "Player_ladder_updown" && letGo is ("idle_leftfoot", 0),
+            FormattableString.Invariant($"the player's body on the ladder (R10394-1): getting on {bodyMounting}, climbing {climbing.Clip} facing it ({climbing.Yaw:0}, the ladder {ladderFacing:0}), off at the top {exitBody}, on from the top {onFromTop} turned {turnedAt:0}, down {downBody}, let go {letGo.Clip} with {letGo.Count} layers"));
         for (int i = 0; i < 90; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         // Crouched into it (R10163-3): the ladder stands the body over its feet, which never go below the floor, and it
         // climbs, crouch still held, with no recovery from a penetration.

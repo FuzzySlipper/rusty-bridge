@@ -49,13 +49,16 @@ internal sealed class PlayerBody : IDisposable
 
     /// <summary>
     /// One step: the body's horizontal <paramref name="velocity"/> (m/s), the view's <paramref name="forward"/>, a movement
-    /// key held, sprinting, crouched, on the ground, and whether a kick began this step.
+    /// key held, sprinting, crouched, on the ground, whether a kick began this step; and on a ladder (R10394-1), its
+    /// phase, how fast the feet climb (m/s, up positive), the way the ladder faces and the way it's asked to climb.
     /// </summary>
-    internal void Step(float seconds, Vector3 velocity, Vector3 forward, bool moving, bool sprinting, bool crouched, bool grounded, bool kickStarted)
+    internal void Step(float seconds, Vector3 velocity, Vector3 forward, bool moving, bool sprinting, bool crouched, bool grounded, bool kickStarted,
+        LadderPhase ladder = LadderPhase.None, float climb = 0, Vector3 ladderFacing = default, float climbIntent = 0)
     {
         var source = new Vector2(velocity.Z, velocity.X) / SourceSpace.MetresPerUnit;
         float pitch = -MathF.Asin(Math.Clamp(forward.Y, -1, 1)) * 180 / MathF.PI;
-        Animator.Step(new BodyInput(seconds, source, Yaw(forward), pitch, moving, sprinting, crouched, grounded, kickStarted));
+        Animator.Step(new BodyInput(seconds, source, Yaw(forward), pitch, moving, sprinting, crouched, grounded, kickStarted,
+            new BodyLadder(ladder, climb / SourceSpace.MetresPerUnit, ladder == LadderPhase.None ? 0 : Yaw(ladderFacing with { Y = 0 }), climbIntent)));
     }
 
     /// <summary>The body at <paramref name="feet"/>, facing its yaw, posed as it plays; none unless <see cref="Shown"/>.</summary>

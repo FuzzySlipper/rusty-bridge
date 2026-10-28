@@ -4,12 +4,5 @@
        don't use the Engine (wire, import, combat) ignore it. -->
   <PropertyGroup>
     <RustyEnginePackageVersion>0.1.0-dev.f3da34d3f920</RustyEnginePackageVersion>
-    <RustyEngineCache Condition="'$(RustyEngineCache)' == '' and '$(XDG_CACHE_HOME)' != ''">$(XDG_CACHE_HOME)/rusty-engine</RustyEngineCache>
-    <RustyEngineCache Condition="'$(RustyEngineCache)' == '' and '$(HOME)' != ''">$(HOME)/.cache/rusty-engine</RustyEngineCache>
-    <RustyEngineCache Condition="'$(RustyEngineCache)' == ''">$(USERPROFILE)/.cache/rusty-engine</RustyEngineCache>
-    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed</RestoreAdditionalProjectSources>
   </PropertyGroup>
-  <Target Name="RequireRustyEnginePair" BeforeTargets="Restore;_GenerateRestoreGraph" Condition="!Exists('$(RustyEngineCache)/pairs/$(RustyEnginePackageVersion)/sdk-feed')">
-    <Error Text="Rusty Engine pair $(RustyEnginePackageVersion) is not installed: run `rusty install` in this repository." />
-  </Target>
 </Project>

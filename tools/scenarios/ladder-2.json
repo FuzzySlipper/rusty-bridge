@@ -1,0 +1,245 @@
+{
+  "description": "The player's body on a ladder, second take (#10394, R10394-1): ladder's setup; on at its foot, forward at view pitch -10 and -30 (up), screenshots 70 and 30 down mid-ladder, forward 30 down and back at -30; forward at -45 to the top and off; from the top, facing away from it looking 45 down, forward onto it, then down it looking 45 down and off its foot; in third person from its side the same with screenshots; then on, up a little and a jump off. Marked with echo rb_ld (ladder's first take showed the climb follows the view's pitch: level, forward held, it doesn't move).",
+  "seconds": 140,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "cl_drawhud 0"
+  ],
+  "play": [
+    "echo rb_ld first person on at the foot",
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld pitch -10",
+    "setang -10 90 0",
+    "+forward",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld pitch -30",
+    "setang -30 90 0",
+    "+forward",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "setang 70 90 0",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ld2_mid_70 95",
+    "setang 30 90 0",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ld2_mid_30 95",
+    "echo rb_ld pitch 30 down",
+    "+forward",
+    {
+      "wait": 0.6
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld back at pitch -30",
+    "setang -30 90 0",
+    "+back",
+    {
+      "wait": 0.6
+    },
+    "-back",
+    {
+      "wait": 1
+    },
+    "echo rb_ld pitch -45 to the top",
+    "setang -45 90 0",
+    "+forward",
+    {
+      "wait": 1.2
+    },
+    "jpeg rb_ld2_climb_up 95",
+    {
+      "wait": 6
+    },
+    "-forward",
+    {
+      "wait": 2
+    },
+    "echo rb_ld from the top facing away",
+    "setang 45 270 0",
+    {
+      "wait": 1
+    },
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_ld2_in_top 95",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld down looking down",
+    "setang 45 90 0",
+    "+forward",
+    {
+      "wait": 1.2
+    },
+    "jpeg rb_ld2_climb_down 95",
+    {
+      "wait": 7
+    },
+    "-forward",
+    {
+      "wait": 2
+    },
+    "echo rb_ld third person",
+    "thirdperson",
+    "cam_idealdist 120",
+    "cam_idealyaw 90",
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "jpeg rb_ld2_tp_on 95",
+    "setang -45 90 0",
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_ld2_tp_climb 95",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ld2_tp_climb_b 95",
+    {
+      "wait": 4
+    },
+    "jpeg rb_ld2_tp_out 95",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "setang 45 270 0",
+    "+forward",
+    {
+      "wait": 0.8
+    },
+    "jpeg rb_ld2_tp_in 95",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "setang 45 90 0",
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_ld2_tp_down 95",
+    {
+      "wait": 6
+    },
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "cam_idealyaw 0",
+    "firstperson",
+    "echo rb_ld jump off",
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    "setang -45 90 0",
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "+jump",
+    {
+      "wait": 0.2
+    },
+    "-jump",
+    {
+      "wait": 2.5
+    },
+    "echo rb_ld done"
+  ]
+}

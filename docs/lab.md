@@ -899,8 +899,8 @@ first orc an archer, as the maps' `npc_orc_bow` (l05_a, l05_b, l07_a, l09_a: `ra
 `PlayerLadder.cs` (#10163): the arena's ladders (`lab.json`'s `ladders`: a foot against a face, a top, the way a
 climber faces it; the loft in the north-east corner has one) are climbed on the Engine's climb rail
 (`CharacterMovementMode.Climbing`), a vertical line the body's radius plus `mm_player_ladder_offset` (9 units) out
-from the face, with server.dll's ConVar defaults (read from their registrations; l01_a has no ladder, so none is
-recorded):
+from the face, with server.dll's ConVar defaults (read from their registrations; measured since against l01_a's one
+ladder, below, which disagrees in places):
 - **Mounting:** walking into it, within 0.35 m of the rail and looking toward it (`sv_ladderautomountdot` 0.4); or
   from its top, backing off the edge facing the ladder's way.
 - **Climbing:** `mm_player_ladder_speed`, 80 units/s, up with forward and down with back. Forward climbs down
@@ -908,8 +908,16 @@ recorded):
 - **Getting off:** at the top, onto what it leads to, `mm_dist_to_exit_ladder` (5 units) past it
   (`sv_autoladderdismount` 1); at its foot climbing down, the same distance back; a jump lets go at once.
 - **Getting on and off takes** `mm_time_to_exit_enter_ladder`, 1 s: an eased move onto the rail or off it, the
-  controls held off meanwhile (R10163-1). The body's `Player_ladder_*` clips aren't played. Not measured against the
-  donor.
+  controls held off meanwhile (R10163-1). The body plays the donor's `Player_ladder_*` clips by its phase ("The
+  player's body").
+- **The donor's ladder** (`room03.ladder.02` in l01_a's barn loft, a `func_useableladder` from (1797, −575, 554) to
+  (1797, −543, 822); `ladder`, `ladder-2`, `ladder-3`, docs/recording.md): from its foot it's on the rail (9 units out)
+  the tick it's walked into, no move; forward climbs the way the view points, as fast as 80 units/s times the sine of
+  its pitch (13, 40 and 60 units/s at 10°, 30° and 45° up; looking level it doesn't move, and looking down it climbs
+  down), and back the other way; at the top it's off in 1.03 s onto the loft's dismount point; from the top it's
+  walked onto facing away from the ladder, turning round to it in 1.47 s (the body's `Player_ladder_in_updown`), the
+  view with it; at the foot climbing down it's off in 8 ticks; a jump lets go and it falls. The lab's climb (80 units/s
+  whatever the pitch, down only past 60°), its second getting on from the foot and its backing on from the top differ.
 - **Standing:** the ladder stands the body (R10163-3). A crouched one walking into it rises over its feet as the move
   onto the rail begins, the rail's ends are the standing body's, and crouch does nothing on the rail.
 - **Drawn:** two side rails and a rung every 0.3 m, 0.5 m wide, against the face from its foot to its top
@@ -1072,14 +1080,19 @@ the arms, striding, crouching, kicking and jumping. How the donor does it, from 
   | `move_yaw` | the direction of travel from the facing (−180 backing, 90 strafing left), kept when it stops | v21 pose parameters |
   | Kicks | `attack_kick_low` with the view more than 50° down, else `attack_kick_medium`, standing at 0.76 | server.dll+0x44A145 compares the pitch with `mm_player_minangle_to_medium_kick`; the kicks end at 0.76–0.77 |
   | In the air | `jump_idle` over it, in at once; landing, `jump_out_idle`, `_walk`, `_run` or `_sprint` by the speed once over it while `jump_idle` fades in 0.3 s | body-look's jumps |
-  | Pitch and lean | `body_pitch` stays 0 for any view pitch, `body_roll` 0 leaning: the lean's roll is the client's | v21 pose parameters |
+  | Pitch | `body_pitch` stays 0 for any view pitch | v21 pose parameters |
+  | Leaning | nothing: the body stands where it stood, unrolled, while the camera moves 27.3 units aside and rolls 15° | server.dll's `mm_player_body_roll_lean_coeff` and `_coeff_body` are 0; `body_roll` 0 and the origin still over 130 leaning ticks (body-look) and 792 (lean) |
+  | On a ladder | facing it: `Player_ladder_downup` asked up (or level) and `Player_ladder_updown` asked down while a key is held, at the climb's speed over 80 units/s (0.17, 0.5, 0.75 at 13, 40, 60 units/s; 0 when it doesn't move); `Player_ladder_idle` let go | `ladder`, `ladder-2`, `ladder-3` |
+  | Getting on and off a ladder | on from its foot at once (the lab's second-long move plays `Player_ladder_idle`); on from its top `Player_ladder_in_updown`, turning round to it as the clip does (179° by 0.69); off at the top `Player_ladder_out_downup` then `idle_leftfoot`; off at its foot or letting go, `idle_leftfoot`, with no `jump_idle` or landing as it falls | the same |
 
   Every clip plays at its own rate (Source's playback rate 1), the turn faster. The walk, run, sprint and crouch are
   9-way blends by `move_yaw`; the import gives each column its own clip (docs/import.md, "Clips"), and the lab blends the
   two either side of the direction.
 - **Against the recordings:** `BodyCalibration` tells the rules what the donor's player did each tick (its velocity over
   two ticks, its view, keys, sprint and duck; a kick where the donor's began, since whether one goes is the sword's) and
-  compares what they play with the player entity's own. The smoke runs it (`RB_BODY=path[,path]` prints it alone):
+  compares what they play with the player entity's own; on l01_a's ladder it's told the ladder's phase from where the
+  player is against the ladder's entity and how it moves (the Wire has no move type), and the climb asked from its keys
+  and view pitch. The smoke runs it (`RB_BODY=path[,path]` prints it alone, with the leans):
 
   | Recording | Same clip | Cycle off (median) | Facing off (median) |
   | --- | --- | --- | --- |
@@ -1088,12 +1101,21 @@ the arms, striding, crouching, kicking and jumping. How the donor does it, from 
   | `l01_a-v14-arena-hand2` | 74% | 0.054 | 0.4° |
   | `l01_a-v21-movement` | 74% | 0.018 | 0.0° (`move_yaw` 0.0°) |
   | `l01_a-v21-body-look` | 93% | 0.007 | 0.0° |
+  | `l01_a-v21-ladder` | 83% (on the ladder 97%) | 0.018 | 0.0° |
+  | `l01_a-v21-ladder-2` | 92% (99%) | 0.022 | 0.0° |
+  | `l01_a-v21-ladder-3` | 98% (100%) | 0.004 | 0.0° |
 
   The rest is mostly which idle a stop picks when the lab's cycle has drifted a little from the donor's (a stop point
   missed by a tick flips the foot, and the idle can last 30 s), a few turns' timing, and sprints the donor's stamina
   refused (the calibration can't see stamina before v15).
 - **In the lab:** `PlayerBody` plays the rules from the lab's own movement, sprint as stamina admits it, crouch, kick
-  (as the sword starts one) and jumps, at the player's feet. `lab.body` reads it.
+  (as the sword starts one), jumps and ladders (its phase, climb and the way it's asked to climb), at the player's
+  feet, in play and in replays. `lab.body` reads it. The smoke climbs the loft's ladder and checks the clips on, up,
+  off at the top, on from the top (turned away from it), down and let go; and holds a lean, the camera moving 27.3 units as the donor's does
+  and the body standing as it stood.
+- **Leaning against the donor:** `local/recordings/experiments/body-look/compare/lean_*.png` pairs the game's
+  `rb_bl_lean_left`/`_right` with the lab at 70° down (`lab.dev.lean`): the boot moves across the view the same way
+  under the leaned camera (left, the game's at 400 of 640 across, the lab's at 420; right, 200 and 210).
 - **Drawn:** `PlayerBody` scales `SK_Neck` and each `SK_*_Shoulder` to 0 (the Engine's joint scale, rusty-engine
   #10436), which takes the head and arms with them and leaves the collar and sleeve tops open where the donor's close
   shots have them; the collarbones and chest stay. Looking down from the lab's eye it shows as body-look's `stand_*`
@@ -1101,9 +1123,10 @@ the arms, striding, crouching, kicking and jumping. How the donor does it, from 
   model's arms. The smoke reads the collapse back from the pose (the head at the neck, the hands at the shoulders, the
   legs as the clip has them); the side-by-sides are `local/recordings/experiments/body-look/compare/`. `lab.body.show
   off` hides it.
-- **Not done:** the aim layers (`body_rot_x`, `_y`, `_z`, delta clips by `body_pitch`, `body_yaw` and `body_roll`) and
-  the client's lean roll aren't played; ladders, mantling and grabs aren't (their clips are `player_basic`'s too). The
-  arms' kick is always `kick_medium`, where the donor's arms play `kick_low` past 50° down as the body does.
+- **Not done:** the aim layers (`body_rot_x`, `_y`, `_z`, delta clips by `body_pitch`, `body_yaw` and `body_roll`)
+  aren't played; nor are mantling and grabs (their clips are `player_basic`'s too). The ladder plays as the lab climbs,
+  which isn't quite the donor's climb ("Ladders"). Holding forward against a ladder it can't get on (looking down at its
+  foot), the donor's body stands where the lab's walks (`ladder`'s first take, 562 ticks). The arms' kick is always `kick_medium`, where the donor's arms play `kick_low` past 50° down as the body does.
 
 ## The orc
 
@@ -1668,7 +1691,7 @@ shared/DarkMessiah.Shared/ ModelInfo (attachments, hit boxes, hulls, clips) and 
 - **Commands:**
   - `lab.inspect` and `lab.fight` read the lab and the fight;
   - `lab.orc.spawn` and `lab.orc.place x y z` spawn and place the orc;
-  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, `lab.body` reads the player's body and `lab.body.show on|off` draws it or hides it, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
+  - `lab.orc.hold on|off` keeps the orc from acting, `lab.orc.flinch on|off` has the orcs react procedurally or by the authored clips (see "Hit reactions"), `lab.orc.react fast|power|kick DEGREES` strikes the orc with a blow that takes no health from DEGREES about it and reports how it reacted, `lab.orc.pose CLIP CYCLE YAW` freezes it in a clip, `lab.dev.arms CLIP CYCLE` (`off 0` to stop) holds the first-person arms in one, `lab.dev.lean VALUE` (`off` to stop) holds the lean from −1 (left) to 1 (right), `lab.held.landmarks` reads the grips' landmark pairs, `lab.held.turn DEGREES` draws the orc's cleaver turned in its hand, `lab.body` reads the player's body and `lab.body.show on|off` draws it or hides it, and `lab.held.seat on|off` seats first-person items by their handle or hangs them by their origin as before #10395, `lab.orc.knockdown DEGREES SIDEWAYS` fells it with a blow from the player's side turned DEGREES (SIDEWAYS 1 for a power attack's push), and `lab.orc.ragdoll` reads its ragdoll and the knockdowns so far;
   - `lab.god` toggles god mode;
   - `lab.spell SPELL` puts `spells.txt`'s SPELL in hand as its belt slot would (`water_1`, the wizard eye, casts at once);
   - `lab.replay NAME` replays a recording's input and reports how the outcomes compare;

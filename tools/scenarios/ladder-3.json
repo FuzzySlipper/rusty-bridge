@@ -1,0 +1,145 @@
+{
+  "description": "The player's body on a ladder, third take (#10394, R10394-1): ladder's setup; on from the top, walking onto it facing away looking 45 down (screenshots as it gets on), down it looking 45 down and off its foot; in third person from its side up it looking 45 up (on, climbing, stopped, off the top) and down it from the top, with screenshots. Marked with echo rb_ld.",
+  "seconds": 80,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    },
+    "cl_drawhud 0"
+  ],
+  "play": [
+    "echo rb_ld on from the top",
+    "setpos 1797 -440 830",
+    "setang 45 270 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.2
+    },
+    "jpeg rb_ld3_in_a 95",
+    {
+      "wait": 0.6
+    },
+    "jpeg rb_ld3_in_b 95",
+    {
+      "wait": 1.5
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld down looking down",
+    "+forward",
+    {
+      "wait": 6
+    },
+    "-forward",
+    {
+      "wait": 2
+    },
+    "echo rb_ld third person up",
+    "thirdperson",
+    "cam_idealdist 120",
+    "cam_idealyaw 90",
+    "setpos 1797 -607 560",
+    "setang 0 90 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1
+    },
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "jpeg rb_ld3_tp_on 95",
+    "setang -45 90 0",
+    "+forward",
+    {
+      "wait": 1.5
+    },
+    "jpeg rb_ld3_tp_up 95",
+    {
+      "wait": 0.4
+    },
+    "jpeg rb_ld3_tp_up_b 95",
+    {
+      "wait": 3
+    },
+    "-forward",
+    {
+      "wait": 0.5
+    },
+    "jpeg rb_ld3_tp_idle 95",
+    "+forward",
+    {
+      "wait": 0.5
+    },
+    "jpeg rb_ld3_tp_out 95",
+    {
+      "wait": 3
+    },
+    "-forward",
+    {
+      "wait": 1
+    },
+    "echo rb_ld third person down",
+    "setpos 1797 -440 830",
+    "setang 45 270 0",
+    {
+      "wait": 1.5
+    },
+    "+forward",
+    {
+      "wait": 1.2
+    },
+    "jpeg rb_ld3_tp_in 95",
+    {
+      "wait": 2
+    },
+    "jpeg rb_ld3_tp_down 95",
+    {
+      "wait": 6
+    },
+    "-forward",
+    {
+      "wait": 1.5
+    },
+    "cam_idealyaw 0",
+    "firstperson",
+    "echo rb_ld done"
+  ]
+}

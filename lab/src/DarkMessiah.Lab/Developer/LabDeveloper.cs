@@ -138,6 +138,17 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         return DebugCommandResult.Success(FormattableString.Invariant($"arms hold {clip} at {cycle:0.00}"));
     }
 
+    [DebugCommand("lab.dev.lean", Description = "Hold the lean at VALUE (-1 fully left, 1 fully right) whatever Z and X do, to pose the view as a donor screenshot was; off leans by the keys again.")]
+    public DebugCommandResult Lean(string value)
+    {
+        if (value == "off") { player.Lean.Held = null; changed(); return DebugCommandResult.Success("the lean follows Z and X"); }
+        if (!float.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v) || !float.IsFinite(v))
+            return DebugCommandResult.Failure(DebugCommandStatus.InvalidArguments, "VALUE is a number from -1 to 1, or off.");
+        player.Lean.Held = Math.Clamp(v, -1, 1);
+        changed();
+        return DebugCommandResult.Success(FormattableString.Invariant($"the lean held at {player.Lean.Held:0.00}"));
+    }
+
     [DebugCommand("lab.orc.pose", Description = "Hold the orc in CLIP at CYCLE facing YAW (degrees, the view's: 0 along -Z), frozen until it spawns again, to pose it as a donor screenshot was.")]
     public DebugCommandResult PoseOrc(string clip, float cycle, float yaw)
     {

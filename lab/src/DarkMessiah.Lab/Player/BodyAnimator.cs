@@ -9,7 +9,17 @@ namespace DarkMessiah.Lab.Player;
 /// movement asked for (a movement key held); <paramref name="KickStarted"/> is the step a kick begins.
 /// </summary>
 internal readonly record struct BodyInput(float Seconds, Vector2 Velocity, float ViewYaw, float ViewPitch, bool Moving, bool Sprinting,
-    bool Crouched, bool Grounded, bool KickStarted);
+    bool Crouched, bool Grounded, bool KickStarted, BodyLadder Ladder = default);
+
+/// <summary>Where the body is with a ladder (R10394-1): off it, getting on from its foot or top, on it, or getting off at either end.</summary>
+internal enum LadderPhase { None, OnFromFoot, OnFromTop, On, OffAtTop, OffAtFoot }
+
+/// <summary>
+/// The body and a ladder: its <see cref="LadderPhase"/>, how fast it climbs (units/s, up positive), the way the
+/// ladder faces (the way a climber faces it, Source degrees) and the way it's asked to climb (up positive, down
+/// negative, 0 not at all: the keys and the view's pitch, whether or not it moves).
+/// </summary>
+internal readonly record struct BodyLadder(LadderPhase Phase, float Climb, float Facing, float Intent = 0);
 
 /// <summary>An overlay the body plays over its main clip: a clip at a cycle and weight.</summary>
 internal readonly record struct BodyLayer(string Clip, float Cycle, float Weight);
@@ -33,6 +43,12 @@ internal readonly record struct BodyLayer(string Clip, float Cycle, float Weight
 /// <item>Off the ground <c>jump_idle</c> plays over it; landing, <c>jump_out_idle</c>, <c>_walk</c>, <c>_run</c> or
 /// <c>_sprint</c> by the speed (as the head's, <see cref="Sword.HeadMotion"/>) plays once over it as <c>jump_idle</c> fades in
 /// <see cref="JumpFade"/>.</item>
+/// </list>
+/// <item>On a ladder (<see cref="BodyLadder"/>; l01_a-v21-ladder, -2, -3): facing it, <c>Player_ladder_downup</c> asked
+/// up (or level) and <c>Player_ladder_updown</c> asked down while a key is held, at the climb's speed over
+/// <see cref="LadderSpeed"/> (0 when it doesn't move: level, or at the foot asked down), <c>Player_ladder_idle</c> otherwise. Getting on from its foot, <c>Player_ladder_idle</c>;
+/// from its top, <c>Player_ladder_in_updown</c>; off at the top, <c>Player_ladder_out_downup</c>; off at its foot or
+/// letting go, <c>idle_leftfoot</c>, with no <c>jump_idle</c> or landing on the way down.</item>
 /// </list>
 /// Every clip plays at its own rate (Source's playback rate 1), the turn at <see cref="TurnSeconds"/>.
 /// </summary>
@@ -62,6 +78,11 @@ internal sealed class BodyAnimator(ModelInfo model)
     internal const float TurnSeconds = .5f;
     /// <summary>How long <c>jump_idle</c> takes to fade in off the ground, and out on landing.</summary>
     internal const float JumpFadeIn = .1f, JumpFade = .3f;
+    /// <summary>
+    /// <c>mm_player_ladder_speed</c>, units/s: a climb plays at its speed over this (the recordings' 0.17, 0.5 and 0.75 at
+    /// 13, 40 and 60 units/s).
+    /// </summary>
+    internal const float LadderSpeed = 80;
 
     internal string Clip { get; private set; } = "idle_leftfoot";
     internal float Cycle { get; private set; }
@@ -79,13 +100,13 @@ internal sealed class BodyAnimator(ModelInfo model)
     float pastRange, turnFrom;
     bool wasGrounded = true;
     float lastSpeed, idleFor;
-    bool walked;
+    bool walked, offLadder;
 
     /// <summary>Starts it standing in <paramref name="clip"/> at <paramref name="cycle"/> (<c>idle_leftfoot</c> at 0), facing <paramref name="yaw"/>.</summary>
     internal void Reset(float yaw, string clip = "idle_leftfoot", float cycle = 0)
     {
         (Clip, Cycle, Yaw, MoveYaw, BodyYaw) = (clip, cycle, yaw, 0, 0);
-        (jump, landing, pastRange, wasGrounded, lastIdle, idleFor, walked) = (null, null, 0, true, "idle_leftfoot", 0, false);
+        (jump, landing, pastRange, wasGrounded, lastIdle, idleFor, walked, offLadder) = (null, null, 0, true, "idle_leftfoot", 0, false, false);
     }
 
     /// <summary>Put facing <paramref name="yaw"/> at once (a teleport, a console <c>setang</c>), playing what it plays.</summary>
@@ -93,6 +114,18 @@ internal sealed class BodyAnimator(ModelInfo model)
 
     internal void Step(BodyInput input)
     {
+        if (input.Ladder.Phase != LadderPhase.None) { Climb(input); return; }
+        // Let go of a ladder, it stands as it falls: no jump_idle, no landing.
+        if (offLadder)
+        {
+            if (input.Grounded) offLadder = false;
+            else
+            {
+                Advance("idle_leftfoot", input.Seconds);
+                (jump, landing, wasGrounded, lastIdle) = (null, null, true, "idle_leftfoot");
+                return;
+            }
+        }
         float s = input.Seconds;
         float speed = input.Velocity.Length();
         bool kicking = Clip.StartsWith("attack_kick_", StringComparison.Ordinal);
@@ -165,6 +198,49 @@ internal sealed class BodyAnimator(ModelInfo model)
             landing = l.Cycle >= 1 ? null : l with { Cycle = MathF.Min(1, l.Cycle + Rate(l.Clip) * s) };
         wasGrounded = input.Grounded;
         lastSpeed = speed;
+    }
+
+    /// <summary>On, getting on or getting off a ladder: see the class's summary.</summary>
+    void Climb(BodyInput input)
+    {
+        var ladder = input.Ladder;
+        string next = ladder.Phase switch
+        {
+            LadderPhase.OnFromFoot => "Player_ladder_idle",
+            LadderPhase.OnFromTop => "Player_ladder_in_updown",
+            LadderPhase.OffAtTop => "Player_ladder_out_downup",
+            LadderPhase.OffAtFoot => "idle_leftfoot",
+            _ => !input.Moving ? "Player_ladder_idle" : ladder.Intent < 0 ? "Player_ladder_updown" : "Player_ladder_downup",
+        };
+        float rate = next is "Player_ladder_downup" or "Player_ladder_updown" ? MathF.Min(1, MathF.Abs(ladder.Climb) / LadderSpeed) : 1;
+        Advance(next, input.Seconds * rate);
+        // Getting on from the top it walks on facing away and the clip turns it round to the ladder.
+        Yaw = next == "Player_ladder_in_updown" ? Wrap(ladder.Facing + 180 + InTurn(Cycle)) : ladder.Facing;
+        BodyYaw = Math.Clamp(Wrap(input.ViewYaw - Yaw), -BodyYawRange, BodyYawRange);
+        (jump, landing, wasGrounded, pastRange, lastIdle, walked, idleFor) = (null, null, true, 0, "idle_leftfoot", false, 0);
+        offLadder = true;
+    }
+
+    /// <summary>
+    /// How far <c>Player_ladder_in_updown</c> has turned the body by its cycle, degrees: l01_a-v21-ladder-3's player, as
+    /// the clip's own root turn has it (179° by 0.69).
+    /// </summary>
+    internal static float InTurn(float cycle)
+    {
+        ReadOnlySpan<(float Cycle, float Turned)> turn = [(0, 0), (.09f, 9), (.2f, 59), (.3f, 95), (.4f, 126), (.5f, 151), (.61f, 172), (.71f, 179), (1, 180)];
+        for (int i = 1; i < turn.Length; i++)
+            if (cycle <= turn[i].Cycle)
+                return float.Lerp(turn[i - 1].Turned, turn[i].Turned, (cycle - turn[i - 1].Cycle) / (turn[i].Cycle - turn[i - 1].Cycle));
+        return 180;
+    }
+
+    /// <summary>Plays <paramref name="clip"/> on by <paramref name="seconds"/> at its rate, from its start when it's new.</summary>
+    void Advance(string clip, float seconds)
+    {
+        Cycle = clip == Clip ? Cycle + Rate(clip) * seconds : 0;
+        if (model.Clips.TryGetValue(clip, out var c) && c.Looping) Cycle -= MathF.Floor(Cycle);
+        else Cycle = MathF.Min(Cycle, 1);
+        Clip = clip;
     }
 
     /// <summary>

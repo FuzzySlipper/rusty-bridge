@@ -146,6 +146,7 @@ internal sealed class PlayerController : IDisposable
         }
         if (Climbing is not null && jumpPressed) Climbing = null;
         float climbIntent = 0;
+        ClimbIntent = 0;
         try
         {
             var movement = default(CharacterMovementRequest);
@@ -153,6 +154,7 @@ internal sealed class PlayerController : IDisposable
             {
                 var (bottom, top) = LadderRules.Rail(ladder, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
                 climbIntent = LadderRules.Intent(input.Movement.Y * movementScale, LookState.PitchRadians * 180 / MathF.PI);
+                ClimbIntent = climbIntent;
                 movement = new CharacterMovementRequest(CharacterMovementMode.Climbing, climbIntent, LadderRules.SpeedMetres, 0, 0, bottom, top, 0, 0, LadderRules.Reach);
             }
             receipt = engine.Spatial.ProposeCharacterStep(new CharacterStepRequest(session, Position, before, support, obstacles,
@@ -330,7 +332,28 @@ internal sealed class PlayerController : IDisposable
 
     // The ladder stands the body (R10163-3): a crouched one rises from where its feet are, so the move starts from the
     // standing centre over them and the rail's ends are the standing body's.
-    private void StartLadderMove(Vector3 to, Ladder? then) => LadderMove = (Feet + Vector3.UnitY * (Tuning.Height / 2), to, 0, then);
+    private void StartLadderMove(Vector3 to, Ladder? then)
+    {
+        LadderMove = (Feet + Vector3.UnitY * (Tuning.Height / 2), to, 0, then);
+        lastLadder = then ?? Climbing ?? lastLadder;
+    }
+
+    private Ladder? lastLadder;
+
+    /// <summary>
+    /// Where the body is with a ladder, for its animation (#10394, R10394-1): getting on at its foot or top or off at
+    /// either end (the end the move is nearer), on it, or off.
+    /// </summary>
+    internal LadderPhase LadderPhase => LadderMove is { } m
+        ? m.Then is { } on ? (m.To.Y > (on.Foot.Y + on.Top) / 2 ? LadderPhase.OnFromTop : LadderPhase.OnFromFoot)
+        : lastLadder is { } off && m.From.Y > (off.Foot.Y + off.Top) / 2 ? LadderPhase.OffAtTop : LadderPhase.OffAtFoot
+        : Climbing is not null ? LadderPhase.On : LadderPhase.None;
+
+    /// <summary>The way the last step on a ladder asked to climb: up positive, down negative (<see cref="LadderRules.Intent"/>).</summary>
+    internal float ClimbIntent { get; private set; }
+
+    /// <summary>The ladder the body is on, getting on or getting off, or null.</summary>
+    internal Ladder? LadderOf => LadderMove is { } m ? m.Then ?? lastLadder : Climbing;
 
     // The centre's height the body would stand at over its feet: the rail is the standing body's (R10163-3).
     private float StandingY => Feet.Y + Tuning.Height / 2 + walking.Shape.ContactSkin;

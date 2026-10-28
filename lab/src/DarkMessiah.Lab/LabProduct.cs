@@ -33,6 +33,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private readonly LabCombat combat;
     // The player's own body under the camera (#10394).
     private readonly PlayerBody playerBody;
+    private float bodyFeetY;
     private readonly WorldTime time;
     private readonly InputDiagnostics diagnostics = new();
     private readonly LabDeveloper developer;
@@ -208,8 +209,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value, zoomHeld: zoomHeld);
             player.Zoom = (combat.Zoom, Ranged.BowRules.ZoomedDegrees);
             kickPending = attackPending = blockPending = false;
-            playerBody.Step(delta, player.Motion.ControlledVelocity with { Y = 0 }, player.Forward, frame.Movement != Vector2.Zero, sprintAsked && combat.Stamina.Admits(sprintAsked),
-                player.Motion.Stance == CharacterStance.Crouched, player.Motion.Grounded, !kicking && combat.Sword.Move == SwordMove.Kick);
+            StepBody(delta, frame.Movement, sprintAsked && combat.Stamina.Admits(sprintAsked), !kicking && combat.Sword.Move == SwordMove.Kick);
             // The first person draws from above the eye, turned by the head (#10161).
             player.Camera = combat.FirstPerson.View;
             scene.Step(delta, cubes.PrepareStep(delta));
@@ -456,11 +456,25 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         // The arena's loose props aren't the donor's level: the replayed body passes them (#10164), meeting only the
         // arena's walls, so where they stand doesn't change the movement compared.
         player.Step(frame, jump, seconds, ReadOnlyMemory<CharacterObstacle>.Empty, default, scene.Colliders(), walkHeld: walk);
+        StepBody(seconds, move, sprint, false);
         if (use) cubes.Use();
         cubes.Interaction.Update();
         scene.Step(seconds, cubes.PrepareStep(seconds));
         return (player.Feet, grounded && !player.Motion.Grounded && player.Motion.ControlledVelocity.Y > 0, player.Motion.Grounded,
             player.LastStep is { } stepped && stepped.BlockFlags.HasFlag(CharacterBlockFlags.Wall));
+    }
+
+    /// <summary>
+    /// The player's body (#10394) after the player's step: as it moves, crouches and kicks, and on a ladder (R10394-1) by
+    /// its phase, its climb as fast as the feet rise or fall.
+    /// </summary>
+    void StepBody(float delta, Vector2 movement, bool sprinting, bool kickStarted)
+    {
+        float climb = delta > 0 ? (player.Feet.Y - bodyFeetY) / delta : 0;
+        bodyFeetY = player.Feet.Y;
+        playerBody.Step(delta, player.Motion.ControlledVelocity with { Y = 0 }, player.Forward, movement != Vector2.Zero, sprinting,
+            player.Motion.Stance == CharacterStance.Crouched, player.Motion.Grounded, kickStarted,
+            player.LadderPhase, climb, player.LadderOf?.Facing ?? default, player.ClimbIntent);
     }
 
     void IReplayBody.Return()

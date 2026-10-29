@@ -401,7 +401,7 @@ internal sealed partial class Orc : IDisposable
         // or dodged out of, as the step ends (R10151-4).
         AttackEnded();
         // Wounded mid-walk or mid-strafe, it goes on in its wounded clip.
-        if (Wounded && Hurt(Clip) is var hurt && hurt != Clip) Clip = hurt;
+        if (Wounded && Alive && Hurt(Clip) is var hurt && hurt != Clip) Clip = hurt;
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
@@ -413,7 +413,8 @@ internal sealed partial class Orc : IDisposable
         mind.Step(seconds, fresh);
         float before = Cycle;
         string playing = Clip;
-        Advance(seconds);
+        // Dead, it holds the pose it died in (R10157-1).
+        if (State != OrcState.Down) Advance(seconds);
         if (State is OrcState.Approach or OrcState.Ready or OrcState.Attack or OrcState.Hurt or OrcState.Dodging) RootMotion(playing, before, Cycle);
         // The procedural reaction's lean goes on over whatever it plays; a slide runs to its end, and off its footing it
         // turns (back on it, it faces the player again) (#10382).
@@ -452,6 +453,8 @@ internal sealed partial class Orc : IDisposable
                 break;
             case OrcState.Down:
                 downSeconds += seconds;
+                // Its ragdoll lies where it came to rest while the body is drawn (R10157-1).
+                if (downSeconds > DrawnDead) ReleaseRagdoll();
                 if (downSeconds >= tuning.RespawnSeconds) Spawn();
                 break;
             case OrcState.Approach:
@@ -574,20 +577,14 @@ internal sealed partial class Orc : IDisposable
     /// </summary>
     void StepHazards(float seconds)
     {
-        if (Hazards is not { } hazards || Following || !Alive) return;
+        if (Hazards is not { } hazards || Following) return;
+        // Playing onfire, it burns on in the fire (R10157-2): the burn that spends its health ends it sooner.
+        if (State == OrcState.Dying && onFire) { Burn(hazards, seconds); return; }
+        if (!Alive) return;
         if (hazards.Touching(Feet) is not null) { Impale(); return; }
-        if (hazards.FireAt(Feet) is not null)
-        {
-            if ((burnLeft -= seconds) <= 0)
-            {
-                burnLeft = ArenaHazards.FireEvery;
-                onFire = true;
-                Damage(ArenaHazards.FireDamage);
-                if (!Alive) return;
-            }
-        }
-        else burnLeft = 0;
-        if (onFire && State is not (OrcState.KnockedDown or OrcState.Backstabbed)) { Die("onfire", ArenaHazards.OnFireSeconds); return; }
+        Burn(hazards, seconds);
+        if (!Alive) return;
+        if (onFire && State is not (OrcState.KnockedDown or OrcState.Backstabbed)) { Die("onfire", ArenaHazards.OnFireSeconds, spent: false); return; }
         if (State == OrcState.KnockedDown) return;
         // Off a drop: a short one it drops down, as Source's NPCs fall; a deep one it falls to its death. With no ground
         // below at all it's off the arena (a check's place out of the way): nothing to fall onto.
@@ -601,6 +598,21 @@ internal sealed partial class Orc : IDisposable
         if (fallSpeed == 0 && ArenaHazards.Lethal(drop)) { FallToDeath(State == OrcState.Pushed ? pushDirection : Facing, drop); return; }
         fallSpeed += Gravity * seconds;
         Feet -= Vector3.UnitY * MathF.Min(fallSpeed * seconds, drop);
+    }
+
+    /// <summary>
+    /// A fire's burn where it stands: <see cref="ArenaHazards.FireDamage"/> every <see cref="ArenaHazards.FireEvery"/> s
+    /// within it, the first as it steps in, and it's on fire. Dead of it, it's down.
+    /// </summary>
+    void Burn(ArenaHazards hazards, float seconds)
+    {
+        if (hazards.FireAt(Feet) is null) { burnLeft = 0; return; }
+        if ((burnLeft -= seconds) > 0) return;
+        burnLeft = ArenaHazards.FireEvery;
+        onFire = true;
+        if (Alive) { Damage(ArenaHazards.FireDamage); return; }
+        Taken += MathF.Min(MathF.Max(Health, 0), ArenaHazards.FireDamage);
+        if ((Health -= ArenaHazards.FireDamage) <= 0) Dead();
     }
 
     /// <summary>Source's <c>sv_gravity</c>, 800 units/s², in metres: how an NPC falls a short drop.</summary>
@@ -765,26 +777,38 @@ internal sealed partial class Orc : IDisposable
         else Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
     }
 
-    /// <summary>Dead: down until it respawns, drawn no more after half a second.</summary>
+    /// <summary>How long a dead orc is drawn, seconds: its body, as it died, and then none.</summary>
+    internal const float DrawnDead = .5f;
+
+    /// <summary>
+    /// Dead: down until it respawns, drawn no more after <see cref="DrawnDead"/>. Till then it stays as it died
+    /// (R10157-1): its ragdoll where it came to rest, else its clip held where it ended (impaled, burnt, lying at the foot
+    /// of a fall), never back on its feet.
+    /// </summary>
     void Dead()
     {
         Health = 0;
         Layer = null;
+        hitLayer = null;
         downSeconds = 0;
         (onFire, fatalFall, fallSpeed) = (false, false, 0);
-        ReleaseRagdoll();
-        Play(OrcState.Down, "combatidle");
+        staggered = false;
+        State = OrcState.Down;
     }
 
     /// <summary>
     /// Dies playing <paramref name="clip"/> for <paramref name="seconds"/> (#10157): impaled on spikes (<c>Die_Impaled</c>),
-    /// or on fire (<c>onfire</c>). Its health is spent at once; it's down when the clip has played.
+    /// or on fire (<c>onfire</c>). It's down when the clip has played: impaled, its health is spent at once; on fire, it
+    /// keeps it, and the fire may burn it out first (R10157-2).
     /// </summary>
-    void Die(string clip, float seconds)
+    void Die(string clip, float seconds, bool spent = true)
     {
         if (!Alive || Following) return;
-        Taken += MathF.Max(Health, 0);
-        Health = 0;
+        if (spent)
+        {
+            Taken += MathF.Max(Health, 0);
+            Health = 0;
+        }
         Layer = null;
         hitLayer = null;
         ReleaseRagdoll();
@@ -1255,7 +1279,7 @@ internal sealed partial class Orc : IDisposable
     internal IEnumerable<AppearanceFact> Facts()
     {
         Present();
-        if (State == OrcState.Down && downSeconds > .5f) { published = false; return []; }
+        if (State == OrcState.Down && downSeconds > DrawnDead) { published = false; return []; }
         // Back after a death it wasn't drawn through (a reset, a respawn): the body first, its pose sampled once it's in
         // the published scene again, and the items from the next publish.
         if (!published) { published = true; return [body.Fact(Placement)]; }
@@ -1269,6 +1293,15 @@ internal sealed partial class Orc : IDisposable
         if (holdsShield && Rig.Attached(body.Model, pose, "LeftShield") is Transform wrist) facts.Add(shield.Fact(wrist));
         if (HoldsBow && Rig.Attached(body.Model, pose, "LeftHand_bow") is Transform bowHand) facts.Add(bow.Fact(bowHand));
         return facts;
+    }
+
+    /// <summary>Its head's height over its feet as it's drawn now, alive or dead (its ragdoll's, else its clip's): a check's readout.</summary>
+    internal float DrawnHead()
+    {
+        Present();
+        var drawn = ragdoll is not null ? engine.Animation.ReadJointPose(body.Instance) : default;
+        var pose = ragdoll is not null && drawn.Reported ? drawn.Joints.ToArray() : Rig.Pose(engine, body, Placement);
+        return pose[body.Model.Joints["SK_Head"]].World.Translation.Y - Feet.Y;
     }
 
     /// <summary>Where its head is in the clip's pose and in the pose its items and hit boxes take (leaned, #10382).</summary>

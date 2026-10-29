@@ -498,10 +498,15 @@ In the lab:
   7–10) with a ladder out. The arena's loft is 2.5 m (98 units): an orc kicked off it lands.
 - **The lethal drop** is taken between the recorded 165 (lived) and 303 (died): 238 units.
 - **Dying:** impaled or on fire, it plays its clip (`OrcState.Dying`) and is down after; fallen to its death, its
-  ragdoll comes to rest and it's down. A ragdoll that comes to rest a lethal drop below where it fell dies too.
+  ragdoll comes to rest and it's down. A ragdoll that comes to rest a lethal drop below where it fell dies too. On
+  fire it keeps its health and the fire goes on burning it, so one with little left burns out sooner (6 health: 1.1 s
+  in, at its second burn; R10157-2). Dead, it stays as it died for the half second it's still drawn (R10157-1): its
+  ragdoll where it came to rest, else its clip held where it ended (hanging on the spikes, `onfire` at 1.92 s, lying at
+  the foot of a fall), never back on its feet; any orc killed by a blow holds its last pose the same way.
 - **The smoke** kicks the orc on open ground (89 units, the clip's 90), into the spike rack and the fire with 1000
-  health (impaled; thrown down, up on fire, dead), stands one in the fire (dead 1.93 s after `onfire` began), and
-  kicks it into the pit (dead at the bottom) and off the loft (on its feet); and checks the rules against the
+  health (impaled; thrown down, up on fire, dead), stands one in the fire (dead 1.93 s after `onfire` began) and one
+  with 6 health (burnt out 1.1 s in), and kicks it into the pit (dead at the bottom) and off the loft (on its feet),
+  following each death through the time it's drawn (and a ragdoll's into the pit, headless); and checks the rules against the
   recordings (`HazardCalibration`): the pushes, the burns and the drops. `RB_HAZARDS=1` runs these alone.
 - **Not recorded:** a kick into spikes. l05_a's racks couldn't be reached from where `setpos` lands, and the tutorial,
   l00, whose spike room is built for it, never reached the tap's level dump; the rule is server.dll's. A ledge kick

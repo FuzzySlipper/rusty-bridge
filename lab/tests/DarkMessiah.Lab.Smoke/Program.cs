@@ -1127,7 +1127,9 @@ host.Call(engine =>
         bool hzHeld = combat.Orc.Hold;
         combat.Orc.Hold = true;
         // Kicks the orc standing at orcFeet from 60 units back along toward, and follows it for steps.
-        (List<string> Clips, Vector3 Feet, bool Alive, int DownAt, float Moved, Vector3 DownFeet) KickInto(Vector3 orcFeet, Vector3 toward, int steps, float health = 0, bool kick = true)
+        // Dead, it's followed through the time it's still drawn (R10157-1): the clips it shows then, and its head as it died
+        // and at its highest after.
+        (List<string> Clips, Vector3 Feet, bool Alive, int DownAt, float Moved, Vector3 DownFeet, List<string> Dead, float DiedHead, float DeadHead) KickInto(Vector3 orcFeet, Vector3 toward, int steps, float health = 0, bool kick = true)
         {
             combat.Reset();
             combat.Orc.Spawn();
@@ -1148,29 +1150,47 @@ host.Call(engine =>
                 // Dead, it's done (it would respawn).
                 if (downAt >= 0) break;
             }
-            return (clips, combat.Orc.Feet, downAt < 0, downAt, moved, downFeet);
+            var dead = new List<string>();
+            float diedHead = downAt >= 0 ? combat.Orc.DrawnHead() : 0, deadHead = 0;
+            for (int i = 0; downAt >= 0 && i * Tick <= DarkMessiah.Lab.Npc.Orc.DrawnDead; i++)
+            {
+                if (combat.Orc.Facts().Any()) { dead.Add(combat.Orc.Clip); deadHead = MathF.Max(deadHead, combat.Orc.DrawnHead()); }
+                combat.Step(Tick, step++, false, false, false, kickFeet + Vector3.UnitY * 1.6f, toward, kickFeet);
+            }
+            return (clips, combat.Orc.Feet, downAt < 0, downAt, moved, downFeet, dead, diedHead, deadHead);
         }
         string Seq(List<string> clips) => string.Join(">", clips.Take(7));
+        // Drawn dead, it shows only the clip it died in, held: its head never higher than as it died (impaled it hangs on the
+        // spikes, burnt it ends in onfire's pose at 1.92 s, fallen it lies).
+        bool AsItDied((List<string> Clips, Vector3 Feet, bool Alive, int DownAt, float Moved, Vector3 DownFeet, List<string> Dead, float DiedHead, float DeadHead) k) =>
+            k.Dead.Count > 0 && k.Dead.All(c => c == k.Clips[^1]) && k.DeadHead <= k.DiedHead + .01f;
+        string Drawn((List<string> Clips, Vector3 Feet, bool Alive, int DownAt, float Moved, Vector3 DownFeet, List<string> Dead, float DiedHead, float DeadHead) k) =>
+            FormattableString.Invariant($"drawn dead for {k.Dead.Count} steps in {string.Join(">", k.Dead.Distinct())}, its head at most {k.DeadHead:0.00} m up ({k.DiedHead:0.00} as it died)");
         var east = Vector3.UnitX;
         var open = KickInto(new Vector3(12, 0, 9), east, 150);
         float pushUnits = open.Moved / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
         Check(open.Alive && open.Clips.Contains("Push_Front_medium") && MathF.Abs(pushUnits - 90) < 3,
             FormattableString.Invariant($"a kick on open ground pushes the orc by Push_Front_medium's own root motion, {pushUnits:0} units (the clip's 90; the recorded unhindered pushes 68 to 91): {Seq(open.Clips)}"));
         var spikes = KickInto(new Vector3(29, 0, 1.9f), -Vector3.UnitZ, 300, health: 1000);
-        Check(!spikes.Alive && spikes.Clips.Contains("Die_Impaled") && spikes.DownAt > 0,
-            $"kicked into the spike rack, an orc with 1000 health is impaled and dies (the trap's 10000): {Seq(spikes.Clips)}, down at step {spikes.DownAt}");
+        Check(!spikes.Alive && spikes.Clips.Contains("Die_Impaled") && spikes.DownAt > 0 && AsItDied(spikes),
+            $"kicked into the spike rack, an orc with 1000 health is impaled and dies (the trap's 10000), and stays impaled while it's drawn: {Seq(spikes.Clips)}, down at step {spikes.DownAt}, {Drawn(spikes)}");
         var fire = KickInto(new Vector3(32, 0, 5.7f), -Vector3.UnitZ, 900, health: 1000);
         int fellAt = fire.Clips.FindIndex(c => c.StartsWith("StandUp_", StringComparison.Ordinal));
         int burnedAt = fire.Clips.IndexOf("onfire");
-        Check(!fire.Alive && fellAt > 0 && burnedAt > fellAt && fire.DownAt > 0,
-            $"kicked toward the fire, an orc with 1000 health is thrown down at its edge, gets up on fire, plays onfire and dies: {Seq(fire.Clips)}, down at step {fire.DownAt}");
+        Check(!fire.Alive && fellAt > 0 && burnedAt > fellAt && fire.DownAt > 0 && AsItDied(fire),
+            $"kicked toward the fire, an orc with 1000 health is thrown down at its edge, gets up on fire, plays onfire and dies, burnt as it's drawn: {Seq(fire.Clips)}, down at step {fire.DownAt}, {Drawn(fire)}");
         var inFire = KickInto(new Vector3(32, 0, 4.3f), -Vector3.UnitZ, 300, health: 1000, kick: false);
         int burnSteps = inFire.DownAt;
-        Check(!inFire.Alive && inFire.Clips.Contains("onfire") && MathF.Abs(burnSteps * Tick - DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds) < .1f,
-            FormattableString.Invariant($"standing in the fire, an orc with 1000 health plays onfire and is dead {burnSteps * Tick:0.00} s later (the donor's 1.92): {Seq(inFire.Clips)}"));
+        Check(!inFire.Alive && inFire.Clips.Contains("onfire") && MathF.Abs(burnSteps * Tick - DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds) < .1f && AsItDied(inFire),
+            FormattableString.Invariant($"standing in the fire, an orc with 1000 health plays onfire and is dead {burnSteps * Tick:0.00} s later (the donor's 1.92): {Seq(inFire.Clips)}, {Drawn(inFire)}"));
+        // Low on health, the fire burns it out in onfire before its 1.92 s (R10157-2; the donor's orc with 6 died 0.81 s in):
+        // its first burn leaves 3, the next, 1.1 s on, ends it.
+        var burntOut = KickInto(new Vector3(32, 0, 4.3f), -Vector3.UnitZ, 300, health: 6, kick: false);
+        Check(!burntOut.Alive && burntOut.Clips[^1] == "onfire" && MathF.Abs(burntOut.DownAt * Tick - DarkMessiah.Lab.Npc.ArenaHazards.FireEvery) < .05f && AsItDied(burntOut),
+            FormattableString.Invariant($"standing in the fire, an orc with 6 health burns on in onfire and is burnt out {burntOut.DownAt * Tick:0.00} s in (its second burn, {DarkMessiah.Lab.Npc.ArenaHazards.FireEvery} s after the first; the donor's 1.92 for its full health): {Seq(burntOut.Clips)}, {Drawn(burntOut)}"));
         var pit = KickInto(new Vector3(29.9f, 0, 8.5f), east, 300);
-        Check(!pit.Alive && pit.DownFeet.Y < -7,
-            FormattableString.Invariant($"kicked into the 8 m pit (316 units: past the donor's lethal drop, between 165 and 311), the orc falls to its death at {pit.DownFeet.Y:0.0} m: {Seq(pit.Clips)}"));
+        Check(!pit.Alive && pit.DownFeet.Y < -7 && AsItDied(pit),
+            FormattableString.Invariant($"kicked into the 8 m pit (316 units: past the donor's lethal drop, between 165 and 311), the orc falls to its death at {pit.DownFeet.Y:0.0} m and lies there while it's drawn: {Seq(pit.Clips)}, {Drawn(pit)}"));
         var loft = KickInto(new Vector3(20.6f, 2.5f, 20), -east, 200);
         Check(loft.Alive && MathF.Abs(loft.Feet.Y) < .05f,
             FormattableString.Invariant($"kicked off the 2.5 m loft (98 units, under the donor's 165 that it landed from), the orc lands on its feet at {loft.Feet.Y:0.00} m: {Seq(loft.Clips)}"));
@@ -4760,6 +4780,24 @@ host.Call(engine =>
                 && ragdollOrc.Placement.Scale.X == DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale && MathF.Abs(smallHalf.Y - .9f * DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .001f
                 && MathF.Abs(smallHead / standingHead - DarkMessiah.Lab.Magic.ShrinkRules.ShrunkScale) < .05f,
             FormattableString.Invariant($"shrunk as it lay as a ragdoll (R10348-1, ragdolled: {wasRagdolled}): small ({ragdollOrc.Shrunk}) in {ragdollOrc.Clip}, its ragdoll gone ({!ragdollOrc.RagdollState.Ragdolled}), drawn at {ragdollOrc.Placement.Scale.X:0.##}, its head {smallHead:0.00} m up ({smallHead / standingHead:0.00} of its {standingHead:0.00} standing), its box {smallHalf.Y * 2:0.00} m tall"));
+    }
+    // Fallen to its death into the hazard yard's pit as a ragdoll (R10157-1): dead where it came to rest, it lies there
+    // as its ragdoll while it's drawn, never back on its feet, and the ragdoll goes when the body does.
+    {
+        host.Call(_ => { ragdollOrc.Spawn(); ragdollOrc.PlaceAt(new Vector3(32.5f, 0, 8.5f)); });
+        bool fellRagdolled = false;
+        for (int i = 0; i < (int)(15 / Tick) && ragdollOrc.State != OrcState.Down; i++) { Update(); fellRagdolled |= ragdollOrc.RagdollState.Ragdolled; }
+        bool diedRagdolled = ragdollOrc.RagdollState.Ragdolled;
+        var deadClips = new HashSet<string>();
+        float deadHead = 0;
+        int drawnSteps = 0;
+        for (int i = 0; i * Tick <= DarkMessiah.Lab.Npc.Orc.DrawnDead + 2 * Tick; i++)
+        {
+            if (host.Call(_ => ragdollOrc.Facts().Any())) { drawnSteps++; deadClips.Add(ragdollOrc.Clip); deadHead = MathF.Max(deadHead, host.Call(_ => ragdollOrc.DrawnHead())); }
+            Update();
+        }
+        Check(fellRagdolled && diedRagdolled && ragdollOrc.State == OrcState.Down && ragdollOrc.Feet.Y < -7 && drawnSteps > 0 && deadHead < .8f && !ragdollOrc.RagdollState.Ragdolled && !deadClips.Contains("combatidle"),
+            FormattableString.Invariant($"headless, fallen into the pit as a ragdoll (ragdolled: {fellRagdolled}, at its death: {diedRagdolled}), it's dead at {ragdollOrc.Feet.Y:0.0} m and lies as its ragdoll for the {drawnSteps} steps it's drawn (head at most {deadHead:0.00} m up, in {string.Join(">", deadClips)}), its ragdoll gone after ({!ragdollOrc.RagdollState.Ragdolled})"));
     }
     Check(sides.Select(s => s.Side).Distinct().Count() == 2 && sides.All(s => s.HighestDown < 1.2f),
         FormattableString.Invariant($"it gets up from both sides, and from its fall through the blend back into its get-up it never stands as it was struck (head at most {sides.Select(s => s.HighestDown).DefaultIfEmpty(0).Max():0.00} m, standing {1.7:0.0})"));

@@ -48,6 +48,8 @@ internal sealed class OrcRagdoll : IDisposable
     /// The bodies here weigh 85 kg.
     /// </summary>
     internal const float Impulse = 120;
+    /// <summary>The share of <see cref="Impulse"/> a felling blow lifts the chest by.</summary>
+    internal const float Rise = .15f;
 
     readonly IEngineContext engine;
     readonly DynamicsRagdoll ragdoll;
@@ -68,7 +70,7 @@ internal sealed class OrcRagdoll : IDisposable
     /// <paramref name="facing"/>, pushed along <paramref name="push"/> (horizontal, from the blow). Null until the
     /// body's pose has been drawn and reported.
     /// </summary>
-    internal static OrcRagdoll? Spawn(IEngineContext engine, DynamicsWorld world, Puppet body, Vector3 facing, Vector3 push)
+    internal static OrcRagdoll? Spawn(IEngineContext engine, DynamicsWorld world, Puppet body, Vector3 facing, Vector3 push, float up = Rise)
     {
         var drawn = engine.Animation.ReadJointPose(body.Instance);
         if (!drawn.Reported) return null;
@@ -92,7 +94,7 @@ internal sealed class OrcRagdoll : IDisposable
         if (push.LengthSquared() > 1e-6f)
         {
             // At the chest, a little above its joint (where a swing lands), so the push turns the body as well.
-            var impulse = Vector3.Normalize(push with { Y = 0 }) * Impulse + Vector3.UnitY * Impulse * .15f;
+            var impulse = Vector3.Normalize(push with { Y = 0 }) * Impulse + Vector3.UnitY * Impulse * up;
             engine.Dynamics.ApplyRagdollImpulse(new DynamicsRagdollImpulseRequest(created, Chest, chest.Translation + Vector3.UnitY * .3f, impulse));
         }
         return new OrcRagdoll(engine, created, front);

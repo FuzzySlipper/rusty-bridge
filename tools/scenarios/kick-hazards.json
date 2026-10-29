@@ -1,0 +1,243 @@
+{
+  "description": "Kicks into hazards (#10157): the level's NPCs removed, notarget, every skill, the short sword; for each case an orc (default health, unaware) is spawned and set 65 units in front of the player, who kicks it (+kick) and watches: on open ground at (0, -2400); into the big fire at (412, -454) (env_fire, size 200, damagescale 1); off the barn loft's south edge (floor 826, the barn's 554) from 485 and 515 south; into the fire at (1288, -1296); on open ground again. Marked with echo rb_kh; jpeg screenshots rb_kh_*.",
+  "seconds": 90,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_kh open ground",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 10",
+    "setang 10 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 0 -2335 10\"",
+    "setpos 0 -2400 10",
+    "setang 10 90 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 4
+    },
+    "echo rb_kh fire 412 -454",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 327 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_kh_fire_a 95",
+    {
+      "wait": 2
+    },
+    "jpeg rb_kh_fire_b 95",
+    {
+      "wait": 6
+    },
+    "echo rb_kh loft edge far",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1757 -420 830",
+    "setang 10 270 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 1757 -485 830\"",
+    "setpos 1757 -420 830",
+    "setang 10 270 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.6
+    },
+    "setang 60 270 0",
+    {
+      "wait": 0.4
+    },
+    "jpeg rb_kh_ledge_a 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh loft edge near",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1757 -455 830",
+    "setang 10 270 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 1757 -515 830\"",
+    "setpos 1757 -455 830",
+    "setang 10 270 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.6
+    },
+    "setang 60 270 0",
+    {
+      "wait": 0.4
+    },
+    "jpeg rb_kh_ledge_b 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh fire 1288 -1296",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1288 -1166 60",
+    "setang 10 270 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 1288 -1231 60\"",
+    "setpos 1288 -1166 60",
+    "setang 10 270 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_kh_fire_c 95",
+    {
+      "wait": 8
+    },
+    "echo rb_kh open ground again",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 10",
+    "setang 10 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 0 -2335 10\"",
+    "setpos 0 -2400 10",
+    "setang 10 90 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 4
+    },
+    "echo rb_kh done"
+  ]
+}

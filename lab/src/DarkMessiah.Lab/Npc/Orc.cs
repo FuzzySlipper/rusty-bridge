@@ -10,7 +10,7 @@ namespace DarkMessiah.Lab.Npc;
 
 /// <summary>What the lab's orc is doing.</summary>
 /// <summary>Its state; <see cref="Ranged"/> is the archer's on the move with the bow (#10169), running at its own speed, not its clip's.</summary>
-internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed, Ranged }
+internal enum OrcState { Approach, Ready, Attack, Parry, Hurt, Pushed, Down, Backstabbed, Stunned, KnockedDown, Dodging, Quiet, Alarmed, Ranged, Dying }
 
 /// <summary>A ragdolled knockdown (#10216): the side its first frame took by the blow, the side it lay on at rest, and the seconds from the blow to getting up.</summary>
 internal readonly record struct RagdollKnockdown(string FellAs, string LayOn, float Seconds);
@@ -86,6 +86,11 @@ internal sealed partial class Orc : IDisposable
     OrcRagdoll? ragdoll;
     bool ragdollPending, ragdollSettled;
     Vector3 ragdollPush;
+    float ragdollUp = OrcRagdoll.Rise;
+    // The arena's hazards (#10157): a kick's push by its clip, the fire it burns in and when, its last seconds dying, a
+    // fall's speed, and whether the fall it's in kills it.
+    bool pushRoot, onFire, fatalFall;
+    float burnLeft, dieLeft, fallSpeed, fellFromY;
     float ragdollSeconds, lieLeft, knockedFor;
     string fallSide = "back";
     // The fall into a knockdown: the pose it was struck in, blended into the lying one (R10152-2).
@@ -138,13 +143,13 @@ internal sealed partial class Orc : IDisposable
     internal float AttackSpeed { get; }
     internal Vector3 Feet { get; private set; }
     internal Vector3 Facing { get; private set; } = -Vector3.UnitZ;
-    internal float Health { get; private set; }
+    internal float Health { get; set; }
     internal OrcState State { get; private set; }
     internal string Clip { get; private set; } = "combatidle";
     internal float Cycle { get; private set; }
     internal string? Layer { get; private set; }
     internal float LayerCycle { get; private set; }
-    internal bool Alive => State != OrcState.Down;
+    internal bool Alive => State is not (OrcState.Down or OrcState.Dying);
     /// <summary>Its defense-state word as Dark Messiah's verdict reads it: bit 0x4 while parrying.</summary>
     internal uint DefenseState => State == OrcState.Parry ? CombatModel.ParryState : 0;
     internal DonorModel BodyModel => body.Model;
@@ -400,7 +405,7 @@ internal sealed partial class Orc : IDisposable
         Vector3 toPlayer = playerFeet - Feet;
         toPlayer.Y = 0;
         float distance = toPlayer.Length();
-        if (State is not (OrcState.Down or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown or OrcState.Quiet)
+        if (State is not (OrcState.Down or OrcState.Dying or OrcState.Pushed or OrcState.Hurt or OrcState.Backstabbed or OrcState.Stunned or OrcState.KnockedDown or OrcState.Quiet)
             && distance > 1e-3f)
             Facing = toPlayer / distance;
         bool fresh = swing != IncomingSwing.None && swingId != seenSwing;
@@ -500,10 +505,32 @@ internal sealed partial class Orc : IDisposable
                 if (done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Pushed:
-                float step = MathF.Min(pushLeft, seconds * 3);
-                Feet += pushDirection * step;
-                pushLeft -= step;
-                if (done) Play(OrcState.Ready, "combatidle");
+                var pushedFrom = Feet;
+                if (pushRoot) RootMotion(playing, before, Cycle);
+                else
+                {
+                    float step = MathF.Min(pushLeft, seconds * 3);
+                    Feet += pushDirection * step;
+                    pushLeft -= step;
+                }
+                // What the push meets first (#10157): spikes impale it, a wall or a fire's edge throws it down.
+                if (Hazards?.Ahead(pushedFrom, Feet) is { } met)
+                {
+                    var moved = Feet - pushedFrom;
+                    Feet = pushedFrom;
+                    if (met == HazardKind.Spikes) Impale();
+                    else
+                    {
+                        WallFall(moved.LengthSquared() > 1e-8f ? moved : pushDirection);
+                        // Thrown down into a fire, it burns at once and is on fire (the donor's first burn came the tick its
+                        // fall began).
+                        if (met == HazardKind.FireEdge) { burnLeft = ArenaHazards.FireEvery; onFire = true; Damage(ArenaHazards.FireDamage); }
+                    }
+                }
+                else if (done) Play(OrcState.Ready, "combatidle");
+                break;
+            case OrcState.Dying:
+                if ((dieLeft -= seconds) <= 0) Dead();
                 break;
             case OrcState.Hurt:
                 if (staggered ? flinch.Busy <= 0 : done) Play(OrcState.Ready, "combatidle");
@@ -519,6 +546,13 @@ internal sealed partial class Orc : IDisposable
                 knockedFor += seconds;
                 StepRagdoll(seconds);
                 break;
+            case OrcState.KnockedDown when fatalFall:
+                // The stand-in's fall to its death (#10157): it drops to the ground below and is dead there.
+                if (Hazards?.Drop(Feet) is not float below) { Dead(); break; }
+                fallSpeed += Gravity * seconds;
+                Feet -= Vector3.UnitY * MathF.Min(fallSpeed * seconds, below);
+                if (below - fallSpeed * seconds <= 0) Dead();
+                break;
             case OrcState.KnockedDown:
                 // Falling, then lying (StandUp_<side>_firstframe) while the donor's ragdoll would fall and rest, then getting up.
                 groundLeft -= seconds;
@@ -527,10 +561,53 @@ internal sealed partial class Orc : IDisposable
                 else if (!Clip.EndsWith("_firstframe", StringComparison.Ordinal) && done) Play(OrcState.Ready, "combatidle");
                 break;
         }
+        StepHazards(seconds);
         AttackEnded();
         wasAttacking = State == OrcState.Attack;
         return blows;
     }
+
+    /// <summary>
+    /// The arena's hazards where it now stands (#10157; <see cref="ArenaHazards"/>): spikes it touches impale it, a fire
+    /// burns it and sets it on fire (it dies in <c>onfire</c> as soon as it can act), and a drop under its feet it drops
+    /// down, or falls to its death past <see cref="ArenaHazards.LethalDrop"/>.
+    /// </summary>
+    void StepHazards(float seconds)
+    {
+        if (Hazards is not { } hazards || Following || !Alive) return;
+        if (hazards.Touching(Feet) is not null) { Impale(); return; }
+        if (hazards.FireAt(Feet) is not null)
+        {
+            if ((burnLeft -= seconds) <= 0)
+            {
+                burnLeft = ArenaHazards.FireEvery;
+                onFire = true;
+                Damage(ArenaHazards.FireDamage);
+                if (!Alive) return;
+            }
+        }
+        else burnLeft = 0;
+        if (onFire && State is not (OrcState.KnockedDown or OrcState.Backstabbed)) { Die("onfire", ArenaHazards.OnFireSeconds); return; }
+        if (State == OrcState.KnockedDown) return;
+        // Off a drop: a short one it drops down, as Source's NPCs fall; a deep one it falls to its death. With no ground
+        // below at all it's off the arena (a check's place out of the way): nothing to fall onto.
+        if (hazards.Drop(Feet) is not float drop) return;
+        if (drop <= ArenaHazards.StepDown)
+        {
+            if (drop > 0) Feet -= Vector3.UnitY * drop;
+            fallSpeed = 0;
+            return;
+        }
+        if (fallSpeed == 0 && ArenaHazards.Lethal(drop)) { FallToDeath(State == OrcState.Pushed ? pushDirection : Facing, drop); return; }
+        fallSpeed += Gravity * seconds;
+        Feet -= Vector3.UnitY * MathF.Min(fallSpeed * seconds, drop);
+    }
+
+    /// <summary>Source's <c>sv_gravity</c>, 800 units/s², in metres: how an NPC falls a short drop.</summary>
+    const float Gravity = 800 * SourceSpace.MetresPerUnit;
+
+    /// <summary>The arena's hazards (#10157), which it meets as the donor's NPCs do; null in a lab without them.</summary>
+    internal ArenaHazards? Hazards { get; set; }
 
     /// <summary>Its wait until the next attack starts once for each attack that has ended, however it ended.</summary>
     void AttackEnded()
@@ -656,7 +733,87 @@ internal sealed partial class Orc : IDisposable
         if (State == OrcState.Quiet) Play(OrcState.Ready, "combatidle");
         Taken += MathF.Min(MathF.Max(Health, 0), amount);
         Health -= amount;
-        if (Health <= 0) { Health = 0; Layer = null; downSeconds = 0; ReleaseRagdoll(); Play(OrcState.Down, "combatidle"); }
+        if (Health <= 0) Dead();
+    }
+
+    /// <summary>
+    /// Knocked down: with the scene's dynamics world it falls as a ragdoll from the pose it was drawn in (#10216), pushed
+    /// along <paramref name="push"/> with <paramref name="up"/> of it upward; else as the stand-in, lying on its back
+    /// (<paramref name="onBack"/>) or front.
+    /// </summary>
+    void KnockDown(Vector3 push, float up, bool onBack)
+    {
+        Layer = null;
+        knockedFor = 0;
+        if (RagdollWorld is not null)
+        {
+            ReleaseRagdoll();
+            ragdollPending = true;
+            ragdollSeconds = 0;
+            ragdollPush = push;
+            ragdollUp = up;
+        }
+        groundSide = onBack ? "back" : "front";
+        fellFromY = Feet.Y;
+        groundLeft = stagger.Data.KnockedDownSeconds + RagdollFallSeconds;
+        fallFrom = Clip;
+        fallFromCycle = Cycle;
+        fallElapsed = 0;
+        // A ragdoll spawns from the pose last drawn: it holds the pose it was struck in until then, and takes the
+        // get-up's first frame (under the ragdoll) once it has.
+        if (ragdollPending) State = OrcState.KnockedDown;
+        else Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+    }
+
+    /// <summary>Dead: down until it respawns, drawn no more after half a second.</summary>
+    void Dead()
+    {
+        Health = 0;
+        Layer = null;
+        downSeconds = 0;
+        (onFire, fatalFall, fallSpeed) = (false, false, 0);
+        ReleaseRagdoll();
+        Play(OrcState.Down, "combatidle");
+    }
+
+    /// <summary>
+    /// Dies playing <paramref name="clip"/> for <paramref name="seconds"/> (#10157): impaled on spikes (<c>Die_Impaled</c>),
+    /// or on fire (<c>onfire</c>). Its health is spent at once; it's down when the clip has played.
+    /// </summary>
+    void Die(string clip, float seconds)
+    {
+        if (!Alive || Following) return;
+        Taken += MathF.Max(Health, 0);
+        Health = 0;
+        Layer = null;
+        hitLayer = null;
+        ReleaseRagdoll();
+        dieLeft = seconds;
+        Play(OrcState.Dying, ClipNamed(clip) ?? "combatidle");
+    }
+
+    /// <summary>Impaled on a spike rack it touched (#10157): the trap's 10000 damage, and <c>Die_Impaled</c> where it stands.</summary>
+    internal void Impale() => Die("Die_Impaled", body.Model.Info.Clips.TryGetValue("Die_Impaled", out var c) ? c.Seconds : 2.7f);
+
+    /// <summary>
+    /// Thrown down by what its push met (#10157): a ragdoll pushed along <paramref name="along"/>, more up than a blow's
+    /// (<see cref="ArenaHazards.WallFallUp"/>), on its back when it was pushed backwards.
+    /// </summary>
+    internal void WallFall(Vector3 along)
+    {
+        if (!Alive || Following || State is OrcState.KnockedDown or OrcState.Backstabbed) return;
+        along.Y = 0;
+        KnockDown(along, ArenaHazards.WallFallUp, Vector3.Dot(along, Facing) <= 0);
+    }
+
+    /// <summary>
+    /// Falls off a drop of <paramref name="metres"/> (null: none below) that kills it (#10157): a ragdoll carried on the
+    /// way it was going, dead where it comes to rest; as the stand-in, dropped there.
+    /// </summary>
+    void FallToDeath(Vector3 along, float? metres)
+    {
+        fatalFall = true;
+        KnockDown(along, 0, Vector3.Dot(along, Facing) <= 0);
     }
 
     /// <summary>
@@ -758,14 +915,19 @@ internal sealed partial class Orc : IDisposable
 
     /// <summary>
     /// A kick or a shield bash: pushed back along <paramref name="direction"/> by <paramref name="metres"/>, attack
-    /// interrupted, playing <paramref name="clip"/> (a bashed orc plays <c>Push_*_Front_small</c>).
+    /// interrupted, playing <paramref name="clip"/> (a bashed orc plays <c>Push_*_Front_small</c>); by the clip's own root
+    /// motion for <see cref="ClipPush"/> (a kick's, #10157).
     /// </summary>
+    internal const float ClipPush = float.PositiveInfinity;
+
     internal void Push(Vector3 direction, float metres, string clip = "Push_Body_back_small")
     {
         if (!Alive || Following || State == OrcState.KnockedDown) return;
         direction.Y = 0;
         pushDirection = direction.LengthSquared() > 1e-6f ? Vector3.Normalize(direction) : -Facing;
-        pushLeft = metres;
+        // A kick's push is its clip's own root motion (#10157): Push_Front_medium 90 units back, the sides' 60, the back's 76.
+        pushRoot = float.IsPositiveInfinity(metres);
+        pushLeft = pushRoot ? 0 : metres;
         Layer = null;
         Play(OrcState.Pushed, clip);
     }
@@ -816,30 +978,13 @@ internal sealed partial class Orc : IDisposable
         Layer = null;
         if (outcome == Stagger.KnockedDown)
         {
-            // With the scene's dynamics world it falls as a ragdoll from the pose it was drawn in (#10216).
-            knockedFor = 0;
-            if (RagdollWorld is not null)
-            {
-                ReleaseRagdoll();
-                ragdollPending = true;
-                ragdollSeconds = 0;
-                // Pushed as the move's impact goes (#10153's impactdir: X ahead of the attacker, Y to its left), so a
-                // power attack's sideways swipe rolls it.
-                var away = (Feet - from) with { Y = 0 };
-                away = away.LengthSquared() > 1e-6f ? Vector3.Normalize(away) : -Facing;
-                var attackerLeft = new Vector3(away.Z, 0, -away.X);
-                var impact = away * (blow?.ImpactX ?? 1) + attackerLeft * (blow?.ImpactY ?? 0);
-                ragdollPush = impact.LengthSquared() > 1e-6f ? impact : away;
-            }
-            groundSide = ahead >= 0 ? "back" : "front";
-            groundLeft = stagger.Data.KnockedDownSeconds + RagdollFallSeconds;
-            fallFrom = Clip;
-            fallFromCycle = Cycle;
-            fallElapsed = 0;
-            // A ragdoll spawns from the pose last drawn: it holds the pose it was struck in until then, and takes the
-            // get-up's first frame (under the ragdoll) once it has.
-            if (ragdollPending) State = OrcState.KnockedDown;
-            else Play(OrcState.KnockedDown, $"StandUp_{groundSide}_firstframe");
+            // Pushed as the move's impact goes (#10153's impactdir: X ahead of the attacker, Y to its left), so a power
+            // attack's sideways swipe rolls it.
+            var away = (Feet - from) with { Y = 0 };
+            away = away.LengthSquared() > 1e-6f ? Vector3.Normalize(away) : -Facing;
+            var attackerLeft = new Vector3(away.Z, 0, -away.X);
+            var impact = away * (blow?.ImpactX ?? 1) + attackerLeft * (blow?.ImpactY ?? 0);
+            KnockDown(impact.LengthSquared() > 1e-6f ? impact : away, OrcRagdoll.Rise, ahead >= 0);
         }
         else
         {
@@ -948,7 +1093,7 @@ internal sealed partial class Orc : IDisposable
         if (ragdollPending)
         {
             // Undrawn (stepped without the scene's draw, as the calibrations and checks do), it falls as the stand-in.
-            if (RagdollWorld is null || OrcRagdoll.Spawn(engine, RagdollWorld, body, Facing, ragdollPush) is not { } spawned)
+            if (RagdollWorld is null || OrcRagdoll.Spawn(engine, RagdollWorld, body, Facing, ragdollPush, ragdollUp) is not { } spawned)
             {
                 if ((ragdollSeconds += seconds) <= RagdollDrawWait) return;
                 ragdollPending = false;
@@ -968,12 +1113,14 @@ internal sealed partial class Orc : IDisposable
         var (side, pelvis, facing) = ragdoll.Lie();
         if (ragdoll.Blend >= 1)
         {
-            // Its feet follow its pelvis, on the ground it fell from.
-            Feet = pelvis with { Y = Feet.Y };
+            // Its feet follow its pelvis, on the ground under it (#10157: down a drop it fell off), else where it fell from.
+            Feet = pelvis with { Y = Hazards?.Drop(pelvis) is float ground ? pelvis.Y - ground : Feet.Y };
             if (!ragdollSettled && (ragdoll.Read().Resting || ragdollSeconds >= RagdollFallLimit))
             {
                 ragdollSettled = true;
                 lieLeft = stagger.Data.KnockedDownSeconds;
+                // Come to rest a lethal drop below where it fell (#10157), it's dead.
+                if (fatalFall || ArenaHazards.Lethal((fellFromY - Feet.Y) is var dropped && dropped > 0 ? dropped : 0)) { Dead(); return; }
             }
             if (ragdollSettled && (lieLeft -= seconds) <= 0)
             {
@@ -1026,6 +1173,7 @@ internal sealed partial class Orc : IDisposable
         Feet = Shared(tuning.Spawn);
         Health = mind.Data.Health;
         FrozenFor = dyingLeft = WeakenedFor = CharmedFor = regenClock = Taken = 0;
+        (onFire, fatalFall, pushRoot, burnLeft, dieLeft, fallSpeed) = (false, false, false, 0, 0, 0);
         ResetArchery();
         ResetShrink();
         Layer = null;
@@ -1107,7 +1255,7 @@ internal sealed partial class Orc : IDisposable
     internal IEnumerable<AppearanceFact> Facts()
     {
         Present();
-        if (!Alive && downSeconds > .5f) { published = false; return []; }
+        if (State == OrcState.Down && downSeconds > .5f) { published = false; return []; }
         // Back after a death it wasn't drawn through (a reset, a respawn): the body first, its pose sampled once it's in
         // the published scene again, and the items from the next publish.
         if (!published) { published = true; return [body.Fact(Placement)]; }

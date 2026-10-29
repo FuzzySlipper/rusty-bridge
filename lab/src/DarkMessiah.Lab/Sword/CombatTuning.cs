@@ -11,14 +11,12 @@ namespace DarkMessiah.Lab.Sword;
 /// </summary>
 /// <param name="AttackMovementScale">How much of the movement input moves the body while a swing or kick runs.</param>
 /// <param name="KickWindow">The kick's contact cycles: its clip has no hit events; recorded kicks land at cycle 0.38–0.41.</param>
-/// <param name="KickRange">How far in front of the eye, metres, a kick reaches an orc.</param>
-/// <param name="KickPush">How far a kick pushes the orc back, metres.</param>
 /// <param name="Phases">Each move's windup, active and recovery timing against the donor's clip (1 plays it as the donor does).</param>
 /// <param name="SwingArcs">Where each swing's trace points across its hit window, by first-person clip (docs/lab.md, "The
 /// blade's trace"): calibrated against the donor's recorded traces. A shield set's clip not listed takes its sword-only
 /// twin's (<see cref="ArcFor"/>); any other clip not listed traces straight along the view.</param>
 internal sealed record CombatTuning(float AttackMovementScale, float[] KickWindow,
-    float KickRange, float KickPush, SwordPhases Phases, OrcTuning Orc, Dictionary<string, SwingArc>? SwingArcs = null)
+    SwordPhases Phases, OrcTuning Orc, Dictionary<string, SwingArc>? SwingArcs = null)
 {
     internal const string Path = "combat.json";
 
@@ -38,8 +36,6 @@ internal sealed record CombatTuning(float AttackMovementScale, float[] KickWindo
         Authored.Within(Path, "attackMovementScale", t.AttackMovementScale, 0, 1);
         Authored.Require(t.KickWindow.Length == 2 && t.KickWindow[0] >= 0 && t.KickWindow[1] <= 1 && t.KickWindow[0] < t.KickWindow[1],
             Path, "kickWindow", "must be two cycles, the first below the second, within [0, 1].");
-        Authored.Positive(Path, "kickRange", t.KickRange);
-        Authored.AtLeast(Path, "kickPush", t.KickPush, 0);
         foreach (var (name, p) in new[] { ("fast", t.Phases.Fast), ("power", t.Phases.Power), ("kick", t.Phases.Kick) })
         {
             Authored.Positive(Path, $"phases.{name}.windup", p.Windup);

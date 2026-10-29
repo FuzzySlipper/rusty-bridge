@@ -24,7 +24,7 @@ void Check(bool condition, string message)
 
 // The sword's moves on authored clips: a tap is a fast attack, a hold a power one, block parries, F kicks.
 var phases = new SwordPhases(MovePhases.Donor, MovePhases.Donor, MovePhases.Donor);
-var tuning = new CombatTuning(.5f, [.36f, .42f], 1.4f, 1.5f, phases, new OrcTuning([0, 0, 0], 3, 61, []));
+var tuning = new CombatTuning(.5f, [.36f, .42f], phases, new OrcTuning([0, 0, 0], 3, 61, []));
 MoveClip M(string name, float seconds, bool loop = false, float open = float.NaN, float close = float.NaN) => new(name, seconds, loop, open, close);
 PowerClips Charge(string at, float wind = .5f) => new(M($"{at}in", wind), M($"{at}hold", 1, true), M($"{at}power", 1, open: .125f, close: .22f));
 var clips = new SwordClips(M("idle", 2, true),
@@ -936,6 +936,7 @@ host.Call(engine =>
     }
     var combat = product.Combat;
     var orc = combat.Orc;
+    if (Environment.GetEnvironmentVariable("RB_HAZARDS") == "1") { HazardKicks(); return; }
 
     // Input across updates (review R10121-3): a tap whose press and release both arrive on updates that admit no
     // step is still one fast attack; a hold is still a power attack.
@@ -1115,6 +1116,111 @@ host.Call(engine =>
                     $"the player's body on l01_a's ladder: the same clip on {string.Join(", ", onLadder.Select(x => $"{x.Match.LadderSame} of {x.Match.LadderTicks}"))} ticks on it, getting on or off");
             Check(matches.All(x => x.Match.Agreement >= x.Agree && x.Match.Cycle < .15f && x.Match.Yaw < 2 && (x.Match.MoveTicks == 0 || x.Match.MoveYaw < 5)),
                 $"the player's body against {matches.Count} recordings: the same clip on {string.Join(", ", matches.Select(x => $"{x.Match.Agreement:P0} (at least {x.Agree:P0})"))} of their ticks, its cycle, facing and move_yaw close where it is");
+        }
+    }
+    HazardKicks();
+    // Kicks into hazards (#10157): the push is the push clip's own root motion; spikes impale, a fire's edge throws the orc
+    // down on fire and it dies once up whatever its health, a deep drop kills and a short one doesn't. RB_HAZARDS=1 runs
+    // these alone and stops.
+    void HazardKicks()
+    {
+        bool hzHeld = combat.Orc.Hold;
+        combat.Orc.Hold = true;
+        // Kicks the orc standing at orcFeet from 60 units back along toward, and follows it for steps.
+        (List<string> Clips, Vector3 Feet, bool Alive, int DownAt, float Moved, Vector3 DownFeet) KickInto(Vector3 orcFeet, Vector3 toward, int steps, float health = 0, bool kick = true)
+        {
+            combat.Reset();
+            combat.Orc.Spawn();
+            if (health > 0) combat.Orc.Health = health;
+            combat.Orc.PlaceAt(orcFeet);
+            combat.Orc.TurnTo(-toward);
+            var kickFeet = orcFeet - toward * (60 * RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit);
+            var clips = new List<string>();
+            int downAt = -1;
+            float moved = 0;
+            var downFeet = Vector3.Zero;
+            for (int i = 0; i < steps; i++)
+            {
+                combat.Step(Tick, step++, false, false, kick && i < 6, kickFeet + Vector3.UnitY * 1.6f, toward, kickFeet);
+                if (clips.Count == 0 || clips[^1] != combat.Orc.Clip) clips.Add(combat.Orc.Clip);
+                if (combat.Orc.Alive) moved = MathF.Max(moved, ((combat.Orc.Feet - orcFeet) with { Y = 0 }).Length());
+                if (!combat.Orc.Alive && downAt < 0 && combat.Orc.State == DarkMessiah.Lab.Npc.OrcState.Down) (downAt, downFeet) = (i, combat.Orc.Feet);
+                // Dead, it's done (it would respawn).
+                if (downAt >= 0) break;
+            }
+            return (clips, combat.Orc.Feet, downAt < 0, downAt, moved, downFeet);
+        }
+        string Seq(List<string> clips) => string.Join(">", clips.Take(7));
+        var east = Vector3.UnitX;
+        var open = KickInto(new Vector3(12, 0, 9), east, 150);
+        float pushUnits = open.Moved / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        Check(open.Alive && open.Clips.Contains("Push_Front_medium") && MathF.Abs(pushUnits - 90) < 3,
+            FormattableString.Invariant($"a kick on open ground pushes the orc by Push_Front_medium's own root motion, {pushUnits:0} units (the clip's 90; the recorded unhindered pushes 68 to 91): {Seq(open.Clips)}"));
+        var spikes = KickInto(new Vector3(29, 0, 1.9f), -Vector3.UnitZ, 300, health: 1000);
+        Check(!spikes.Alive && spikes.Clips.Contains("Die_Impaled") && spikes.DownAt > 0,
+            $"kicked into the spike rack, an orc with 1000 health is impaled and dies (the trap's 10000): {Seq(spikes.Clips)}, down at step {spikes.DownAt}");
+        var fire = KickInto(new Vector3(32, 0, 5.7f), -Vector3.UnitZ, 900, health: 1000);
+        int fellAt = fire.Clips.FindIndex(c => c.StartsWith("StandUp_", StringComparison.Ordinal));
+        int burnedAt = fire.Clips.IndexOf("onfire");
+        Check(!fire.Alive && fellAt > 0 && burnedAt > fellAt && fire.DownAt > 0,
+            $"kicked toward the fire, an orc with 1000 health is thrown down at its edge, gets up on fire, plays onfire and dies: {Seq(fire.Clips)}, down at step {fire.DownAt}");
+        var inFire = KickInto(new Vector3(32, 0, 4.3f), -Vector3.UnitZ, 300, health: 1000, kick: false);
+        int burnSteps = inFire.DownAt;
+        Check(!inFire.Alive && inFire.Clips.Contains("onfire") && MathF.Abs(burnSteps * Tick - DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds) < .1f,
+            FormattableString.Invariant($"standing in the fire, an orc with 1000 health plays onfire and is dead {burnSteps * Tick:0.00} s later (the donor's 1.92): {Seq(inFire.Clips)}"));
+        var pit = KickInto(new Vector3(29.9f, 0, 8.5f), east, 300);
+        Check(!pit.Alive && pit.DownFeet.Y < -7,
+            FormattableString.Invariant($"kicked into the 8 m pit (316 units: past the donor's lethal drop, between 165 and 311), the orc falls to its death at {pit.DownFeet.Y:0.0} m: {Seq(pit.Clips)}"));
+        var loft = KickInto(new Vector3(20.6f, 2.5f, 20), -east, 200);
+        Check(loft.Alive && MathF.Abs(loft.Feet.Y) < .05f,
+            FormattableString.Invariant($"kicked off the 2.5 m loft (98 units, under the donor's 165 that it landed from), the orc lands on its feet at {loft.Feet.Y:0.00} m: {Seq(loft.Clips)}"));
+        combat.Orc.Spawn();
+        combat.Orc.Hold = hzHeld;
+        // The yard's way in: from the loft's top, east through the gap in the arena wall's top onto the landing.
+        {
+            var p = product.Player;
+            var climber = (IReplayBody)product;
+            var (back, backYaw) = (p.Position, p.LookState.YawRadians * 180 / MathF.PI);
+            float half = p.Tuning.Height / 2 + p.Config.Shape.ContactSkin;
+            p.Place(new Vector3(22, 2.5f + half, 21), 90);
+            var landed = p.Feet;
+            for (int i = 0; i < 120 && !(landed.X > 24.2f && MathF.Abs(landed.Y - 2.5f) < .05f); i++)
+            {
+                climber.Step(Vector2.UnitY, Vector3.UnitX, false, false, false, false, Tick);
+                landed = p.Feet;
+            }
+            Check(landed.X > 24.2f && MathF.Abs(landed.Y - 2.5f) < .05f,
+                FormattableString.Invariant($"the hazard yard's way in: from the loft's top the player walks east onto its landing ({landed.X:0.00}, {landed.Y:0.00})"));
+            p.Place(back, backYaw);
+        }
+        // Against the recordings (HazardCalibration): the pushes, the burns and the drops.
+        string hzRecs = Path.Combine(repo!, "local", "recordings");
+        var allRecs = Directory.Exists(hzRecs) ? Directory.EnumerateFiles(hzRecs, "*.rbrec", SearchOption.AllDirectories).ToList() : [];
+        var allPushes = HazardCalibration.Pushes(allRecs);
+        var pushes = allPushes.Where(p => p.PlayedOut).ToList();
+        if (pushes.Count > 0)
+        {
+            var orcClips = combat.Orc.BodyModel.Info.Clips;
+            // Against the clip's root motion to the cycle it left at; the rest met something on the way (the arena's walls, another orc).
+            var off = pushes.Select(p => MathF.Abs(p.Units - (orcClips.TryGetValue(p.Clip, out var c) ? c.MovedAt(p.Cycle).Length() : 0))).Order().ToList();
+            float median = off[off.Count / 2];
+            int close = off.Count(o => o < 5);
+            Check(median < 5 && close * 2 > off.Count, FormattableString.Invariant($"of {allPushes.Count} recorded kick pushes, {pushes.Count} played out (the donor leaves them at 0.90), {close} of them within 5 units of their clip's root motion (median off {median:0.0}) ({string.Join(", ", pushes.GroupBy(p => p.Clip).Select(g => $"{g.Key} {g.Count()}, {g.Select(p => p.Units).Order().ElementAt(g.Count() / 2):0}"))})"));
+        }
+        // The hazard recordings keep to local/hazards: their orcs are unaware and notarget, which the fight calibrations over local/recordings don't expect.
+        string hzOwn = Path.Combine(repo!, "local", "hazards");
+        string fireRec = Path.Combine(hzOwn, "l01_a-v21-kick-fire.rbrec"), hazardRec = Path.Combine(hzOwn, "l01_a-v21-kick-hazards.rbrec");
+        var burns = new[] { fireRec, hazardRec }.Where(File.Exists).SelectMany(HazardCalibration.Burns).ToList();
+        if (burns.Count > 0)
+            // One with little health left burns to death sooner (its 6 went at 0.81 s).
+            Check(burns.All(b => b.Died && (MathF.Abs(b.OnFireSeconds - DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds) < .1f || b.Health <= 10 && b.OnFireSeconds < DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds) && (!b.Kicked || b.ThrownDown)),
+                FormattableString.Invariant($"{burns.Count} recorded orcs on fire each played onfire {DarkMessiah.Lab.Npc.ArenaHazards.OnFireSeconds:0.00} s and died whatever their health, or burned to death sooner with little left ({string.Join(", ", burns.Select(b => $"{b.Health:0}{(b.Kicked ? " kicked" : "")}{(b.ThrownDown ? " thrown down" : "")} {b.OnFireSeconds:0.00} s"))})"));
+        string fallRec = Path.Combine(hzOwn, "l01_a-v21-npc-fall.rbrec");
+        if (File.Exists(fallRec))
+        {
+            var drops = HazardCalibration.Drops(fallRec);
+            Check(drops.Count >= 4 && drops.All(d => d.Died == d.Units >= DarkMessiah.Lab.Npc.ArenaHazards.LethalDrop),
+                FormattableString.Invariant($"the recorded drops kill from the lab's {DarkMessiah.Lab.Npc.ArenaHazards.LethalDrop} units: {string.Join(", ", drops.Select(d => $"{d.Units:0} {(d.Died ? "died" : "lived")}"))}"));
         }
     }
     Console.WriteLine($"donor content: {product.Donor.Source}");

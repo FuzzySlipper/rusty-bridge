@@ -4,8 +4,6 @@
     0.36,
     0.42
   ],
-  "kickRange": 1.4,
-  "kickPush": 1.5,
   "phases": {
     "fast": {
       "windup": 1,

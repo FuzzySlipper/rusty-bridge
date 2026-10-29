@@ -1,0 +1,174 @@
+{
+  "description": "Kicks into spikes (#10157) in the tutorial, l00 (+map l00, 30 s waited out): its kick-into-spikes room (tuto_fight.trap_impale: prop_trap spike racks, each with an NPC zone between it and a player zone); every skill, notarget, the short sword, its guards removed; an NPC (unaware) spawned looking 45 down and set 65 units in front of the player, who kicks it toward the rack: zone C (rack at x 1373, kicked east) with an orc, zones B (rack at y 489, south) and D (rack at y 783, north) and C again with the tutorial's own necro guard. Marked with echo rb_kh; jpeg screenshots rb_kt_*.",
+  "seconds": 75,
+  "launch": [
+    "-condebug",
+    "-console",
+    "-window",
+    "-w",
+    "1280",
+    "-h",
+    "720",
+    "-novid",
+    "+map",
+    "l00"
+  ],
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 30
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_necro_guard",
+    "ent_remove_all npc_necro_guard_bow",
+    "ent_remove_all npc_undead",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "notarget"
+  ],
+  "play": [
+    "echo rb_kh zone C spike 1373 east, orc",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1247 816 -530",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 1312 816 -530\"",
+    "setpos 1247 816 -530",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.8
+    },
+    "jpeg rb_kt_c 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh zone B spike y489 south, necroguard",
+    "ent_remove_all npc_necro_guard",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1408 593 -530",
+    "setang 45 270 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necro_guard models/npc/Necroguard/npc_necroguard.mdl weapon_arx_short_sword weapon_arx_short_sword 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_necro_guard addoutput \"origin 1408 528 -530\"",
+    "setpos 1408 593 -530",
+    "setang 10 270 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.8
+    },
+    "jpeg rb_kt_b 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh zone D spike y783 north, necroguard",
+    "ent_remove_all npc_necro_guard",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1408 655 -530",
+    "setang 45 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necro_guard models/npc/Necroguard/npc_necroguard.mdl weapon_arx_short_sword weapon_arx_short_sword 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_necro_guard addoutput \"origin 1408 720 -530\"",
+    "setpos 1408 655 -530",
+    "setang 10 90 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.8
+    },
+    "jpeg rb_kt_d 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh zone C spike 1373 east, necroguard",
+    "ent_remove_all npc_necro_guard",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 1247 816 -530",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necro_guard models/npc/Necroguard/npc_necroguard.mdl weapon_arx_short_sword weapon_arx_short_sword 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_necro_guard addoutput \"origin 1312 816 -530\"",
+    "setpos 1247 816 -530",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 0.8
+    },
+    "jpeg rb_kt_c2 95",
+    {
+      "wait": 5
+    },
+    "echo rb_kh done"
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "description": "Kicks into spikes (#10157) in l05_a (+map l05_a, its 40 s intro waited out): the map's NPCs removed, notarget, every skill, the short sword; an orc (default health, unaware) spawned and set 65 units in front of the player, who kicks it toward a spike wall (prop_trap, models/props/archi/l09/l09_spikes.mdl): the ones at (478, 6364) and (478, 6104) facing west, and at (-827, 8454) facing south; then on open ground. Marked with echo rb_kh; jpeg screenshots rb_ks_*.",
+  "seconds": 95,
+  "launch": [
+    "-condebug",
+    "-console",
+    "-window",
+    "-w",
+    "1280",
+    "-h",
+    "720",
+    "-novid",
+    "+map",
+    "l05_a"
+  ],
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 40
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_seagull",
+    "ent_remove_all npc_facehugger",
+    "ent_remove_all npc_spider_mini",
+    "ent_remove_all npc_crow",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_wizard",
+    "ent_remove_all npc_paokai",
+    "ent_remove_all npc_Leanna",
+    "ent_remove_all npc_furniture",
+    "ent_remove_all npc_orc_chief",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 0.5
+    },
+    "notarget"
+  ],
+  "play": [
+    "echo rb_kh spikes 478 6364 west",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 348 6364 -780",
+    "setang 10 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 413 6364 -780\"",
+    "setpos 348 6364 -780",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ks_a 95",
+    {
+      "wait": 4
+    },
+    "echo rb_kh spikes 478 6104 west",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 348 6104 -780",
+    "setang 10 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 413 6104 -780\"",
+    "setpos 348 6104 -780",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ks_b 95",
+    {
+      "wait": 4
+    },
+    "echo rb_kh spikes -827 8454 south",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos -827 8324 -350",
+    "setang 10 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin -827 8389 -350\"",
+    "setpos -827 8324 -350",
+    "setang 10 90 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ks_c 95",
+    {
+      "wait": 4
+    },
+    "echo rb_kh open ground",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos -7 4578 -890",
+    "setang 10 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin -7 4643 -890\"",
+    "setpos -7 4578 -890",
+    "setang 10 90 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 1
+    },
+    "jpeg rb_ks_d 95",
+    {
+      "wait": 4
+    },
+    "echo rb_kh done"
+  ]
+}

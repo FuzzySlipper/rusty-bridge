@@ -1,0 +1,178 @@
+{
+  "description": "Kicks into fire (#10157): kick-hazards' first fire again, l01_a's big env_fire at (412, -454) (size 200, damagescale 1); the level's NPCs removed, notarget, every skill, the short sword; an orc (unaware) spawned looking 45 down and set 65 units east of the player at (262, -454), who kicks it east into the fire, three times (the third with 1000 health); then an orc set at the fire's edge (352, -454) and not kicked, with its own health and with 1000. Marked with echo rb_kh.",
+  "seconds": 95,
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2400 0",
+    "setang 0 90 0",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_kh fire kick 1",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 327 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 8
+    },
+    "echo rb_kh fire kick 2",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 327 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 8
+    },
+    "echo rb_kh fire kick 3, 1000 health",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin 327 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    "+kick",
+    {
+      "wait": 0.15
+    },
+    "-kick",
+    {
+      "wait": 12
+    },
+    "echo rb_kh fire edge, no kick",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"origin 352 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    {
+      "wait": 10
+    },
+    "echo rb_kh fire edge, no kick, 1000 health",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    "setpos 262 -454 20",
+    "setang 45 0 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_orc_sword models/npc/orc/npc_orc.mdl weapon_arxorccleaver weapon_arxcrossbow 0",
+    {
+      "wait": 0.5
+    },
+    "ent_fire npc_orc_sword addoutput \"health 1000\"",
+    "ent_fire npc_orc_sword addoutput \"origin 352 -454 20\"",
+    "setpos 262 -454 20",
+    "setang 10 0 0",
+    {
+      "wait": 2
+    },
+    {
+      "wait": 12
+    },
+    "echo rb_kh done"
+  ]
+}

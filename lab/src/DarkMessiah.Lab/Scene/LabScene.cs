@@ -116,6 +116,17 @@ internal sealed class LabScene : IDisposable
 
     internal EntityId? CubeEntity(ulong id) => Cubes.Find(cube => cube.Entity.Value == id)?.Entity;
 
+    /// <summary>
+    /// How far a ray from <paramref name="origin"/> along <paramref name="direction"/> goes before it meets the arena (its
+    /// voxels and fixtures, not the loose cubes or bodies), within <paramref name="length"/>; null when it meets nothing.
+    /// </summary>
+    internal float? Ray(Vector3 origin, Vector3 direction, float length)
+    {
+        var hit = engine.Spatial.CastRay(new SpatialRaycastRequest(Session, origin, direction, length, new SpatialQueryFilter(uint.MaxValue, uint.MaxValue),
+            ReadOnlyMemory<SpatialEntityCollider>.Empty, ReadOnlyMemory<ulong>.Empty, ReadOnlyMemory<SpatialEntityCollider>.Empty));
+        return hit.Present ? (float)hit.Distance : null;
+    }
+
     internal ReadOnlyMemory<SpatialEntityCollider> Colliders() => colliderProjection.ReconcileTriggers(SimulationStep, SpatialTriggerCause.Movement).Entities;
 
     /// <summary>Publishes the scene: fixtures, cubes and <paramref name="others"/> (the fight's arms, sword and orc).</summary>
@@ -188,6 +199,61 @@ internal sealed class LabScene : IDisposable
             foreach (LadderDefinition definition in Definition.Ladders)
                 foreach (var (centre, size) in Player.LadderRules.Pieces(Ladder(definition)))
                     fixtures.Add(new AppearanceFact(Entities.Create().Value, false, 0, new Transform(centre, Quaternion.Identity, size), wood, true, RenderLayer.Scene));
+        }
+        // The hazards (#10157): each spike rack a dark board, colliding, with a rack of spikes out of it; each fire a glowing
+        // bed of embers with flames, drawn only.
+        if (Definition.Hazards.Spikes.Length > 0 || Definition.Hazards.Fires.Length > 0)
+        {
+            (Appearance Look, uint Asset) Solid(Color color)
+            {
+                MeshResource mesh = LabGeometry.Cube(engine, Material(color));
+                meshes.Add(mesh);
+                Appearance appearance = engine.Graphics.CreateMeshAppearance(mesh);
+                appearances.Add(appearance);
+                uint asset = (uint)assets.Count + 100;
+                assets.Add(new StaticMeshAsset(asset, new MeshResourceReference(mesh), 0, 0, 0, 0));
+                return (appearance, asset);
+            }
+            void Draw(Appearance look, Vector3 centre, Vector3 size, uint? collide = null)
+            {
+                EntityId entity = Entities.Create();
+                Transform pose = new(centre, Quaternion.Identity, size);
+                fixtures.Add(new AppearanceFact(entity.Value, false, 0, pose, look, true, RenderLayer.Scene));
+                if (collide is uint asset) instances.Add(new StaticMeshInstance(entity.Value, asset, pose));
+            }
+            if (Definition.Hazards.Spikes.Length > 0)
+            {
+                var (board, boardAsset) = Solid(new Color(.18f, .14f, .12f, 1));
+                var iron = Solid(new Color(.55f, .55f, .58f, 1)).Look;
+                foreach (SpikeDefinition rack in Definition.Hazards.Spikes)
+                {
+                    Vector3 min = LabDefinition.Vector(rack.Min), max = LabDefinition.Vector(rack.Max);
+                    Vector3 facing = Vector3.Normalize(LabDefinition.Vector(rack.Facing) with { Y = 0 });
+                    Draw(board, (min + max) / 2, max - min, boardAsset);
+                    // Spikes every 0.3 m across its face, 0.25 m long, pointing out of it.
+                    Vector3 across = new(facing.Z, 0, -facing.X);
+                    float halfDepth = MathF.Abs(Vector3.Dot((max - min) / 2, facing)), width = MathF.Abs(Vector3.Dot(max - min, across));
+                    Vector3 face = ((min + max) / 2) with { Y = 0 } + facing * halfDepth;
+                    for (float y = min.Y + .2f; y < max.Y - .1f; y += .3f)
+                        for (float a = -width / 2 + .15f; a < width / 2; a += .3f)
+                            Draw(iron, face + across * a + Vector3.UnitY * y + facing * .125f,
+                                new Vector3(MathF.Abs(facing.X) * .25f + MathF.Abs(across.X) * .04f, .04f, MathF.Abs(facing.Z) * .25f + MathF.Abs(across.Z) * .04f));
+                }
+            }
+            if (Definition.Hazards.Fires.Length > 0)
+            {
+                Appearance embers = Solid(new Color(.9f, .3f, .05f, 1)).Look, flame = Solid(new Color(1f, .62f, .1f, 1)).Look;
+                foreach (FireDefinition fire in Definition.Hazards.Fires)
+                {
+                    Vector3 centre = LabDefinition.Vector(fire.Center);
+                    Draw(embers, centre + Vector3.UnitY * .05f, new Vector3(fire.Radius * 1.6f, .1f, fire.Radius * 1.6f));
+                    for (int i = 0; i < 5; i++)
+                    {
+                        float turn = i * 2.4f, out_ = fire.Radius * .5f * (i % 2 == 0 ? .3f : .8f), tall = 1.2f - .15f * i;
+                        Draw(flame, centre + new Vector3(MathF.Cos(turn) * out_, tall / 2, MathF.Sin(turn) * out_), new Vector3(.25f, tall, .25f));
+                    }
+                }
+            }
         }
         foreach (RampDefinition ramp in Definition.Ramps)
         {

@@ -47,8 +47,6 @@ internal sealed class LabTunables(IContentSourceService source, PlayerController
     private static readonly (string Id, string Label, float Min, float Max, float Step, string Pointer, Func<CombatTuning, float> Get, WithCombat Set)[] SwordControls =
     [
         ("move", "Move while busy", 0, 1, .05f, "/attackMovementScale", t => t.AttackMovementScale, (t, v) => t with { AttackMovementScale = v }),
-        ("kick-range", "Kick range m", .3f, 3, .05f, "/kickRange", t => t.KickRange, (t, v) => t with { KickRange = v }),
-        ("kick-push", "Kick push m", 0, 4, .1f, "/kickPush", t => t.KickPush, (t, v) => t with { KickPush = v }),
         // Each move's windup, active (committed) and recovery phases, as multiples of the donor clip's own timing.
         ("fast-windup", "Fast windup ×", .25f, 4, .05f, "/phases/fast/windup", t => t.Phases.Fast.Windup, (t, v) => t with { Phases = t.Phases with { Fast = t.Phases.Fast with { Windup = v } } }),
         ("fast-active", "Fast active ×", .25f, 4, .05f, "/phases/fast/active", t => t.Phases.Fast.Active, (t, v) => t with { Phases = t.Phases with { Fast = t.Phases.Fast with { Active = v } } }),

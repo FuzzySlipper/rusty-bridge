@@ -5,7 +5,9 @@
   "spawnYawDegrees": 0,
   "replayFeet": [9, 0, 13],
   "ladders": [
-    {"label":"loft ladder", "foot":[20, 0, 21], "top":2.5, "facing":[1, 0, 0]}
+    {"label":"loft ladder", "foot":[20, 0, 21], "top":2.5, "facing":[1, 0, 0]},
+    {"label":"pit ladder", "foot":[31, -8, 8.5], "top":0, "facing":[-1, 0, 0]},
+    {"label":"hazard yard ladder", "foot":[25, 0, 19], "top":2.5, "facing":[0, 0, 1]}
   ],
   "interaction": {"holdSlack": 0.15, "holdReelSpeed": 12},
   "volumes": [
@@ -16,8 +18,20 @@
     {"label":"north wall", "min":[0,0,23.5], "max":[24,4,24], "material":2},
     {"label":"west pillar", "min":[5,0,11], "max":[6,4,12], "material":3},
     {"label":"east pillar", "min":[18,0,11], "max":[19,4,12], "material":3},
-    {"label":"loft", "min":[20,0,19], "max":[23.5,2.5,23.5], "material":3}
+    {"label":"loft", "min":[20,0,19], "max":[23.5,2.5,23.5], "material":3},
+    {"label":"hazard yard floor", "min":[24,-0.5,0], "max":[36,0,24], "material":1},
+    {"label":"hazard yard south wall", "min":[24,0,0], "max":[36,4,0.5], "material":2},
+    {"label":"hazard yard north wall", "min":[24,0,23.5], "max":[36,4,24], "material":2},
+    {"label":"hazard yard east wall", "min":[35.5,0,0], "max":[36,4,24], "material":2},
+    {"label":"hazard yard landing", "min":[24,0,19], "max":[26,2.5,23.5], "material":3},
+    {"label":"hazard yard way in", "min":[23.5,2.5,20], "max":[24,4,22], "material":0},
+    {"label":"pit block", "min":[30.5,-8.5,6.5], "max":[34.5,-0.5,10.5], "material":2},
+    {"label":"pit", "min":[31,-8,7], "max":[34,0,10], "material":0}
   ],
+  "hazards": {
+    "spikes": [{"label":"spike rack", "min":[28,0,0.5], "max":[30,2.2,0.75], "facing":[0, 0, 1]}],
+    "fires": [{"label":"fire", "center":[32, 0, 3.5], "radius":1.0}]
+  },
   "ramps": [],
   "blocks": [
     {"label":"low wall", "center":[12,0.4,2.5], "size":[6,0.8,0.6]}

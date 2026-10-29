@@ -36,7 +36,8 @@ internal sealed record CombatEvent(ulong Tick, bool ByPlayer, string Move, Defen
 /// mirror's Shadow contacts measure the donor's blows);</item>
 /// <item>the first contact of a swing is the blow: the orc's verdict (<see cref="CombatModel.Verdict"/>) by what it
 /// struck and its parry state, then the damage the blow asks (<see cref="CombatModel.Damage"/>);</item>
-/// <item>a kick reaches an orc in front within <see cref="CombatTuning.KickRange"/>, asks its damage and pushes it;</item>
+/// <item>a kick reaches an orc in front within <see cref="KickReach"/>, asks its damage and pushes it as its push clip
+/// moves it (#10157);</item>
 /// <item>an orc's blow isn't traced, as the donor's on the player isn't: it lands when the donor's reach test passes
 /// (<see cref="CombatModel.Reach"/>: a sweep for the attack part's range toward the player, entering the player's
 /// box), the player's parry turns it unless the part breaks parries (<see cref="CombatModel.PlayerParry"/>), a raised
@@ -962,7 +963,8 @@ internal sealed class LabCombat : IDisposable
     {
         if (orc.SquadMate is not { } at) { Mate?.Dispose(); Mate = null; return; }
         // The mate fights with the cleaver: only the first orc is an archer (#10169).
-        if (Mate is null) { Mate = new Orc(engine, donor, orc with { Spawn = at, Bow = null }, slot: 1); return; }
+        // A squad-mate falls and meets the arena as the orc does.
+        if (Mate is null) { Mate = new Orc(engine, donor, orc with { Spawn = at, Bow = null }, slot: 1) { RagdollWorld = Orc.RagdollWorld, Hazards = Orc.Hazards }; return; }
         Mate.Retune(orc with { Spawn = at, Bow = null });
     }
 
@@ -1324,6 +1326,12 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The swing and its hit window now: each window of a move that strikes in parts hits once.</summary>
     int SwingKey => Sword.Swing * 4 + Math.Max(0, Sword.Window);
 
+    /// <summary>
+    /// How far a kick reaches, metres (#10157): server.dll's <c>mm_player_maxdist_for_kick</c>, 100 units. The recorded
+    /// kicks landed from 4 to 109 units, the player's origin to the victim's (median 59, 90% within 87).
+    /// </summary>
+    internal const float KickReach = 100 * SourceSpace.MetresPerUnit;
+
     void Kick(ulong tick, Vector3 eye, Vector3 forward)
     {
         settledSwing = SwingKey;
@@ -1331,22 +1339,26 @@ internal sealed class LabCombat : IDisposable
         bool Reaches(Orc o)
         {
             var at = (o.Feet - eye) with { Y = 0 };
-            return o.Alive && at.Length() <= Tuning.KickRange && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(at)) > .5f;
+            return o.Alive && at.Length() <= KickReach && Vector3.Dot(Vector3.Normalize(forward with { Y = 0 }), Vector3.Normalize(at)) > .5f;
         }
         hitOrc = Orcs.Where(Reaches).OrderBy(o => ((o.Feet - eye) with { Y = 0 }).Length()).FirstOrDefault() ?? Orc;
         Vector3 flat = (hitOrc.Feet - eye) with { Y = 0 };
         bool reaches = Reaches(hitOrc);
-        Stamina.Kicked(reaches);
         if (!reaches)
         {
+            Stamina.Kicked(false);
             Player = Player with { Missed = Player.Missed + 1 };
-            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, eye + forward * Tuning.KickRange, null, "none"));
+            Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, eye + forward * KickReach, null, "none"));
             return;
         }
         var player = new Party("player", "", [Sword.Clip.Clip], Sword.Cycle, "#1", PlayerModel);
         // An orc in its dodge's window can't be touched, by a kick as by a swing (R10151-3): the donor's no-effect.
         var orc = hitOrc.Party();
-        if (model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle))
+        // A dodging orc isn't touched: the kick costs what one into the air does (the donor's kick on a dodging orc took
+        // nothing and touched nothing, l01_a-v14-arena-hand 1728.48 s).
+        bool untouched = model.Data.Untouchable(orc.Model, orc.Sequence, orc.Cycle);
+        Stamina.Kicked(!untouched);
+        if (untouched)
         {
             Player = Player with { Missed = Player.Missed + 1 };
             Record(new SwingTrace(Sword.Swing, Sword.Clip.Clip, Sword.Cycle, eye, hitOrc.Feet + Vector3.UnitY, hitOrc.Feet + Vector3.UnitY, "NoEffect (kick)"), blow: true);
@@ -1366,7 +1378,7 @@ internal sealed class LabCombat : IDisposable
             return;
         }
         hitOrc.Damage(asked);
-        React(null, kick: true, asked, null, forward, flat, Tuning.KickPush);
+        React(null, kick: true, asked, null, forward, flat, Npc.Orc.ClipPush);
         // A kick counts toward a stun's hits but carries no chance of its own: the recorded kicks felled 1 orc of 48.
         Stagger(null, eye with { Y = hitOrc.Feet.Y });
         Player = Player with { Hits = Player.Hits + 1, Dealt = Player.Dealt + asked };

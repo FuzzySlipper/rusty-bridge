@@ -4,6 +4,7 @@ using DarkMessiah.Lab.Combat;
 using DarkMessiah.Lab.Developer;
 using DarkMessiah.Lab.Donor;
 using DarkMessiah.Lab.Interaction;
+using DarkMessiah.Lab.Npc;
 using DarkMessiah.Lab.Player;
 using DarkMessiah.Lab.Replay;
 using DarkMessiah.Lab.Scene;
@@ -114,7 +115,13 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         eyeLight = engine.Graphics.CreateLight(EyeLight(0));
         // A knocked-down orc falls as a ragdoll in the scene's world, over the arena's collision (#10216).
         combat.Orc.RagdollWorld = scene.World;
-        if (combat.Mate is { } mate) mate.RagdollWorld = scene.World;
+        // The arena's spike racks, fires and drops, which kicked orcs meet as the donor's do (#10157).
+        var hazards = scene.Definition.Hazards;
+        Hazards = new ArenaHazards(
+            hazards.Spikes.Select(h => new SpikeRack(h.Label, LabDefinition.Vector(h.Min), LabDefinition.Vector(h.Max), Vector3.Normalize(LabDefinition.Vector(h.Facing) with { Y = 0 }))).ToArray(),
+            hazards.Fires.Select(h => new FirePatch(h.Label, LabDefinition.Vector(h.Center), h.Radius)).ToArray(), scene.Ray);
+        combat.Orc.Hazards = Hazards;
+        if (combat.Mate is { } mate) (mate.RagdollWorld, mate.Hazards) = (scene.World, Hazards);
         combat.Rebuild(BuildFile.Load(engine), draw: false);
         time = new WorldTime(engine);
         developer = new LabDeveloper(engine, scene, player, cubes, combat, playerBody, time, donor.Source, this, Observe, Publish);
@@ -129,6 +136,9 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     internal DonorContent Donor => donor;
     /// <summary>The player's body under the camera (#10394).</summary>
     internal PlayerBody Body => playerBody;
+
+    /// <summary>The arena's hazards (#10157).</summary>
+    internal ArenaHazards Hazards { get; }
     internal CubeInteraction Cubes => cubes;
     internal LabScene Scene => scene;
 

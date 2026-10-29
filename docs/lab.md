@@ -78,7 +78,7 @@ tables for the mechanics still to come (docs/import.md, "Gameplay tables"): spel
   A window tuned shorter than a step is still traced: a step whose cycles overlap it traces the blade at a cycle
   inside it, once per swing;
 - movement while attacking;
-- the kick's window, range and push;
+- the kick's window (its reach and push are the donor's: "Kicks into hazards");
 - the player's health;
 - the orc's spawn and respawn time, and two numbers fitted to the
   recordings: the landing window each of its attacks is chosen in (`orc.attackLandings`) and its walking speed
@@ -469,6 +469,48 @@ so a new kick needs F to go down again. Kicks cut into charges and swings. In th
   | 3 | in the air, F let go before landing (one of them also below 3) |
   | 1 | no weapon in hand (below, "Replay": the view model shows none) |
 
+### Kicks into hazards
+
+A kick pushes the orc as the donor's does, and what the push meets does what it does in Dark Messiah (#10157;
+`Npc/ArenaHazards.cs`). Read from server.dll and measured in new recordings (`kick-hazards`, `kick-fire`, `npc-fall`,
+docs/recording.md; kept in `local/hazards`, apart from the fights in `local/recordings`, since their orcs are unaware and
+`notarget`) and every recorded kick:
+
+| | The donor | How it was found |
+| --- | --- | --- |
+| Reach | `mm_player_maxdist_for_kick`, 100 units (2.54 m) | the ConVar; 98 recorded kicks landed from 4 to 109 units, player to victim (median 59, 90% within 87) |
+| The push | no force: the NPC plays `Push_<side>_medium` and moves by the clip's own root motion (front 90 units back, sides 60, back 76) | 56 recorded pushes in the fights: 51 played to 0.90 (where the donor leaves them), 27 of those within 5 units of the root motion (median off 3.9); the rest met something |
+| Something in the way | thrown down as a ragdoll, `mm_ai_force_fall_wall` across and `_wallz` up (5000, 2000) | server.dll's push trace (+0x2C2FFE on); the kicked orcs at a fire's edge fell 18 ticks after the kick, 3 of 3 |
+| Spikes (`prop_trap`) | an NPC that touches a live trap with a clear trace to it takes 10000 slash damage and dies impaled (`Die_Impaled`), whatever it was doing | server.dll's `CTrapProp::TrapTouch` (+0x35FF40; the damage `push 0x461C3C00` at +0x3601C7); not recorded (below) |
+| Fire (`env_fire`) | within it, 3 burn damage every 1.1 s; burnt, it's on fire: as soon as it can act (got up, if it was thrown down) it plays `onfire` and dies 1.92 s later, whatever its health; the fire's edge stops a pushed NPC as a wall does | 7 recorded orcs on fire: 26, 13, 991, 29, 997 and 32 health all died 1.92 s into `onfire`; one with 6 burned to death 0.81 s in |
+| Falls | dropped under the lethal drop it lands on its feet; from it, it falls as a ragdoll and dies where it lands | dropped from 165 units it landed, from 303, 501 and 809 it died |
+
+In the lab:
+- **The push** is the push clip's root motion (`Orc.ClipPush`); `combat.json`'s `kickRange` and `kickPush` are gone.
+  Each step of it is checked against the arena: spikes it touches impale it, a wall at its knee or chest or a fire's
+  edge throws it down (the knockdown's ragdoll with 0.4 of its impulse up, the ConVars' ratio), and a fire's edge burns
+  it at once.
+- **The hazard yard** (`lab.json`'s `hazards` and volumes): a 12 × 24 m yard behind the arena's east wall, reached up
+  the loft's ladder, through a gap in the wall's top onto a 2.5 m landing and down its ladder, so the fights, replays
+  and calibrations in the arena never meet it (a door at the ground let the replays' bodies run in). It has a spike rack on its south
+  wall (x 28–30), a fire at (32, 0, 3.5) of radius 1 m (an orc burns within it and its own 0.4 m: 55 units, where the
+  donor's size-200 fire threw the orc down at 51 and burned one standing at 60), and an 8 m pit (316 units, x 31–34, z
+  7–10) with a ladder out. The arena's loft is 2.5 m (98 units): an orc kicked off it lands.
+- **The lethal drop** is taken between the recorded 165 (lived) and 303 (died): 238 units.
+- **Dying:** impaled or on fire, it plays its clip (`OrcState.Dying`) and is down after; fallen to its death, its
+  ragdoll comes to rest and it's down. A ragdoll that comes to rest a lethal drop below where it fell dies too.
+- **The smoke** kicks the orc on open ground (89 units, the clip's 90), into the spike rack and the fire with 1000
+  health (impaled; thrown down, up on fire, dead), stands one in the fire (dead 1.93 s after `onfire` began), and
+  kicks it into the pit (dead at the bottom) and off the loft (on its feet); and checks the rules against the
+  recordings (`HazardCalibration`): the pushes, the burns and the drops. `RB_HAZARDS=1` runs these alone.
+- **Not recorded:** a kick into spikes. l05_a's racks couldn't be reached from where `setpos` lands, and the tutorial,
+  l00, whose spike room is built for it, never reached the tap's level dump; the rule is server.dll's. A ledge kick
+  wasn't recorded either (the barn loft's beams leave no room to spawn an orc; the pit under `flame_in_ze_hole` isn't
+  under the barn): falls were measured by dropping orcs instead.
+- **Not done:** the player in the hazards (the donor's player burns, and is hurt by traps too), and the burning
+  entity's own flame (4 a hit, seen on the burning orcs alongside the fire's 3). The donor leaves a push at cycle
+  0.90; the lab plays it to its end, the last 0.1 moving it a unit or two.
+
 ### The body's movement
 
 The body is the Engine's character controller, set from the donor's measured movement (#10159; `player.json`,
@@ -541,7 +583,7 @@ the player is a god; replayed, the health follows the donor's damage records, wh
 | `double_sprint` | maximum 12, the same drain | `player_stamina_double_sprint_max`; `sprint-double` |
 | A kick may start with | 3 | ConVar `mm_player_stamina_needed_for_kick` |
 | A sprint may start with | 3 | measured (#10144, "The rush attack"); it goes on below |
-| A kick costs | 3 when it lands on an NPC; nothing kicking the air (4 of 4 in `sprint`, `sprint-double`) | `stamina_kick_npc` in the settings; `stamina_kick_all` (1) is for a kick on anything else, a prop or the world, which the lab's kick doesn't strike |
+| A kick costs | 3 when it lands on an NPC; nothing kicking the air (4 of 4 in `sprint`, `sprint-double`) or a dodging NPC it can't touch (`l01_a-v14-arena-hand`'s kick at 1728.48 s, #10157) | `stamina_kick_npc` in the settings; `stamina_kick_all` (1) is for a kick on anything else, a prop or the world, which the lab's kick doesn't strike |
 
 The ConVars' defaults are in server.dll; no content file holds them.
 
@@ -1278,7 +1320,7 @@ small ones up by index in each NPC class's sequence cache (+0x2C0F40, read throu
 | A blow | Plays | Recorded |
 | --- | --- | --- |
 | Its side | where the impact comes from: the move's `impactdirX`/`Y` (X ahead, Y to the attacker's left) turned by the attacker's facing into the orc's frame, reversed, in quarters | the side right on 295 of 337 (the misses at the quarters' edges) |
-| A kick | `Push_<side>_medium`, sliding it the kick's push | 57 of 63 recorded medium pushes the same kind |
+| A kick | `Push_<side>_medium`, sliding it by the clip's own root motion ("Kicks into hazards") | 57 of 63 recorded medium pushes the same kind |
 | `alwayspush` (the daggers' power attack, the rush, the Whirlwind, the bash) | `Push_<side>_long` from 10 damage (medium under 10 a hit); the bash's (under 0.5) `Push_<Head\|Body>_<side>_small` | |
 | `push` (the sword's power attack) on a critical | `Push_<side>_long` | 11 of 11 criticals pushed, no other blow of it |
 | A fast attack (`impactcoeff` 0.5) | the small hit as an overlay, over whatever the orc does (an attack goes on under it): the head's on a head blow or a swing to the left (`impactdirY` > 0: A, C, E), else the body's (B, D, the daggers' A); none within a second of the last small hit | 24 of 26 blows 30–60 ticks after a small hit played none, from 70 ticks they played |
@@ -1642,8 +1684,8 @@ the lab's body as far (`IReplayBody.Lift`), to fall as the donor did.
   - One donor hit was a lab parry, and one donor NoEffect a lab hit.
   - Why they can differ: the lab traces the donor's average arc for each move ("The blade's trace"), against an orc
     posed from states streamed every few ticks. Neither the donor's exact ray nor the orc's exact pose is reproduced.
-- **Kicks:** three donor kicks landed where the lab's missed. The lab's kick
-  reach is its own number (`KickRange`).
+- **Kicks:** three donor kicks landed where the lab's missed, when the lab's kick reached an authored 1.4 m. It now
+  reaches the donor's `mm_player_maxdist_for_kick`, 100 units (#10157).
 - **The orc's blows:** they use the donor's reach test. The lab-only ones are
   parts the lab's followed orc fires where the donor's orc struck nothing.
   - **The likely cause:** the lab plays the orc on between streamed states, so it fires parts on its own timing, not the donor's thinks.

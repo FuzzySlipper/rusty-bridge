@@ -118,7 +118,7 @@ internal sealed class LabDeveloper(IEngineContext engine, LabScene scene, Player
         // The attacker stands at DEGREES about the orc, facing it.
         var struck = new ReactionBlow(blow, kind == "kick", damage, false, 2, degrees + 180);
         orc.React(struck, OrcReactions.Pick(struck, orc.State == OrcState.Stunned, orc.SinceSmallHit),
-            Vector3.Transform(-orc.Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180)), kind == "kick" ? combat.Tuning.KickPush : 0);
+            Vector3.Transform(-orc.Facing, Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180)), kind == "kick" ? Npc.Orc.ClipPush : 0);
         changed();
         var last = orc.Flinching.Last;
         return DebugCommandResult.Success(FormattableString.Invariant(

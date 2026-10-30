@@ -94,7 +94,13 @@ internal sealed partial class Orc
         // Its melee: within the yellow zone it fights with the hook, one blow, played out; then it backs off again (the donor's
         // struck once and walked off).
         if (AttacksMade > blowsSeen) (blowsSeen, afterBlow) = (AttacksMade, true);
-        if (units <= mind.Data.Yellow && !afterBlow || !free) { if (Layer == Resolve(CastingData.Layer)) Layer = null; return false; }
+        if (units <= mind.Data.Yellow && !afterBlow || !free)
+        {
+            if (Layer == Resolve(CastingData.Layer)) Layer = null;
+            // Come within reach while it cast or walked (R10357-1), it takes up the fight as any NPC, ready to strike.
+            if (free && State != OrcState.Ready) Play(OrcState.Ready, "combatidle");
+            return false;
+        }
         var toward = toPlayer.LengthSquared() > 1e-6f ? Vector3.Normalize(toPlayer) : Facing;
         float metres = SourceSpace.MetresPerUnit * seconds;
         castingPhase = afterBlow || units < c.RangeMin || castingPhase == CastingPhase.BackOff && units < c.BackOffTo ? CastingPhase.BackOff

@@ -1930,6 +1930,10 @@ internal sealed class LabCombat : IDisposable
         OrcFights = default;
         orcArrows.Clear();
         OrcArchery = default;
+        // The necromancer's flame arrows (R10357-2): none left in flight, nothing of the last fight's counted.
+        flameArrows.Clear();
+        Flames = default;
+        LastFlameOnNpc = null;
         LastOrcArrow = null;
         bolts.Clear();
         LastSpellHit = null;

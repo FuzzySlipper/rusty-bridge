@@ -2404,11 +2404,12 @@ host.Call(engine =>
         // One fight: the player's eye the given units off, still (or walking in), for the given seconds; what it cast and
         // when, where it stood, what struck the player and the hook's blows.
         (List<(float At, float Units, float Error)> Casts, List<float> StandingStarts, int Struck, int Turned, int StruckNpc, float Dealt, List<(float At, float Units, DarkMessiah.Lab.Npc.CastingPhase Phase)> Track,
-            List<(float At, string Move, float Asked)> Blows) Fight(float units, float seconds, bool shield = false)
+            List<(float At, string Move, float Asked)> Blows) Fight(float units, float seconds, bool shield = false, float closeAt = float.NaN)
         {
             combat.Orc.Spawn();
             combat.Orc.PlaceAt(ncAt);
             var eye = ncAt + new Vector3(0, 61 * npu, units * npu);
+            bool closed = false;
             if (shield)
             {
                 combat.Mana.Fill();
@@ -2425,6 +2426,13 @@ host.Call(engine =>
             for (int i = 0; i < (int)(seconds / Tick); i++)
             {
                 float t = (i + 1) * Tick;
+                // Stepping in to 60 units of it, wherever it stands, without a new fight (R10357-1).
+                if (!closed && t >= closeAt)
+                {
+                    closed = true;
+                    var toward = Vector3.Normalize((eye - combat.Orc.Feet) with { Y = 0 });
+                    eye = combat.Orc.Feet + toward * 60 * npu + Vector3.UnitY * 61 * npu;
+                }
                 var feet = eye - Vector3.UnitY * 61 * npu;
                 combat.Step(Tick, step++, false, false, false, eye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY - eye), feet);
                 float now = Vector2.Distance(new Vector2(eye.X, eye.Z), new Vector2(combat.Orc.Feet.X, combat.Orc.Feet.Z)) / npu;
@@ -2466,6 +2474,27 @@ host.Call(engine =>
         var close = Fight(60, 6);
         Check(close.Blows.Count > 0 && close.Blows.All(b => MathF.Abs(b.Asked - 7) < .01f) && close.Track.Any(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.BackOff),
             FormattableString.Invariant($"60 units off it strikes with its hook ({string.Join(", ", close.Blows.Select(b => $"{b.Move} {b.Asked:0.#}"))}; the donor's attack_r 7) and backs off after"));
+        // Casting 455 units off, then the player 60 units from it (R10357-1): it leaves casting for its hook, and backs off after.
+        var stepIn = Fight(455, 9, closeAt: 3);
+        var castBefore = stepIn.Casts.Where(c => c.At < 3).ToList();
+        var hookAfter = stepIn.Blows.Where(b => b.At >= 3).ToList();
+        Check(castBefore.Count > 0 && hookAfter.Count > 0 && hookAfter.All(b => MathF.Abs(b.Asked - 7) < .01f) && stepIn.Track.Any(x => x.At > hookAfter[0].At && x.Phase == DarkMessiah.Lab.Npc.CastingPhase.BackOff),
+            FormattableString.Invariant($"casting 455 units off ({castBefore.Count} cast), then the player stepping in to 60: it strikes with its hook at {Times(hookAfter.Select(b => b.At))} s ({string.Join(", ", hookAfter.Select(b => $"{b.Move} {b.Asked:0.#}"))}) and backs off after"));
+        // A reset with a flame arrow in flight (R10357-2): none left, nothing counted, nothing struck after.
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ncAt);
+        var rsEye = ncAt + new Vector3(0, 61 * npu, 455 * npu);
+        for (int i = 0; i < (int)(3 / Tick) && combat.FlameArrows.Count == 0; i++)
+            combat.Step(Tick, step++, false, false, false, rsEye, -Vector3.UnitZ, rsEye - Vector3.UnitY * 61 * npu);
+        bool rsInFlight = combat.FlameArrows.Count > 0;
+        combat.Reset();
+        bool rsCleared = combat.FlameArrows.Count == 0 && combat.Flames == default && combat.LastFlameOnNpc is null;
+        combat.Orc.Hold = true;
+        for (int i = 0; i < (int)(2 / Tick); i++)
+            combat.Step(Tick, step++, false, false, false, rsEye, -Vector3.UnitZ, rsEye - Vector3.UnitY * 61 * npu);
+        combat.Orc.Hold = false;
+        Check(rsInFlight && rsCleared && combat.Flames.Struck == 0,
+            $"a reset with a flame arrow in flight leaves none (in flight before: {rsInFlight}; cleared, counts and last hit too: {rsCleared}), and none strikes the player after ({combat.Flames.Struck})");
         // The player's shield up 455 units off: every flame arrow turned, none striking the player or the necromancer.
         var ncFile = combat.BuildFile!;
         combat.Rebuild(ncFile with

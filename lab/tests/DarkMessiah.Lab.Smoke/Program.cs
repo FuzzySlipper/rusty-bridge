@@ -4085,6 +4085,49 @@ host.Call(engine =>
             orc.StopFollowing();
             combat.UseFlinch(false);
         }
+        // As the blow found it (#10205): the record's overlays are all the sweep meets, none as well (R10205-1); a blow in the
+        // sweep that gives it to the procedural reaction keeps the reaction's body after, and an arrived pose meanwhile is
+        // not taken (R10205-2).
+        {
+            combat.UseFlinch(true);
+            var flinchRules = combat.Tuning.Orc.Flinch!;
+            Vector3 Hands()
+            {
+                var target = orc.Targets()[0];
+                return target.Joints.Where(j => j.Key.Contains("Hand", StringComparison.OrdinalIgnoreCase))
+                    .Select(j => target.Pose[j.Value].World.Translation).Aggregate(Vector3.Zero, (x, y) => x + y);
+            }
+            OrcPose Streamed(string? layer) => new("#arrived", orc.Feet, orc.Facing, 100, "combatidle", .3f, 1, layer, .5f, true, Overlays: []);
+            var bare = new ArrivedPose("combatidle", .3f, [], null, null);
+            orc.Follow(Streamed(null), 0);
+            var plain = Hands();
+            orc.Follow(Streamed("layer_parry_B"), 0);
+            var layered = Hands();
+            orc.PoseAsArrived(bare);
+            var arrivedHands = Hands();
+            orc.EndArrived();
+            var after = Hands();
+            Check(Vector3.Distance(plain, layered) > .01f && Vector3.Distance(arrivedHands, plain) < 1e-4f && Vector3.Distance(after, layered) < 1e-4f,
+                FormattableString.Invariant($"held as a blow found it with no overlays, the followed orc meets the sweep without the streamed parry layer (its hands {Vector3.Distance(arrivedHands, plain):0.0000} m from the bare pose, the layer moving them {Vector3.Distance(plain, layered):0.000}), and plays the layer again after ({Vector3.Distance(after, layered):0.0000})"));
+            // A blow in the sweep that cuts it short: the reaction's combatidle stays, and the stream's place.
+            orc.Follow(new OrcPose("#arrived", orc.Feet, orc.Facing, 100, "attack_Fast", .3f, 1, null, 0, true), 0);
+            var streamedFeet = orc.Feet;
+            orc.PoseAsArrived(new ArrivedPose("attack_Fast", .25f, [], streamedFeet + new Vector3(.2f, 0, 0), null));
+            FlinchOutcome cut = default;
+            for (float pow = 1.5f; pow < 20 && !cut.Interrupted; pow *= 1.5f)
+                cut = orc.Flinch(flinchRules, new ReactionBlow(new AttackEvent(pow, false, ImpactY: 1), false, 40, false, null, 180));
+            orc.EndArrived();
+            bool keptReaction = cut.Interrupted && orc.Staggered && orc.Clip == "combatidle" && Vector3.Distance(orc.Feet, streamedFeet) < 1e-4f && Vector3.Distance(orc.TakenAt.Feet, streamedFeet) < 1e-4f;
+            // Meanwhile another blow's arrived pose isn't taken: its body stays the reaction's.
+            var reeling = Hands();
+            orc.PoseAsArrived(new ArrivedPose("attack_Fast", .6f, [], streamedFeet + new Vector3(.3f, 0, 0), null));
+            var reelingArrived = Hands();
+            orc.EndArrived();
+            Check(keptReaction && Vector3.Distance(reeling, reelingArrived) < 1e-4f && orc.Clip == "combatidle",
+                FormattableString.Invariant($"a blow in the sweep that gives the followed orc to the procedural reaction leaves the reaction's {orc.Clip} and the stream's place after (cut {cut.Interrupted}, reeling {orc.Staggered}), and another blow's arrived pose meanwhile moves nothing ({Vector3.Distance(reeling, reelingArrived):0.0000} m)"));
+            orc.StopFollowing();
+            combat.UseFlinch(false);
+        }
         // Wounded (below life_tohurt) it walks in Hurtwalk and strafes with Wounded_combatmove_*.
         orc.Spawn();
         orc.Damage(orc.Health * .9f);

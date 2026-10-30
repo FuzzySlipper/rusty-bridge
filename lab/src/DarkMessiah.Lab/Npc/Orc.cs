@@ -379,7 +379,7 @@ internal sealed partial class Orc : IDisposable
     }
 
     // The pose it was in before the player's sweep took it as the blow arrived (#10205), to be put back after.
-    (string Clip, float Cycle, (string Clip, float Cycle, float Weight)[] Overlays, Vector3 Feet, Vector3 Facing)? beforeArrived;
+    (string Clip, float Cycle, (string Clip, float Cycle, float Weight)[] Overlays, Vector3 Feet, Vector3 Facing, string? Layer, float LayerCycle, string? HitLayer, float HitLayerCycle)? beforeArrived;
 
     /// <summary>
     /// For the player's sweep this step, the followed orc as the donor's blow found it (#10205): <see cref="ArrivedPose"/>'s
@@ -387,20 +387,32 @@ internal sealed partial class Orc : IDisposable
     /// </summary>
     internal void PoseAsArrived(ArrivedPose arrived)
     {
-        if (!Following || beforeArrived is not null || !body.Model.Info.Clips.ContainsKey(arrived.Sequence)) return;
-        beforeArrived = (Clip, Cycle, overlays, Feet, Facing);
+        // Under the procedural reaction (R10205-2) its body is the reaction's, not the recording's.
+        if (!Following || staggered || beforeArrived is not null || !body.Model.Info.Clips.ContainsKey(arrived.Sequence)) return;
+        beforeArrived = (Clip, Cycle, overlays, Feet, Facing, Layer, LayerCycle, hitLayer, hitLayerCycle);
         (Clip, Cycle) = (arrived.Sequence, arrived.Cycle);
+        // The record's overlays are all it plays, none as well (R10205-1): the streamed layer may have come after the blow.
         overlays = [.. arrived.Overlays.Where(o => body.Model.Info.Clips.ContainsKey(o.Clip))];
+        (Layer, LayerCycle, hitLayer) = (null, 0, null);
         if (arrived.Feet is Vector3 feet) Feet = feet;
         if (arrived.Facing is Vector3 facing) Facing = facing;
     }
 
-    /// <summary>Back to what the stream has it play, after the sweep.</summary>
+    /// <summary>Held as the blow found it, for the player's sweep: the record's overlays, even none, are what it plays.</summary>
+    bool HeldArrived => beforeArrived is not null;
+
+    /// <summary>
+    /// Back to what the stream has it play, after the sweep; but a blow in the sweep that gave it to the procedural
+    /// reaction (R10205-2) leaves the reaction's clip and overlays, and only its place and facing go back to the stream's.
+    /// </summary>
     internal void EndArrived()
     {
         if (beforeArrived is not { } was) return;
-        (Clip, Cycle, overlays, Feet, Facing) = was;
         beforeArrived = null;
+        (Feet, Facing) = (was.Feet, was.Facing);
+        if (staggered) return;
+        (Clip, Cycle, overlays) = (was.Clip, was.Cycle, was.Overlays);
+        (Layer, LayerCycle, hitLayer, hitLayerCycle) = (was.Layer, was.LayerCycle, was.HitLayer, was.HitLayerCycle);
     }
 
     /// <summary>Back to the lab's own loop after a replay.</summary>
@@ -941,13 +953,15 @@ internal sealed partial class Orc : IDisposable
             // The reaction governs (R10382-1): cut short, the recorded orc's action stops until it has its footing back.
             if (outcome.Interrupted && Alive)
             {
-                if (!staggered) recorded = new(Clip, Cycle, followRate, Layer, LayerCycle, overlays);
+                // Held as the blow found it (R10205-2), what the recording plays and where is the stream's, put aside.
+                if (!staggered) recorded = beforeArrived is { } held ? new(held.Clip, held.Cycle, followRate, held.Layer, held.LayerCycle, held.Overlays)
+                    : new(Clip, Cycle, followRate, Layer, LayerCycle, overlays);
                 Layer = null;
                 hitLayer = null;
                 overlays = [];
                 Play(OrcState.Hurt, "combatidle");
                 staggered = true;
-                TakenAt = (Feet, Facing);
+                TakenAt = beforeArrived is { } at ? (at.Feet, at.Facing) : (Feet, Facing);
             }
             return outcome;
         }
@@ -1383,7 +1397,7 @@ internal sealed partial class Orc : IDisposable
     void Present()
     {
         // Followed, it is posed as the recording streamed it: every overlay at its weight.
-        if (Following && overlays.Length > 0) body.Play(Clip, Cycle, overlays);
+        if (Following && (overlays.Length > 0 || HeldArrived)) body.Play(Clip, Cycle, overlays);
         // Waiting for its ragdoll: the pose it was struck in, held.
         else if (ragdollPending) body.Play(fallFrom, fallFromCycle);
         // Falling: the pose it was struck in gives way to the lying one.

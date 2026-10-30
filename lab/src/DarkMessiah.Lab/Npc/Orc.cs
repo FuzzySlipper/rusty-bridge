@@ -31,7 +31,15 @@ internal readonly record struct OrcBlow(int Part, string Attack, float Cycle, fl
 /// pose it is drawn and swept in, as the mirror's Shadow poses it. <see cref="Layer"/> is the one that decides its state.</param>
 internal sealed record OrcPose(string Id, Vector3 Feet, Vector3 Facing, float Health, string Sequence, float Cycle, float Rate,
     string? Layer, float LayerCycle, bool Fresh, IReadOnlyList<string>? Kit = null, string? Model = null,
-    IReadOnlyList<(string Clip, float Cycle, float Weight)>? Overlays = null);
+    IReadOnlyList<(string Clip, float Cycle, float Weight)>? Overlays = null, ArrivedPose? Arrived = null);
+
+/// <summary>
+/// The followed orc as the player's blow this tick found it (#10205; Wire v13's victim record): its sequence, cycle and
+/// overlays, and where it stood when it thought after the blow (the frame before's place, as the mirror's Shadow takes
+/// it), else null. The donor's orc moves and animates in its think, which came before the player's trace on some
+/// ticks and after it on others (13 and 15 of the fatality run's 51 blows; 23 found it unchanged).
+/// </summary>
+internal sealed record ArrivedPose(string Sequence, float Cycle, IReadOnlyList<(string Clip, float Cycle, float Weight)> Overlays, Vector3? Feet, Vector3? Facing);
 
 /// <summary>
 /// The lab's orc: Arkane's <c>npc_orc</c> with its cleaver and shield, fighting by its <c>.qct</c> (#10150,
@@ -368,6 +376,31 @@ internal sealed partial class Orc : IDisposable
         puppet = donor.Read(Path.ChangeExtension(model, ".glb")) is null ? null : new Puppet(engine, donor.Model(model), OtherBodyIds + ids + (ulong)bodies.Count);
         bodies[model] = puppet;
         return puppet;
+    }
+
+    // The pose it was in before the player's sweep took it as the blow arrived (#10205), to be put back after.
+    (string Clip, float Cycle, (string Clip, float Cycle, float Weight)[] Overlays, Vector3 Feet, Vector3 Facing)? beforeArrived;
+
+    /// <summary>
+    /// For the player's sweep this step, the followed orc as the donor's blow found it (#10205): <see cref="ArrivedPose"/>'s
+    /// sequence, cycle, overlays and place; <see cref="EndArrived"/> puts back what it plays.
+    /// </summary>
+    internal void PoseAsArrived(ArrivedPose arrived)
+    {
+        if (!Following || beforeArrived is not null || !body.Model.Info.Clips.ContainsKey(arrived.Sequence)) return;
+        beforeArrived = (Clip, Cycle, overlays, Feet, Facing);
+        (Clip, Cycle) = (arrived.Sequence, arrived.Cycle);
+        overlays = [.. arrived.Overlays.Where(o => body.Model.Info.Clips.ContainsKey(o.Clip))];
+        if (arrived.Feet is Vector3 feet) Feet = feet;
+        if (arrived.Facing is Vector3 facing) Facing = facing;
+    }
+
+    /// <summary>Back to what the stream has it play, after the sweep.</summary>
+    internal void EndArrived()
+    {
+        if (beforeArrived is not { } was) return;
+        (Clip, Cycle, overlays, Feet, Facing) = was;
+        beforeArrived = null;
     }
 
     /// <summary>Back to the lab's own loop after a replay.</summary>

@@ -69,7 +69,8 @@ A studio model is one skinned GLB:
   each include depth first, skipping names already present). The primary
   GLB's `asset.extras.sequences` repeats that list.
 - **Clip extras:** each clip's `extras` holds the activity, fps, frame
-  count, looping, delta, blend grid and fades. When the sequence has
+  count, looping, delta, blend grid and fades; `autoplay` and `post` when the sequence has those flags (#10205: Source
+  blends autoplay sequences into every pose by the pose parameters, "post" deltas after the pose). When the sequence has
   animation events, `events` lists them as `[cycle, id]` pairs. Those are
   Arkane's ids: 2186 opens a hit window and 2190 closes it, and 2102 and
   2139 are the struck parts. A few events with a non-finite cycle are left out.
@@ -238,6 +239,8 @@ What the donor's files turned out to be. Offsets are bytes.
   - others apply before it, as `QuaternionSM` does.
 
   The clip's `extras.delta` says which clips are deltas.
+- **Pose parameters:** `asset.extras.poseParameters` lists the model's, in its order (as `m_flPoseParameter` and the
+  Wire's victim pose number them), each with its range (#10205).
 - **Weight lists:** a weight list's zero-weight bones get no channel.
 - **Constant rest translations:** a translation channel that stays at the
   bone's rest is dropped. This keeps a 54-bone clip near 57 channels, so

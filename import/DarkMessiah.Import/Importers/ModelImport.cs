@@ -93,6 +93,10 @@ public sealed class ModelImport
         var eye = SourceSpace.Position(mdl.EyePosition);
         gltf.Extras["eyePosition"] = GltfBuilder.FloatArray(eye.X, eye.Y, eye.Z);
         gltf.Extras["sequences"] = new JsonArray(sequences.Select(s => (JsonNode)s.Sequence.Label).ToArray());
+        // The pose parameters in the model's order, as m_flPoseParameter numbers them (#10205): what a recorded value
+        // normalized from 0 to 1 runs over.
+        if (mdl.PoseParameters.Length > 0)
+            gltf.Extras["poseParameters"] = new JsonArray(mdl.PoseParameters.Select(p => (JsonNode)new JsonObject { ["name"] = p.Name, ["start"] = p.Start, ["end"] = p.End }).ToArray());
         var attachments = new JsonArray();
         foreach (var a in mdl.Attachments)
             attachments.Add(new JsonObject
@@ -416,6 +420,10 @@ public sealed class ModelImport
             ["weighted"] = seq.BoneWeights is not null && seq.BoneWeights.Any(w => w <= 0),
             ["empty"] = empty,
         };
+        // Source blends an autoplay sequence into every pose by its pose parameters (#10205: the orc's head_rot_* and
+        // body_rot_*); "post" deltas apply after the pose, the rest before it.
+        if ((seq.Flags & StudioSequence.Autoplay) != 0) extras["autoplay"] = true;
+        if (delta && post) extras["post"] = true;
         if (Movement(anim, frames) is { } movement) extras["movement"] = movement;
         // What the grid blends over: the parameter's name (the file's pose parameter) and its values at the first and last
         // column (and row); a cell's own value of the column's parameter.

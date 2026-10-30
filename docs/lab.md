@@ -426,17 +426,36 @@ What a swing strikes is what the donor's sweep would (#10177, #10179; docs/wire.
   window until a sweep lands, as the donor's does at every think. The fatality run's orc blows agree 79 of 79 (lab 81).
 - **Each window counted:** a swing's later hit windows (the huge slash's second, 40 ticks on) are blows of their own
   in the comparison (`WindowApart`, 15 ticks).
-- **What it gives:** the player's blows that agree with the donor's (same verdict and hit group): the fatality run 26
-  of 43 (before #10198: 15 of 40), the Whirlwind run 6 of 11 (4 of 10), jump-attack-hold 2 of 2, rush-attack 1 of 4,
-  hand1 4 of 10, hand2 10 of 31, the parry bot 9 of 16, ghoul2 4 of 6.
-- **What still differs is the orc's body, not the aim** (#10205): sweeping the donor's own recorded rays through the
-  followed orc gives the same blows as the lab's arcs. At 12472 in the fatality run the same ray meets the lab's orc's
-  head where the donor's met its chest, with the same sequence, cycle, place and facing; in a lunge (`attack_right`,
-  10385) the donor's eye-height ray passed the orc and struck nothing. The mirror's Shadow, posing the victim as the
-  blow found it (v13), agrees on 37 of 51 there. None of these clips is a blend grid: what the Wire lacks is likely
-  the orc's pose parameters, bone controllers or procedural bones. Replays keep holding the adrenaline gauge to the
-  recording's (the lab's own runs within 1 on 28% to 45% of a fill-and-Fatality replay's ticks, ahead on blows only
-  the lab lands).
+- **What it gave (#10198):** the player's blows that agree with the donor's (same verdict and hit group): the fatality run
+  26 of 43 (before: 15 of 40), the Whirlwind run 6 of 11 (4 of 10), jump-attack-hold 2 of 2, rush-attack 1 of 4, hand1 4
+  of 10, hand2 10 of 31, the parry bot 9 of 16, ghoul2 4 of 6.
+- **As the blow found the orc** (#10205): on a tick the donor's player struck the followed orc, the lab's sweep meets it
+  as the blow's victim record (Wire v13) has it, its sequence, cycle and overlays, and where the frame before had it
+  when it thought after the blow (`ArrivedPose`, as the mirror's Shadow poses it). The donor's orc moves and animates in
+  its think, which came before the player's trace on some ticks and after it on others (of the fatality run's 51 blows,
+  the record was the frame before's state on 13, the blow frame's on 15, both on 23). It moves one blow: hand1 5 of 10
+  to 6.
+- **What still differs is the lab's swing, not the orc's body** (#10205). Ruled out:
+  - **Pose parameters:** the victim record carries them (v13); at nearly every blow they're 0°. The orc's only
+    pose-parameter-driven bones are six autoplay delta layers (`head_rot_x`/`_y`/`_z`, `body_rot_x`/`_y`/`_z`, flags 0x1C),
+    which at 0° aren't neutral (`head_pitch` and `body_pitch` aren't centred on 0: the head 16% and the spine 21% of the
+    way to their "up" columns). Composed onto the Shadow's victim, they made it worse every way tried (after the pose,
+    before it, inverted: the summed miss of agreeing blows 9 units → 13 to 55, 34 to 38 of 51 agreeing): the donor's
+    traces don't see them. Streaming the NPCs' pose parameters every tick (a new Wire version) would add nothing.
+  - **Bone controllers, procedural bones, another hitbox set:** the orc has none (its other two sets, `combobox` and
+    `combobox_daggers_throw`, aren't the traces').
+  - **The bones' time:** posing the Shadow's victim one to three ticks earlier or later adds error (none is best).
+  - **What's left in the Shadow** (37 of 51 in the fatality run): the Fatality's own hits (4: their points 20 to 85
+    units off any part, not traced), held items (4) and part boundaries (6, both ways, mostly in the orc's own fast
+    attacks, two at its right hand). Every combat animation has IK rules (4 to 12) over the orc's hand and foot chains;
+    whether server.dll runs them isn't read (#10516).
+  - **The lab's blows:** they land a tick before the donor's on 25 of 74 paired blows (the fatality run and hand2), on
+    its tick on 15, up to 8 off. Meeting the orc as the donor's blow found it a tick or more from that blow makes them
+    worse (the fatality run 26 → 17 to 12), so the lab's ray then isn't where the donor's was: the swing's timing and
+    arc are what to look into (#10515).
+- **What it gives:** the fatality run 26 of 43, the Whirlwind run 6 of 11, jump-attack-hold 2 of 2, rush-attack 1 of 4,
+  hand1 6 of 10, hand2 12 of 31, the parry bot 9 of 16. Replays keep holding the adrenaline gauge to the recording's (the
+  lab's own runs within 1 on 28% to 45% of a fill-and-Fatality replay's ticks, ahead on blows only the lab lands).
 
 ### Criticals
 

@@ -144,6 +144,7 @@ internal sealed class InputTimeline
         var playing = new Dictionary<string, float>();
         bool seeded = false;
         var streamed = new Dictionary<string, (short Sequence, float Cycle)>();
+        var standing = new Dictionary<string, (Vector3 Feet, float Yaw, short Sequence, float Cycle)>();
         double lastTime = double.NaN;
         int skipped = 0;
         bool commands = false;
@@ -261,7 +262,7 @@ internal sealed class InputTimeline
                     kickHeld = now2.Item2.HasFlag(PlayerActions.Kick);
                     sprint = now2.Item2.HasFlag(PlayerActions.Sprint) && move != Vector2.Zero;
                 }
-                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed), move, jump, use, kickHeld, sprint, armed,
+                ticks.Add(new ReplayTick(f.Tick, f.Curtime, seconds, held, kicked, eye, forward, feet, Orc(f, eye, forward, streamed, standing), move, jump, use, kickHeld, sprint, armed,
                     f.Version >= 7 && f.Player.Index != WireLayout.NoEntity ? f.Player.Adrenaline : null, f.Player.MaxAdrenaline, command,
                     f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Stamina : null, CameraOf(view), HealthOf(f),
                     f.Version >= 15 && f.Stats.Valid != 0 ? f.Stats.Mana : null));
@@ -298,7 +299,7 @@ internal sealed class InputTimeline
     }
 
     /// <summary>The living orc the player aims nearest within <see cref="FacingRange"/>, else the nearest; null when none is alive.</summary>
-    static OrcPose? Orc(RecordedFrame f, Vector3 eye, Vector3 forward, Dictionary<string, (short, float)> streamed)
+    static OrcPose? Orc(RecordedFrame f, Vector3 eye, Vector3 forward, Dictionary<string, (short, float)> streamed, Dictionary<string, (Vector3 Feet, float Yaw, short Sequence, float Cycle)> before)
     {
         OrcPose? best = null;
         float bestScore = float.MaxValue;
@@ -329,12 +330,38 @@ internal sealed class InputTimeline
                 e.PlaybackRate, layer.Weight > 0 ? Name(layer.Sequence) : null, layer.Cycle, fresh,
                 f.Version >= 10 ? f.Entities.Values.Where(i => i.Owner == index && f.Classes.GetValueOrDefault(i.ClassId) != "prop_ragdoll")
                     .Select(i => f.Models.GetValueOrDefault(i.ModelIndex, "")).Where(m => m.Length > 0).ToList() : null,
-                f.Models.GetValueOrDefault(e.ModelIndex), [.. layers.Select(l => (Name(l.Sequence), l.Cycle, l.Weight))]);
+                f.Models.GetValueOrDefault(e.ModelIndex), [.. layers.Select(l => (Name(l.Sequence), l.Cycle, l.Weight))], Arrived(f, index, e, Name, before.GetValueOrDefault(id)));
             bestScore = score;
         }
-        // Every orc's last streamed state, so freshness holds whichever one is followed.
+        // Every orc's last streamed state, so freshness holds whichever one is followed; and where each stood, for the
+        // next frame's blows.
         foreach (var (index, e) in f.Entities)
-            if (f.Classes.GetValueOrDefault(e.ClassId) == OrcClass) streamed[$"#{index}.{e.Serial:x}"] = (e.Sequence, e.Cycle);
+            if (f.Classes.GetValueOrDefault(e.ClassId) == OrcClass)
+            {
+                streamed[$"#{index}.{e.Serial:x}"] = (e.Sequence, e.Cycle);
+                before[$"#{index}.{e.Serial:x}"] = (SourceSpace.Position(new Vector3(e.OriginX, e.OriginY, e.OriginZ)), e.Yaw, e.Sequence, e.Cycle);
+            }
         return best;
+    }
+
+    /// <summary>
+    /// The orc as the player's blow on it this frame found it (#10205), from the blow's victim record (Wire v13): its
+    /// sequence, cycle and overlays; and, when it thought after the blow (the record is the frame before's state, not this
+    /// one's), where the frame before had it. Null with no such blow.
+    /// </summary>
+    static ArrivedPose? Arrived(RecordedFrame f, ushort index, WireEntity e, Func<int, string> name, (Vector3 Feet, float Yaw, short Sequence, float Cycle) was)
+    {
+        foreach (var d in f.Damage)
+        {
+            if (d.Victim != index || d.VictimSerial != e.Serial || d.VictimAnimValid == 0 || !f.Entities.TryGetValue(d.Attacker, out var a)
+                || f.Classes.GetValueOrDefault(a.ClassId) != "player" || name(d.VictimSequence).Length == 0) continue;
+            bool thoughtAfter = (e.Sequence != d.VictimSequence || MathF.Abs(e.Cycle - d.VictimCycle) > 1e-4f)
+                && was.Sequence == d.VictimSequence && MathF.Abs(was.Cycle - d.VictimCycle) <= 1e-4f;
+            float yaw = was.Yaw * MathF.PI / 180;
+            var overlays = d.VictimOverlays.Where(o => o.Weight > 0 && name(o.Sequence).Length > 0).OrderBy(o => o.Order).Select(o => (name(o.Sequence), o.Cycle, o.Weight)).ToList();
+            return new ArrivedPose(name(d.VictimSequence), d.VictimCycle, overlays, thoughtAfter ? was.Feet : null,
+                thoughtAfter ? SourceSpace.Direction(new Vector3(MathF.Cos(yaw), MathF.Sin(yaw), 0)) : null);
+        }
+        return null;
     }
 }

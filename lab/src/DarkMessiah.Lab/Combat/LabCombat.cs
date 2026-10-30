@@ -1046,6 +1046,8 @@ internal sealed class LabCombat : IDisposable
         var mateFoe = Mate is { } m && orcPose is null ? Foe(m) : null;
         var mateBlows = Mate is { } mate && orcPose is null ? StepOrc(mate, mateFoe, seconds, feet, gait) : [];
         Squad();
+        // In a replay, the player's sweep meets the followed orc as the donor's blow this tick found it (#10205).
+        if (orcPose?.Arrived is { } arrived) Orc.PoseAsArrived(arrived);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
         else if (Sword.Move == SwordMove.Backstab) Backstab(tick, eye, forward, feet);
         else if (Sword.Traced && settledSwing != SwingKey)
@@ -1058,6 +1060,7 @@ internal sealed class LabCombat : IDisposable
             decidedSwing = Sword.Swing;
             Player = Player with { Missed = Player.Missed + 1 };
         }
+        Orc.EndArrived();
         foreach (var blow in blows) if (orcFoe is { } foe) OrcStrikesOrc(tick, blow, Orc, foe); else OrcStrikes(tick, blow, feet, forward, Orc);
         // The archer's arrows (#10169): let go this step at its foe (the player's eye, or a squad-mate it's against,
         // R10169-2), and those in flight.

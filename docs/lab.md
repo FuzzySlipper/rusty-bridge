@@ -447,8 +447,20 @@ What a swing strikes is what the donor's sweep would (#10177, #10179; docs/wire.
   - **The bones' time:** posing the Shadow's victim one to three ticks earlier or later adds error (none is best).
   - **What's left in the Shadow** (37 of 51 in the fatality run): the Fatality's own hits (4: their points 20 to 85
     units off any part, not traced), held items (4) and part boundaries (6, both ways, mostly in the orc's own fast
-    attacks, two at its right hand). Every combat animation has IK rules (4 to 12) over the orc's hand and foot chains;
-    whether server.dll runs them isn't read (#10516).
+    attacks, two at its right hand).
+  - **IK** (#10516): every combat animation has IK rules (4 to 12) over the orc's hand and foot chains (`rhand`,
+    `lhand`, `lfoot`, `rfoot`), but server.dll runs none for it. Its bone setup solves IK only for an entity with an IK
+    context (`m_pIk`, beside `m_iIKCounter` at +0xEA8: +0xEA4; the bone setup at +0x3081F0 skips IK without it, and the
+    stack contexts at +0x3A084D and +0x3A3331 are made only with it). `EnableServerIK` (+0x3950C0: `new` 0x7C bytes,
+    `m_iIKCounter` 0) has two callers, `CMM_NPC_Spider_Giant`'s and `CMM_NPC_Spider_Regular`'s setup (+0x30619D,
+    +0x324574); `CIKSaveRestoreOps` (+0x39B160) restores one only for an entity saved with one. The one context made
+    otherwise (+0x0D3040) is in code nothing references, and `mp_ik` ("Use IK on in-place turns.") only feeds a flags
+    value (+0x0B2910) with no caller. So the orc's hit boxes are its clips' and overlays' alone, as the Shadow poses them.
+  - **The six boundary misses, then:** with the pose ruled out, what's left is how the trace meets the boxes. On each,
+    the donor's hit point is inside the part it reported (0 to 1.6 units off) while the Shadow's swept box (1.5 units)
+    meets a neighbouring part first, 2 to 11 units sooner along the ray. The donor sweeps a box (1.5 units) through
+    the hit boxes, where the Shadow and the lab sweep a sphere of that size: the two differ most where parts meet, a
+    likely cause, not measured.
   - **The lab's blows:** they land a tick before the donor's on 25 of 74 paired blows (the fatality run and hand2), on
     its tick on 15, up to 8 off. Meeting the orc as the donor's blow found it a tick or more from that blow makes them
     worse (the fatality run 26 → 17 to 12), so the lab's ray then isn't where the donor's was: the swing's timing and

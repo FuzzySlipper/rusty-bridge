@@ -1,0 +1,452 @@
+{
+  "description": "The necromancer in l05_a, round 2 (#10357): as necromancer-l05, the map's orcs and their makers removed at every phase (they came in and fought the necromancer in the first take's shield phases): the player 60 units in front of a new one three times, 10 s each (its melee); then a new one with magic reflection standing and crouched at 500, crouched and standing at 300, and standing at 150 (a turned flame arrow back at it). Marked with echo rb_nc6.",
+  "seconds": 190,
+  "launch": [
+    "-condebug",
+    "-console",
+    "-window",
+    "-w",
+    "1280",
+    "-h",
+    "720",
+    "-novid",
+    "+map",
+    "l05_a"
+  ],
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 40
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_seagull",
+    "ent_remove_all npc_facehugger",
+    "ent_remove_all npc_spider_mini",
+    "ent_remove_all npc_crow",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_wizard",
+    "ent_remove_all npc_paokai",
+    "ent_remove_all npc_Leanna",
+    "ent_remove_all npc_furniture",
+    "ent_remove_all npc_orc_chief",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_necromancer",
+    {
+      "wait": 0.5
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_nc6 melee 1: 60 units in front, still 10 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4828 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_necromancer",
+      "distance": 60
+    },
+    {
+      "wait": 10
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "echo rb_nc6 melee 2: 60 units in front, still 10 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4828 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_necromancer",
+      "distance": 60
+    },
+    {
+      "wait": 10
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "echo rb_nc6 melee 3: 60 units in front, still 10 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4828 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    {
+      "approach": "npc_necromancer",
+      "distance": 60
+    },
+    {
+      "wait": 10
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc6 500 units in front, the shield up standing, 15 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4478 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 7
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 8
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "echo rb_nc6 the shield up crouched at 500, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 7
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 8
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "usebelt3",
+    "usebelt4",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc6 300 units in front, the shield up crouched, 15 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4678 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 7
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 8
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "echo rb_nc6 the shield up standing at 300, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 7
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 8
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "usebelt5",
+    "usebelt6",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc6 150 units in front, the shield up standing, 12 s",
+    "notarget",
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_necromancer",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4828 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 6
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_maker",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 6
+    },
+    "echo rb_nc6 end of play"
+  ]
+}

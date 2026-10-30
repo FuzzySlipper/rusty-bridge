@@ -100,26 +100,40 @@ internal sealed partial class Orc : IDisposable
 
     /// <param name="slot">Which of the lab's orcs it is: 0 the one the player fights, 1 its squad-mate (R10154-1); each
     /// slot's Engine ids are <see cref="SlotIds"/> apart.</param>
-    internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning, int slot = 0)
+    internal Orc(IEngineContext engine, DonorContent donor, OrcTuning tuning, int slot = 0, NpcKind? kind = null)
     {
         this.engine = engine;
         this.donor = donor;
         this.tuning = tuning;
+        Kind = kind ?? NpcKind.OrcSword;
         ids = (ulong)slot * SlotIds;
-        body = ownBody = new Puppet(engine, donor.Model(Model), BodyId + ids);
-        bodies[Model] = ownBody;
-        cleaver = new Puppet(engine, donor.Model(Cleaver), CleaverId + ids);
-        shield = new Puppet(engine, donor.Model(Shield), ShieldId + ids);
+        body = ownBody = new Puppet(engine, donor.Model(Kind.Model), BodyId + ids);
+        bodies[VpkIndex.Normalize(Kind.Model)] = ownBody;
+        // Its weapon in the cleaver's place (the necromancer's hook), and a shield only if it carries one.
+        cleaver = new Puppet(engine, donor.Model(Kind.Weapon), CleaverId + ids);
+        shield = new Puppet(engine, donor.Model(Kind.Shield ?? Shield), ShieldId + ids);
         bow = new Puppet(engine, donor.Model(ArcheryData.LongBow), BowId + ids);
-        AttackSpeed = donor.Number(Cleaver, "entity_data", "speed_attack") ?? 1;
-        mind = new OrcMind(OrcMindData.Read(donor, Model, ownBody.Model.Info, donor.Combat));
-        stagger = new OrcStagger(OrcStaggerData.Read(donor, Model));
-        defence = new OrcDefence(OrcDefenceData.Read(donor, Model));
-        stamina = new OrcStamina(OrcStaminaData.Read(donor, Model));
-        perception = new OrcPerception(OrcPerceptionData.Read(donor, Model));
-        Backstable = donor.Number(Model, "entity_data", "backstable") is > 0;
+        AttackSpeed = donor.Number(Kind.Weapon, "entity_data", "speed_attack") ?? 1;
+        mind = new OrcMind(OrcMindData.Read(donor, Kind.Model, ownBody.Model.Info, donor.Combat));
+        stagger = new OrcStagger(OrcStaggerData.Read(donor, Kind.Model));
+        defence = new OrcDefence(OrcDefenceData.Read(donor, Kind.Model));
+        stamina = new OrcStamina(OrcStaminaData.Read(donor, Kind.Model));
+        perception = new OrcPerception(OrcPerceptionData.Read(donor, Kind.Model));
+        Backstable = donor.Number(Kind.Model, "entity_data", "backstable") is > 0;
         Spawn();
     }
+
+    /// <summary>What it is (#10357): an orc swordsman, or a necromancer.</summary>
+    internal NpcKind Kind { get; }
+
+    /// <summary>
+    /// Where its attacks' strikes land (Source units off the player once its travel is done): the orc's fitted windows
+    /// (<c>combat.json</c> <c>orc.attackLandings</c>); another kind's (#10357, the necromancer's, of one recorded blow)
+    /// anywhere within the attack's <c>.qct</c> reach, else its yellow zone.
+    /// </summary>
+    IReadOnlyDictionary<string, float[]> Landings => Kind == NpcKind.OrcSword ? tuning.AttackLandings
+        : ownLandings ??= mind.Data.Attacks.Concat(mind.Data.Wounded ?? []).DistinctBy(a => a.Clip).ToDictionary(a => a.Clip, a => new[] { 0f, a.Range > 0 ? a.Range : mind.Data.Yellow });
+    Dictionary<string, float[]>? ownLandings;
 
     /// <summary>It holds off: no attack starts (a developer switch, and the smoke's still orc).</summary>
     internal bool Hold { get; set; }
@@ -164,6 +178,7 @@ internal sealed partial class Orc : IDisposable
     internal bool Following { get; private set; }
     // The items it holds: its own kit, or the followed orc's. No recorded orc has had a shield (#10177).
     bool holdsCleaver = true, holdsShield = true;
+    bool OwnShield => Kind.Shield is not null;
     string? followed;
     float followRate = 1;
     // The followed orc's overlays as last streamed and played on since: what it is posed in (empty for its own loop).
@@ -362,7 +377,7 @@ internal sealed partial class Orc : IDisposable
         flinch.Reset();
         FollowedFlinches.Clear();
         body = ownBody;
-        holdsCleaver = holdsShield = true;
+        (holdsCleaver, holdsShield) = (true, OwnShield);
         followed = null;
         overlays = [];
         streamedOverlays = null;
@@ -385,6 +400,7 @@ internal sealed partial class Orc : IDisposable
         clock += seconds;
         Spotted = false;
         Loosed.Clear();
+        Cast.Clear();
         var blows = new List<OrcBlow>();
         // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
         if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
@@ -436,6 +452,7 @@ internal sealed partial class Orc : IDisposable
         var data = mind.Data;
         // An archer with its bow fights its own way (#10169).
         if (StepArchery(seconds, units, toPlayer / SourceSpace.MetresPerUnit, clearShot)) { AttackEnded(); wasAttacking = State == OrcState.Attack; return blows; }
+        if (StepCasting(seconds, units, toPlayer, clearShot)) { AttackEnded(); wasAttacking = State == OrcState.Attack; return blows; }
         switch (State)
         {
             case OrcState.Quiet:
@@ -464,7 +481,7 @@ internal sealed partial class Orc : IDisposable
                 if (walkingAnswer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (walkingAnswer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
                 // It walks in to its green zone, or until an attack it may make lands from here.
-                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings, WeakenedFor > 0) is not null) Play(OrcState.Ready, "combatidle");
+                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, Landings, WeakenedFor > 0) is not null) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
                 // A swing it saw while busy it answers now, if it hasn't yet and the swing is still coming.
@@ -472,7 +489,7 @@ internal sealed partial class Orc : IDisposable
                 if (swing != IncomingSwing.None) answeredSwing = swingId;
                 if (answer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (answer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
-                else if (!Hold && mind.Ready && mind.Choose(units, tuning.AttackLandings, WeakenedFor > 0) is { } attack)
+                else if (!Hold && mind.Ready && mind.Choose(units, Landings, WeakenedFor > 0) is { } attack)
                 {
                     Play(OrcState.Attack, attack.Clip);
                     AttacksMade++;
@@ -482,7 +499,7 @@ internal sealed partial class Orc : IDisposable
                 // Ready and too close for any attack to land (pressed against the player at its hull's 32 units,
                 // nearer than the uppercut's 34): it steps back to fight again (R10150-1), as the donor's orcs began
                 // attacks out of Combatmove_backward_small.
-                else if (!Hold && mind.Ready && units < mind.Nearest(tuning.AttackLandings, WeakenedFor > 0) && Clip != Hurt("Combatmove_backward_small") && Clip != "Combatmove_backward_small")
+                else if (!Hold && mind.Ready && units < mind.Nearest(Landings, WeakenedFor > 0) && Clip != Hurt("Combatmove_backward_small") && Clip != "Combatmove_backward_small")
                     Play(OrcState.Ready, "Combatmove_backward_small");
                 else if (done || Clip == "combatidle" && Cycle < before) Wait(units);
                 break;
@@ -542,8 +559,8 @@ internal sealed partial class Orc : IDisposable
                 // hit_stunned_<side>, then Stunned until stunned_duration is spent, then Stunned_out.
                 stunLeft -= seconds;
                 if (Clip.StartsWith("hit_stunned", StringComparison.Ordinal) && done) Play(OrcState.Stunned, "Stunned");
-                else if (Clip == "Stunned" && stunLeft <= 0) Play(OrcState.Stunned, "Stunned_out");
-                else if (Clip == "Stunned_out" && done) Play(OrcState.Ready, "combatidle");
+                else if (Playing("Stunned") && stunLeft <= 0) Play(OrcState.Stunned, "Stunned_out");
+                else if (Playing("Stunned_out") && done) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.KnockedDown when ragdollPending || ragdoll is not null:
                 knockedFor += seconds;
@@ -1199,6 +1216,8 @@ internal sealed partial class Orc : IDisposable
         FrozenFor = dyingLeft = WeakenedFor = CharmedFor = regenClock = Taken = 0;
         (onFire, fatalFall, pushRoot, burnLeft, dieLeft, fallSpeed) = (false, false, false, 0, 0, 0);
         ResetArchery();
+        ResetCasting();
+        holdsShield = OwnShield;
         ResetShrink();
         Layer = null;
         mind.Reset();
@@ -1216,7 +1235,7 @@ internal sealed partial class Orc : IDisposable
     }
 
     /// <summary>The orc as Dark Messiah's combat model sees it.</summary>
-    internal Party Party() => new("npc_orc_sword", Clip, Layer is null ? [] : [Layer], Cycle, "#2", Model);
+    internal Party Party() => new(Kind.Class, Clip, Layer is null ? [] : [Layer], Cycle, "#2", Kind.Model);
 
     /// <summary>
     /// Holds it in <paramref name="clip"/> at <paramref name="cycle"/>, facing <paramref name="yawDegrees"/> (0 along -Z, the
@@ -1369,9 +1388,21 @@ internal sealed partial class Orc : IDisposable
     {
         staggered = false;
         State = state;
-        Clip = Wounded ? Hurt(clip) : clip;
+        Clip = Resolve(Wounded ? Hurt(clip) : clip);
         Cycle = 0;
     }
+
+    /// <summary>
+    /// The clip of its body that <paramref name="clip"/> names (#10357): the orc's names, matched in any case
+    /// (the necromancer's <c>Combatwalk</c>), its stunned loop <c>stunned_idle</c>, else its guard.
+    /// </summary>
+    string Resolve(string clip) =>
+        ClipNamed(clip) ?? (Aliases.TryGetValue(clip, out var alias) ? ClipNamed(alias) : null) ?? ClipNamed("combatidle") ?? clip;
+
+    static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase) { ["Stunned"] = "stunned_idle" };
+
+    /// <summary>Whether it plays what <paramref name="clip"/> names on its body.</summary>
+    bool Playing(string clip) => Clip == Resolve(clip);
 
     /// <summary>
     /// Its locomotion wounded (#10153): below <c>life_tohurt</c> (or exhausted) the recorded orcs walked in
@@ -1409,7 +1440,8 @@ internal sealed partial class Orc : IDisposable
         }
     }
 
-    bool Looping(string clip) => clip is "combatidle" or "CombatWalk" or "Hurtwalk" or "Stunned";
+    bool Looping(string clip) => clip.Equals("combatidle", StringComparison.OrdinalIgnoreCase) || clip.Equals("CombatWalk", StringComparison.OrdinalIgnoreCase)
+        || clip.Equals("Hurtwalk", StringComparison.OrdinalIgnoreCase) || clip.Equals("Stunned", StringComparison.OrdinalIgnoreCase) || clip.Equals(Resolve("Stunned"), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// How near its feet come to the player's, Source units: two human hulls (16 each; the donor's player and NPC hulls

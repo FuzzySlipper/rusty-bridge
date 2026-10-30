@@ -95,6 +95,22 @@ internal sealed class DonorContent : IDisposable
     public float? Number(string model, string block, string key) =>
         Read(Path.ChangeExtension(model, ".qct")) is byte[] qct && KeyValues.ParseAll(qct).FirstOrDefault()?.Find(block)?.Number(key) is float value ? value : null;
 
+    /// <summary>
+    /// A number in a block of any of a model's .qct's top-level blocks (#10357: <c>spelldatas</c>' <c>fire_1</c>, which
+    /// follows <c>$keyvalues</c> and <c>combatmovedatas</c>), the blocks named outermost first; null when absent.
+    /// </summary>
+    public float? Nested(string model, IReadOnlyList<string> blocks, string key)
+    {
+        if (Read(Path.ChangeExtension(model, ".qct")) is not byte[] qct) return null;
+        foreach (var top in KeyValues.ParseAll(qct))
+        {
+            KeyValues? at = top.Name.Equals(blocks[0], StringComparison.OrdinalIgnoreCase) ? top : null;
+            for (int i = 1; at is not null && i < blocks.Count; i++) at = at.Block(blocks[i]);
+            if (at?.Number(key) is float value) return value;
+        }
+        return null;
+    }
+
     /// <summary>A model's collision mass, kg (#10164), from its GLB's header alone; null when it has none or isn't imported.</summary>
     public float? Mass(string donorPath)
     {

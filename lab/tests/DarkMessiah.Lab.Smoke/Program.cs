@@ -1269,6 +1269,7 @@ host.Call(engine =>
         && own.Weapon == LabWeapon.ShortSword && own.OffHand is null,
         $"the lab plays build.json: every skill at 0 gives the combat skill's level-0 modules, as a new donor game has ({own})");
     var file = combat.BuildFile!;
+    if (Environment.GetEnvironmentVariable("RB_NECRO") == "1") { NecromancerFights(); return; }
     string? Refused(BuildFile f) { try { combat.BuildFrom(f); return null; } catch (InvalidOperationException e) { return e.Message; } }
     BuildFile WithSkill(string name, int level) => file with { Skills = new Dictionary<string, int>(file.Skills) { [name] = level } };
     Check(Refused(WithSkill("swordplay", 1)) is string unknown && unknown.Contains("isn't a skill"), "a skill mm_skills_infos.txt lacks is refused");
@@ -2376,6 +2377,143 @@ host.Call(engine =>
         combat.Reset();
         combat.Rebuild(file);
         combat.Orc.Hold = weWasHeld;
+        ((IReplayBody)product).Begin();
+    }
+    NecromancerFights();
+    // The necromancer (#10357; docs/lab.md, "The necromancer"): combat.json's orc.necromancer makes the first NPC one, with
+    // its model, its .qct and its hook. Aware and 200 to 1000 units off, it stands and casts spell_flamearrow every 1.68 s,
+    // the flame arrow leaving its hand at the clip's event (1.02 s in) at 520 units/s at the player's eye, off to one side
+    // by 4.6° on its first cast down to 1° by its tenth, striking the player's box for 6; nearer than 200 it backs off to
+    // 318 at 35 units/s, casting on the move every 1.8 s; past 1000 it walks in; within 80 it fights with its hook (7).
+    // The player's shield turns its flame arrows; none came back into it. Against local/necromancer and reflect-probe-2.
+    // RB_NECRO=1 runs this alone and stops.
+    void NecromancerFights()
+    {
+        float npu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var ncTuning = combat.Tuning;
+        bool ncWasGod = combat.God;
+        var (ncRay, ncSurface) = (combat.WorldRay, combat.WorldSurface);
+        (combat.WorldRay, combat.WorldSurface) = (null, null);
+        combat.Retune(ncTuning with { Orc = ncTuning.Orc with { Necromancer = true, Bow = null, SquadMate = null, SpawnUnaware = false } });
+        combat.Reset();
+        combat.God = true;
+        combat.Orc.Hold = false;
+        var necro = combat.Orc;
+        var cd = necro.Casting!;
+        var ncAt = Vector3.Zero;
+        // One fight: the player's eye the given units off, still (or walking in), for the given seconds; what it cast and
+        // when, where it stood, what struck the player and the hook's blows.
+        (List<(float At, float Units, float Error)> Casts, List<float> StandingStarts, int Struck, int Turned, int StruckNpc, float Dealt, List<(float At, float Units, DarkMessiah.Lab.Npc.CastingPhase Phase)> Track,
+            List<(float At, string Move, float Asked)> Blows) Fight(float units, float seconds, bool shield = false)
+        {
+            combat.Orc.Spawn();
+            combat.Orc.PlaceAt(ncAt);
+            var eye = ncAt + new Vector3(0, 61 * npu, units * npu);
+            if (shield)
+            {
+                combat.Mana.Fill();
+                combat.UseBelt(0);
+            }
+            var casts = new List<(float, float, float)>();
+            var starts = new List<float>();
+            var track = new List<(float, float, DarkMessiah.Lab.Npc.CastingPhase)>();
+            var blows = new List<(float, string, float)>();
+            var before = combat.Flames;
+            combat.Log = [];
+            int logged = 0;
+            string was = "";
+            for (int i = 0; i < (int)(seconds / Tick); i++)
+            {
+                float t = (i + 1) * Tick;
+                var feet = eye - Vector3.UnitY * 61 * npu;
+                combat.Step(Tick, step++, false, false, false, eye, Vector3.Normalize(combat.Orc.Feet + Vector3.UnitY - eye), feet);
+                float now = Vector2.Distance(new Vector2(eye.X, eye.Z), new Vector2(combat.Orc.Feet.X, combat.Orc.Feet.Z)) / npu;
+                foreach (var cast in combat.Orc.Cast) casts.Add((t, now, cast.ErrorDegrees));
+                if (combat.Orc.Clip == DarkMessiah.Lab.Npc.CastingData.Clip && was != combat.Orc.Clip) starts.Add(t);
+                was = combat.Orc.Clip;
+                track.Add((t, now, combat.Orc.CastingPhase));
+                for (; logged < combat.Log.Count; logged++) if (combat.Log[logged].Move.StartsWith("attack", StringComparison.Ordinal)) blows.Add((t, combat.Log[logged].Move, combat.Log[logged].Damage));
+            }
+            combat.Log = null;
+            var after = combat.Flames;
+            return (casts, starts, after.Struck - before.Struck, after.Turned - before.Turned, after.StruckNpc - before.StruckNpc, after.Dealt - before.Dealt, track, blows);
+        }
+        string Times(IEnumerable<float> times) => string.Join(", ", times.Select(t => t.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)));
+        // Standing 455 units off, as necromancer-l05's first 15 s.
+        var still = Fight(455, 16);
+        var gaps = still.StandingStarts.Zip(still.StandingStarts.Skip(1), (a, b) => b - a).ToList();
+        float firstRelease = still.Casts.Count > 0 ? still.Casts[0].At - still.StandingStarts.FirstOrDefault() : float.NaN;
+        Check(necro.Kind == DarkMessiah.Lab.Npc.NpcKind.Necromancer && necro.BodyModel.DonorPath.Contains("necromancer", StringComparison.OrdinalIgnoreCase)
+                && cd.RangeMin == 200 && cd.RangeMax == 1000 && cd.Effect == 6
+                && gaps.Count >= 6 && gaps.All(g => MathF.Abs(g - cd.Every) <= 2 * Tick) && MathF.Abs(firstRelease - 1.02f) <= 2 * Tick
+                && still.Casts.Count == still.StandingStarts.Count - (still.Casts.Count < still.StandingStarts.Count ? 1 : 0) && still.Struck >= still.Casts.Count - 3 && still.Struck > 0
+                && MathF.Abs(still.Dealt / still.Struck - 6) < .01f && still.Track.All(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.Stand),
+            FormattableString.Invariant($"the necromancer (its model, .qct and hook; fire_1 {cd.RangeMin:0} to {cd.RangeMax:0} units, effect {cd.Effect:0}), 455 units off, stands and casts spell_flamearrow every {Times(gaps.Distinct().Take(2))} s (the donor's 1.68), the flame arrow away {firstRelease:0.00} s into the clip (1.02), {still.Struck} of its {still.Casts.Count} striking the player for {still.Dealt / Math.Max(1, still.Struck):0.#} (the donor's 6; 9 of 10 at 455 units), its aim off {Times(still.Casts.Take(10).Select(c => MathF.Abs(c.Error)))}°"));
+        // 150 units off, as necromancer-l05b: it backs off to 318 at 35 units/s, casting on the move.
+        var near = Fight(150, 9);
+        float stoodAt = near.Track.FirstOrDefault(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.Stand && x.At > .5f).Units;
+        float backedFor = near.Track.FirstOrDefault(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.Stand && x.At > .5f).At;
+        var moving = near.Casts.Where(c => c.At < backedFor).ToList();
+        Check(near.Track[0].Phase == DarkMessiah.Lab.Npc.CastingPhase.BackOff && MathF.Abs(stoodAt - cd.BackOffTo) < 3 && MathF.Abs(backedFor - (cd.BackOffTo - 150) / cd.WalkUnits) < .2f
+                && moving.Count >= 2 && near.Struck > 0,
+            FormattableString.Invariant($"150 units off it backs off and stands {stoodAt:0} off ({cd.BackOffTo:0}; the donor's 291 to 327) {backedFor:0.0} s on (the donor's 4.8 to 4.9), casting {moving.Count} on the move at {Times(moving.Select(c => c.At))} s (the donor's 1.8 s apart), {near.Struck} striking"));
+        // Past its range: it walks in to 1000 units and casts.
+        var far = Fight(1150, 8);
+        float farStand = far.Track.FirstOrDefault(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.Stand).Units;
+        Check(far.Track[0].Phase == DarkMessiah.Lab.Npc.CastingPhase.Approach && farStand is > 990 and <= 1000.5f && far.Casts.Count > 0,
+            FormattableString.Invariant($"1150 units off (past fire_1's 1000) it walks in, stands {farStand:0} off and casts ({far.Casts.Count})"));
+        // Within its yellow zone: it fights with its hook, its blow asking strength 4 and the hook's WDmg 3.
+        var close = Fight(60, 6);
+        Check(close.Blows.Count > 0 && close.Blows.All(b => MathF.Abs(b.Asked - 7) < .01f) && close.Track.Any(x => x.Phase == DarkMessiah.Lab.Npc.CastingPhase.BackOff),
+            FormattableString.Invariant($"60 units off it strikes with its hook ({string.Join(", ", close.Blows.Select(b => $"{b.Move} {b.Asked:0.#}"))}; the donor's attack_r 7) and backs off after"));
+        // The player's shield up 455 units off: every flame arrow turned, none striking the player or the necromancer.
+        var ncFile = combat.BuildFile!;
+        combat.Rebuild(ncFile with
+        {
+            Skills = new Dictionary<string, int>(ncFile.Skills) { ["focus"] = 1, ["extra_mana"] = 3 },
+            Belt = [new BeltSlot(Spell: DarkMessiah.Lab.Magic.ReflectionRules.Spell)],
+        });
+        var shielded = Fight(455, 14, shield: true);
+        combat.Rebuild(ncFile);
+        Check(shielded.Casts.Count >= 7 && shielded.Turned == shielded.Casts.Count - combat.FlameArrows.Count(a => !a.Turned) && shielded.Struck == 0 && shielded.StruckNpc == 0,
+            FormattableString.Invariant($"the player's shield up, all {shielded.Turned} of its {shielded.Casts.Count} flame arrows that reached it were turned, none striking the player ({shielded.Struck}) or coming back into the necromancer ({shielded.StruckNpc}), as the donor's (every one under the shield, l05b: 26 turned, none back into it)"));
+        // A turned flame arrow that comes back into the necromancer: the spell's effect times its fire vulnerability (2).
+        combat.Orc.Spawn();
+        combat.Orc.PlaceAt(ncAt);
+        combat.Orc.Hold = true;
+        float ncHealth = combat.Orc.Health;
+        combat.FlyFlame(combat.Orc, ncAt + new Vector3(0, 50 * npu, 200 * npu), new Vector3(0, 0, -cd.SpeedUnits * npu), turned: true);
+        for (int i = 0; i < 60 && combat.LastFlameOnNpc is null; i++)
+            combat.Step(Tick, step++, false, false, false, ncAt + new Vector3(0, 61 * npu, 900 * npu), -Vector3.UnitZ, ncAt + new Vector3(0, 0, 900 * npu));
+        float burnt = ncHealth - combat.Orc.Health;
+        combat.Orc.Hold = false;
+        Check(combat.LastFlameOnNpc is { } onNecro && onNecro.Victim == combat.Orc && MathF.Abs(onNecro.Damage - 12) < .01f && MathF.Abs(burnt - 12) < .01f,
+            FormattableString.Invariant($"a turned flame arrow flown back into the necromancer takes {burnt:0.#} from it (the spell's 6 times its .qct's fire vulnerability 2; no recorded one came back into it)"));
+        // Against the recordings (NecromancerCalibration).
+        var ncFiles = new[] { Path.Combine(repo!, "local", "necromancer"), Path.Combine(repo!, "local", "recordings", "experiments") }
+            .Where(Directory.Exists).SelectMany(d => Directory.EnumerateFiles(d, "*.rbrec")).Where(f => f.Contains("necromancer", StringComparison.Ordinal) || f.EndsWith("reflect-probe-2.rbrec", StringComparison.Ordinal)).Order().ToList();
+        if (ncFiles.Count > 0)
+        {
+            var flames = ncFiles.SelectMany(NecromancerCalibration.Flames).ToList();
+            var ncGaps = ncFiles.SelectMany(NecromancerCalibration.StandingGaps).ToList();
+            var hooks = ncFiles.SelectMany(NecromancerCalibration.HookBlows).ToList();
+            // The cruise of flights cast from 400 units or more, where the release's fast first samples weigh least.
+            var cruises = flames.Where(f => !float.IsNaN(f.Cruise) && !f.Turned && f.Distance >= 400).Select(f => f.Cruise).Order().ToList();
+            float cruise = cruises.Count > 0 ? cruises[cruises.Count / 2] : float.NaN;
+            float edge = DarkMessiah.Combat.Reaches.PlayerHalfWidth + 4;
+            var aimed = flames.Where(f => !f.Turned && f.Struck is "player" or "worldspawn" or "func_brush" && f.Distance > 100 && f.Distance < 700).ToList();
+            int agree = aimed.Count(f => (f.Aside <= edge) == (f.Struck == "player"));
+            var turned = flames.Where(f => f.Turned).ToList();
+            float gapMedian = ncGaps.Count > 0 ? ncGaps.Order().ElementAt(ncGaps.Count / 2) : float.NaN;
+            var playerAsks = flames.Where(f => f.Struck == "player").Select(f => f.Asked).Distinct().ToList();
+            Check(MathF.Abs(gapMedian - cd.Every) <= 2 * Tick && MathF.Abs(cruise - cd.SpeedUnits) <= .03f * cd.SpeedUnits && agree >= .85f * aimed.Count
+                    && playerAsks.All(a => MathF.Abs(a - cd.Effect) < .01f) && hooks.All(h => MathF.Abs(h.Asked - 7) < .01f) && turned.All(f => f.Struck != "npc_necromancer"),
+                FormattableString.Invariant($"against {ncFiles.Count} recordings: {ncGaps.Count} standing casts a median {gapMedian:0.00} s apart ({cd.Every}); {cruises.Count} flame arrows cast from 400 units or more cruising at a median {cruise:0} units/s ({cd.SpeedUnits:0}); of {aimed.Count} aimed at the player 100 to 700 units off, {agree} struck or missed as their line passed within {edge:0} units of the eye or not; each on the player asked {string.Join("/", playerAsks.Select(a => a.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)))} ({cd.Effect}); {hooks.Count} hook blows asked {string.Join("/", hooks.Select(h => h.Asked).Distinct())} (7); {turned.Count} turned by the shield, none back into the necromancer"));
+        }
+        (combat.WorldRay, combat.WorldSurface) = (ncRay, ncSurface);
+        combat.Retune(ncTuning);
+        combat.Reset();
+        combat.God = ncWasGod;
         ((IReplayBody)product).Begin();
     }
     // NPC archery (#10169; docs/lab.md, "NPC archery"): combat.json's orc.bow makes the first orc an archer (the maps'

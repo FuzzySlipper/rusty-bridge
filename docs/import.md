@@ -17,7 +17,7 @@ scp -r 'den-win11:C:/Program Files (x86)/Steam/steamapps/common/Dark Messiah Mig
 Then, from the repository:
 
 ```
-dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec local/recordings
+dotnet run --project import/DarkMessiah.Import.Tool -- level local/recordings/l01_a-parrybot.rbrec local/recordings local/recordings/experiments/l01_a-v19-reflect-probe-2.rbrec
 dotnet run --project import/DarkMessiah.Import.Tool -- model models/npc/orc/npc_orc.mdl
 dotnet run --project import/DarkMessiah.Import.Tool -- map maps/l01_a.bsp
 dotnet run --project import/DarkMessiah.Import.Tool -- tables
@@ -26,6 +26,7 @@ dotnet run --project import/DarkMessiah.Import.Tool -- tables
 `level` imports the recordings' map, every model path in their model
 tables, and their sprites, and writes `local/import/<map>.assets.json`.
 - **Several recordings:** it takes one or more recordings, or folders of them. They must all be of one map; it refuses a mix. The import covers the union of their model paths, so every recording of the map replays on it. The provenance lists them all (`recordings`).
+- **The necromancer:** the arena's recordings have no caster, so the import takes `local/recordings/experiments/l01_a-v19-reflect-probe-2.rbrec` too, whose spawned necromancer brings its model, `.qct` and the hook (#10357): `level local/recordings/l01_a-parrybot.rbrec local/recordings local/recordings/experiments/l01_a-v19-reflect-probe-2.rbrec`.
 - **The recording that travels:** the first is copied into `local/import/recordings/` and named as `recording`/`recordingFile`, so the folder is the whole content root for the mirror ([mirror.md](mirror.md)). Put `l01_a-parrybot` first: the mirror smoke seeks into its fight.
 - **Clip check:** it checks each model's clip order against the sequence names the recordings carry and reports any difference.
 - **Gameplay tables:** it also copies them (below), and indexes the item models.

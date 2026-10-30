@@ -783,17 +783,17 @@ records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
 
 `Magic/MagicReflection.cs` (#10349; `l01_a-v19-reflect-probe-2`, `-3`, docs/recording.md). l01_a has no caster, so
 the scenarios spawn one: `mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook`
-(its `.qct`'s `fire_1`, the flame arrow, 0 to 450 units). l01_a's NPCs don't see the player, so a lightning bolt wakes
-it (and the archer).
+(its `.qct`'s `fire_1`, the flame arrow, 200 to 1000 units). l01_a's NPCs don't see the player, so a lightning bolt wakes
+it (and the archer). The lab's own necromancer casts at the shield now (#10357, below, "The necromancer").
 
 | | The donor | The lab |
 | --- | --- | --- |
 | The cast | `Deploy_Spell_EARTH_2` casts it as it's put in hand, `cost` 25 then, no arm clip (the hand keeps its spell); its entity stands at the player's feet 14.95 to 14.98 s (`effect` 15; five casts) | its belt key casts it, the hand keeping what it held: 25 mana, the shield up 15 s, a new cast starting it again |
-| What it turns | server.dll: each tick a sphere query of `shield_radius` (60) about the player's origin 20 units up (+0x474606), turning the flame arrow's, the fireball's and the freeze's missiles (`CARXSPELL_FIRE_1_Missile`, `_FIRE_3_`, `_WATER_3_`), not the player's own (+0x4746D9), and into a held spell staff, which takes them. Recorded: the necromancer's flame arrows (one every 1.68 s, 6 a blow, 1140 units/s), turned where their origin came within 74.7 to 75.9 units of that point (the query meets the missile's box), off from the player's origin through where they were, at their speed (720 in and out), back and up past the necromancer: 11 of 11, none striking anyone. The archer's arrows went through: all 15 under two shields struck the player for 5 | `ReflectionRules.Turn`: an enemy's flame arrow, fireball or freeze missile within 75 (`shield_radius` and 15) of that point is sent off from the player's origin through where it is at its speed; arrows aren't (the archer's go on as before). `LabCombat.TurnSpell` asks it in lab space while the shield is up; the lab has no enemy caster to ask yet |
+| What it turns | server.dll: each tick a sphere query of `shield_radius` (60) about the player's origin 20 units up (+0x474606), turning the flame arrow's, the fireball's and the freeze's missiles (`CARXSPELL_FIRE_1_Missile`, `_FIRE_3_`, `_WATER_3_`), not the player's own (+0x4746D9), and into a held spell staff, which takes them. Recorded: the necromancer's flame arrows (one every 1.68 s, 6 a blow, a cruise of about 540 units/s: "The necromancer"), turned where their origin came within 74.7 to 75.9 units of that point (the query meets the missile's box), off from the player's origin through where they were, at their speed (its samples 720 in and out), back and up past the necromancer: 11 of 11, none striking anyone. In l05_a (#10357, `necromancer-l05b`) every one that reached the shield turned, 26, standing and crouched, 500 and 300 units off, 51 to 75 units from that point (a check per think, it seems, not per tick: the lab turns them at 75), none back into it. The archer's arrows went through: all 15 under two shields struck the player for 5 | `ReflectionRules.Turn`: an enemy's flame arrow, fireball or freeze missile within 75 (`shield_radius` and 15) of that point is sent off from the player's origin through where it is at its speed; arrows aren't (the archer's go on as before). `LabCombat.TurnSpell` asks it in lab space while the shield is up, of the necromancer's flame arrows (#10357) |
 
 - **Not measured:** a fireball or freeze cast at the player (only the necromancer's flame arrows were), the spell staff
   taking a missile, the shield moving with the player (the player stood still), a turned missile striking its caster
-  (none came back at it), and its `recovery` (2).
+  (none came back at it, standing or crouched, 500 or 300 units off), and its `recovery` (2).
 - **The shield isn't drawn:** the HUD says it's up.
 - **The smoke:** cast from belt slot 1 for 25 mana, the hand keeping its weapon, up 15 s and down 15.00 s on; a flame
   arrow flown level at the player's chest turns back and up at 720 units/s, an arrow isn't turned, and none is once the
@@ -801,6 +801,37 @@ it (and the archer).
   along its recorded line at the lab's rule, the shield up where the donor's was: the 11 the donor's turned turned on
   the donor's tick, within 1° and 1% of its way off, and the 16 others didn't; and the 12 arrows loosed under the
   shields all struck the player.
+
+### The necromancer
+
+`Npc/NpcKind.cs`, `Npc/NecromancerCasting.cs` (#10357; `l05_a-v21-necromancer-l05`, `-l05b`, `l01_a-v21-necromancer`
+and `l01_a-v19-reflect-probe-2`, docs/recording.md; kept in `local/necromancer`). `combat.json`'s `orc.necromancer` makes
+the first NPC a necromancer (`npc_necromancer`, as `mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl
+weapon_mm_hook` makes it): its model, its `.qct` (health 35, zones, its attacks `attack_l` and `attack_r`, defence,
+perception) and the hook (`WDmg` 3), no shield. The level import takes `reflect-probe-2` for its model (docs/import.md).
+Its numbers are `NecromancerCasting`'s, read by `NecromancerCalibration`. l01_a's NPCs don't see the player (the
+settings' `nostealth`), so its fight there broke off into a search once he moved; it was recorded in l05_a.
+
+| | The donor | The lab |
+| --- | --- | --- |
+| Its range | the `.qct`'s `spelldatas` `fire_1`: `range_min` 200, `range_max` 1000, `effect` 6 (`water_3`, its freeze, is the 0 to 450) | the same, read from it |
+| Standing | 200 to 1000 units off it stands and casts `spell_flamearrow` (1.708 s), the flame arrow made at its event 2164 and let go at 2165 (cycle 0.6, 1.02 s in), then `combatidle` 0.12 s and again: every 1.68 s (140 standing casts, 300 to 850 units off) | the same: the clip to 0.913, 0.12 s of `combatidle` |
+| Too near | under 200 it walks back from the player, facing it, at 35 units/s (147 to 318–327 off in 4.8 to 4.9 s, three times) and stands again 291 to 327 off (median 318), casting on the move (`layer_spell_flamearrow` over its walk) every 1.8 s | `Combatwalk`'s backward column at 35 units/s to 318, the layer every 1.8 s |
+| Too far | past 1000 it walks in, casting on the move | walks in at the same pace to 1000 |
+| Up close | 63 units off it struck once with its hook (`attack_r`, 7: its strength 4 and the hook's `WDmg` 3), then cast its freeze and walked off | within its `Yellow_zone` (80) it fights as any NPC, its attacks landing within their `.qct` reach; one blow, then it backs off to 318 |
+| Its flame arrows | from its right hand straight at the player's eye, no lead, aside by a turn that narrows cast by cast (`ThrowPrecisionNbShootToIn` 10): at 455 units the first passed the eye 35 units aside (4.4°), the next five 14 to 25 (1.8° to 3.1°), the eighth and ninth 7 and 8 (1°); they struck within 18 units and missed from 25; a cruise of about 540 units/s (the 53 cast from 400 units or more; the shorter ones' release samples ran faster), each on the player 6 | aside 4.6° on its first cast, 2.2° narrowing to 1° by its tenth, either side at random; 540 units/s; the player's box grown by 4 units (struck within 20); 6 (`effect`) |
+| The shield | every flame arrow that reached it turned, none back into the necromancer | `TurnSpell` turns them ("Magic reflection"); a turned one that meets an NPC strikes it, 6 times its fire vulnerability (the necromancer's 2: 12) |
+
+- **Not in the lab:** its freeze (`water_3`, cast twice, after its blow and against l05_a's orcs: once each, too few to
+  take its cadence), its strafing, and the flame arrow's own look (drawn as a 0.12 m glowing box, as the freeze's bolts).
+- **Not measured:** a turned flame arrow striking it (none came back), its defence (none was attacked), and more than
+  one hook blow.
+- **The smoke:** 455 units off it casts every 1.67 s, each away 1.02 s into the clip, 8 of 9 striking the player for 6;
+  150 off it backs off to 319 in 4.9 s, casting 3 on the move 1.8 s apart; 1150 off it walks in to 999 and casts; 60
+  off it strikes with its hook for 7 and backs off; under the shield all 8 that reached it turned, none striking anyone;
+  a turned one flown back into it takes 12. Against the recordings: the standing casts a median 1.68 s apart, the long
+  flights' cruise (535 against 540), 84 of 95 aimed flights struck or missed as the lab's box says, each 6 on the
+  player, the hook's 7, and none of 58 turned ones back into it. `RB_NECRO=1` runs these alone.
 
 ### Wizard eye
 

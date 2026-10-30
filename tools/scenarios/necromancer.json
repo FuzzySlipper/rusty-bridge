@@ -1,0 +1,331 @@
+{
+  "description": "The necromancer (#10357): as reflect-probe-2 (every skill, god, no notarget, the level's NPCs removed, sixteen mana potions), a necromancer with 1000 health at (0, -2287) woken by a lightning bolt from 550 units north: still 15 s, strafing 12 s, backing off, still at 1000 and 1500 units; woken again with the player 140 units off, then 60 in front (its melee); woken again from 550, magic reflection standing and crouched there, then crouched and standing 300 off (a turned flame arrow back into it). Marked with echo rb_nc.",
+  "seconds": 200,
+  "setup": [
+    "sv_cheats 1",
+    "notarget",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 0.5
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_ghoul",
+    "ent_remove_all npc_villager_male",
+    "ent_remove_all npc_villager_female",
+    "ent_remove_all npc_bullseye",
+    "ent_remove_all npc_cyclope_undead",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_orc_sword",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 1
+    },
+    {
+      "wait": 2
+    },
+    {
+      "wait": 2
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    },
+    "ent_remove_all npc_necromancer",
+    {
+      "wait": 0.5
+    },
+    "god",
+    {
+      "wait": 0.3
+    }
+  ],
+  "play": [
+    "echo rb_nc woken from 550 units north, still 15 s",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1750 -12",
+    "setang 0 270 0",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_AIR_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc strafing left and right 3 s at a time, 12 s",
+    "+moveleft",
+    {
+      "wait": 3
+    },
+    "-moveleft",
+    "+moveright",
+    {
+      "wait": 3
+    },
+    "-moveright",
+    "+moveleft",
+    {
+      "wait": 3
+    },
+    "-moveleft",
+    "+moveright",
+    {
+      "wait": 3
+    },
+    "-moveright",
+    "echo rb_nc backing off 5 s",
+    "+back",
+    {
+      "wait": 5
+    },
+    "-back",
+    {
+      "wait": 3
+    },
+    "echo rb_nc 1000 units north, still 10 s",
+    "setpos 0 -1290 -12",
+    "setang 0 270 0",
+    {
+      "wait": 10
+    },
+    "echo rb_nc 1500 units north, still 12 s",
+    "setpos 0 -790 -12",
+    "setang 0 270 0",
+    {
+      "wait": 12
+    },
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 1
+    },
+    "echo rb_nc woken again, the player 140 units north, still 10 s",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -2150 -12",
+    "setang 0 270 0",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_AIR_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    {
+      "wait": 10
+    },
+    "echo rb_nc 60 units in front, still 12 s",
+    {
+      "approach": "npc_necromancer",
+      "distance": 60
+    },
+    {
+      "wait": 12
+    },
+    "usebelt3",
+    "usebelt4",
+    {
+      "wait": 1
+    },
+    "echo rb_nc woken again from 550 north, the shield up standing, 15 s",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    {
+      "wait": 1
+    },
+    "setpos 0 -2380 -12",
+    "setang 37.3 90 0",
+    {
+      "wait": 1
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 3
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    {
+      "wait": 0.5
+    },
+    "setpos 0 -1750 -12",
+    "setang 0 270 0",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_AIR_3",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 1
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc the shield up crouched at 550, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 15
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "usebelt5",
+    "usebelt6",
+    {
+      "wait": 1
+    },
+    "echo rb_nc the shield up crouched at 300, 15 s",
+    "setpos 0 -2000 -12",
+    "setang 0 270 0",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 15
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc the shield up standing at 300, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc done"
+  ]
+}

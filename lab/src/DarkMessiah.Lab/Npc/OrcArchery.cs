@@ -74,8 +74,8 @@ internal sealed partial class Orc
     internal List<OrcShot> Loosed { get; } = [];
     /// <summary>Its arrows let go, and those standing, this fight.</summary>
     internal (int Loosed, int Standing) Shots { get; private set; }
-    /// <summary>The weapon it strikes with and its model: the bow until it draws the cleaver.</summary>
-    internal (string Weapon, string Model) Weapon => HoldsBow ? ("weapon_mm_bow_long", archery!.Bow) : ("weapon_arxorccleaver", Cleaver);
+    /// <summary>The weapon it strikes with and its model: the bow until it draws the cleaver; its kind's (the necromancer's hook, #10357).</summary>
+    internal (string Weapon, string Model) Weapon => HoldsBow ? ("weapon_mm_bow_long", archery!.Bow) : (Kind.WeaponClass, Kind.Weapon);
 
     void ResetArchery()
     {

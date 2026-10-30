@@ -42,6 +42,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     // The fireballs' look (#10165): a small glowing box each, drawn where it is.
     private readonly Appearance fireballLook;
     private readonly List<EntityId> fireballIds = [];
+    private readonly List<EntityId> flameIds = [];
     private readonly List<EntityId> boltIds = [];
     // The arrows in flight (#10168): a thin box each, along its flight.
     private readonly Appearance arrowLook;
@@ -256,7 +257,7 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
 
     public void Shutdown() => Dispose();
 
-    /// <summary>Each fireball as a 0.25 m glowing box where it is, and each freeze bolt as a 0.12 m one.</summary>
+    /// <summary>Each fireball as a 0.25 m glowing box where it is, and each freeze bolt and necromancer's flame arrow as a 0.12 m one.</summary>
     private IEnumerable<AppearanceFact> FireballFacts()
     {
         var balls = combat.Fireballs;
@@ -268,6 +269,11 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
         while (boltIds.Count < bolts.Count) boltIds.Add(scene.Entities.Create());
         for (int i = 0; i < bolts.Count; i++)
             yield return new AppearanceFact(boltIds[i].Value, false, 0, new Transform(bolts[i].Position, Quaternion.Identity, new Vector3(.12f)), fireballLook, true, RenderLayer.Scene);
+        // The necromancer's flame arrows (#10357), as the bolts.
+        var flames = combat.FlameArrows;
+        while (flameIds.Count < flames.Count) flameIds.Add(scene.Entities.Create());
+        for (int i = 0; i < flames.Count; i++)
+            yield return new AppearanceFact(flameIds[i].Value, false, 0, new Transform(flames[i].At, Quaternion.Identity, new Vector3(.12f)), fireballLook, true, RenderLayer.Scene);
     }
 
     /// <summary>Each arrow in flight as a box 2 cm square and 0.75 m long (the classic arrow's length), along its velocity.</summary>

@@ -33,6 +33,7 @@
     "map": "l01_a",
     "squadMate": null,
     "bow": null,
+    "necromancer": false,
     "flinch": {
       "on": false,
       "swingMomentum": 4.55,

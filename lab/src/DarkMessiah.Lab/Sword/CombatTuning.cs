@@ -109,8 +109,10 @@ internal sealed record SwordPhases(MovePhases Fast, MovePhases Power, MovePhases
 /// bow), or none: a swordsman.</param>
 /// <param name="Flinch">The procedural hit reaction's numbers (#10382, <see cref="Npc.FlinchTuning"/>), fitted to the recorded
 /// blows; with <c>on</c> it reacts this way in place of the authored clips. None: the authored clips.</param>
+/// <param name="Necromancer">The first NPC is a necromancer (#10357, <see cref="Npc.NpcKind.Necromancer"/>): it casts flame
+/// arrows at the player from range, and fights with its hook up close. Its squad-mate stays an orc swordsman.</param>
 internal sealed record OrcTuning(float[] Spawn, float RespawnSeconds, float WalkSpeed, Dictionary<string, float[]> AttackLandings, bool SpawnUnaware = false,
-    string Map = "l01_a", float[]? SquadMate = null, string? Bow = null, Npc.FlinchTuning? Flinch = null);
+    string Map = "l01_a", float[]? SquadMate = null, string? Bow = null, Npc.FlinchTuning? Flinch = null, bool Necromancer = false);
 
 // Authored: missing constructor values, nulls in non-nullable fields and unknown members are errors, not defaults.
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

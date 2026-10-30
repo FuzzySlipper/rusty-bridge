@@ -88,7 +88,7 @@ internal sealed class LabCombat : IDisposable
         model = new CombatModel(donor.Combat);
         FirstPerson = new FirstPerson(engine, donor);
         Sword = new PlayerSword(FirstPerson.Clips(FirstPerson.Weapon, tuning));
-        Orc = new Orc(engine, donor, tuning.Orc);
+        Orc = new Orc(engine, donor, tuning.Orc, FirstSlot(NpcKind.For(tuning.Orc)), NpcKind.For(tuning.Orc));
         hitOrc = Orc;
         this.donor = donor;
         Mates(tuning.Orc);
@@ -256,7 +256,11 @@ internal sealed class LabCombat : IDisposable
     /// <summary>The player's adrenaline: landed blows fill it, a full gauge makes the next power strike the Fatality.</summary>
     internal PlayerAdrenaline Adrenaline { get; } = new();
     internal FirstPerson FirstPerson { get; }
-    internal Orc Orc { get; }
+    internal Orc Orc { get; private set; }
+    // The first NPC of each kind made so far (#10357), the one in play among them.
+    readonly Dictionary<NpcKind, Orc> firsts = [];
+    // Each kind's first NPC in its own slot of appearance ids: the orc's 0, the necromancer's 2 (the squad-mate has 1).
+    static int FirstSlot(NpcKind kind) => kind.Caster ? 2 : 0;
     /// <summary>The donor content the fight reads.</summary>
     internal DonorContent Donor => donor;
     /// <summary>The player's health (#10162): its maximum and regeneration from the build.</summary>
@@ -519,7 +523,7 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     void SpellBlow(Orc orc, string spell, float effect, float adrenaline, float deathDelay)
     {
-        float damage = model.SpellDamage(spell, effect, 0, 0, Npc.Orc.Model);
+        float damage = model.SpellDamage(spell, effect, 0, 0, orc.Kind.Model);
         bool lethal = damage >= orc.Health;
         float taken = lethal ? MathF.Max(0, orc.Health - 1) : damage;
         orc.Damage(taken);
@@ -691,7 +695,7 @@ internal sealed class LabCombat : IDisposable
         foreach (var orc in Orcs.Where(o => o.Alive && !o.Following).ToList())
         {
             if (Vector3.Distance(at, orc.Feet) / SourceSpace.MetresPerUnit > rules.ExplosiveRadius) continue;
-            float damage = model.SpellDamage("fire_1", rules.ExplosiveDamage, 0, 0, Npc.Orc.Model);
+            float damage = model.SpellDamage("fire_1", rules.ExplosiveDamage, 0, 0, orc.Kind.Model);
             orc.Damage(damage);
             LastBlast.Add((orc, damage));
             Message = FormattableString.Invariant($"The blast takes {damage:0.#} from the orc");
@@ -805,7 +809,7 @@ internal sealed class LabCombat : IDisposable
             var (centre, half) = orc.Hull;
             // From the ball's edge: one that struck the body is 0 off.
             float distance = MathF.Max(0, Vector3.Distance(at, Vector3.Clamp(at, centre - half, centre + half)) / SourceSpace.MetresPerUnit - BallUnits);
-            float damage = model.SpellDamage(FireballRules.Spell, Fireball.Effect, Fireball.RadiusUnits, distance, Npc.Orc.Model);
+            float damage = model.SpellDamage(FireballRules.Spell, Fireball.Effect, Fireball.RadiusUnits, distance, orc.Kind.Model);
             if (damage <= 0) continue;
             orc.Damage(damage);
             string who = orc == Orc ? "the orc" : "its mate";
@@ -954,7 +958,19 @@ internal sealed class LabCombat : IDisposable
     {
         Tuning = next;
         Sword.Retune(FirstPerson.Clips(Weapon, next));
-        Orc.Retune(next.Orc);
+        // Another kind asked for (#10357: the necromancer, or back to the orc): that kind's NPC in the first's place, made
+        // on first use and kept, so going back gives the same one.
+        if (NpcKind.For(next.Orc) is var kind && kind != Orc.Kind)
+        {
+            var was = Orc;
+            firsts[was.Kind] = was;
+            Orc = firsts.TryGetValue(kind, out var kept) ? kept : new Orc(engine, donor, next.Orc, FirstSlot(kind), kind) { RagdollWorld = was.RagdollWorld, Hazards = was.Hazards };
+            Orc.Retune(next.Orc);
+            Orc.Spawn();
+            if (hitOrc == was) hitOrc = Orc;
+            flameArrows.Clear();
+        }
+        else Orc.Retune(next.Orc);
         Mates(next.Orc);
     }
 
@@ -1047,6 +1063,9 @@ internal sealed class LabCombat : IDisposable
         // R10169-2), and those in flight.
         foreach (var shot in Orc.Loosed) Loose(Orc, shot, orcFoe is { } target && target != Orc ? target : null, eye);
         StepOrcArrows(tick, seconds, feet, eye);
+        // The necromancer's flame arrows (#10357): let go this step at the player's eye, and those in flight.
+        foreach (var cast in Orc.Cast) LooseFlame(Orc, cast, eye);
+        StepFlameArrows(tick, seconds, feet, eye);
         foreach (var blow in mateBlows) if (mateFoe is { } foe) OrcStrikesOrc(tick, blow, Mate!, foe); else OrcStrikes(tick, blow, feet, forward, Mate!);
         if (orcPose is null) Stomp(tick, feet);
         StepCures(seconds);
@@ -1538,13 +1557,13 @@ internal sealed class LabCombat : IDisposable
         OrcFights = OrcFights with { Blows = OrcFights.Blows + 1 };
         Vector3 toVictim = (victim.Feet - striker.Feet) with { Y = 0 };
         static Vector2 Source(Vector3 v) => new Vector2(v.Z, v.X) / SourceSpace.MetresPerUnit;
-        var reach = model.Reach(new ReachCase((int)tick, "npc_orc_sword", Npc.Orc.Model, blow.Attack, blow.Part, "npc_orc_sword",
+        var reach = model.Reach(new ReachCase((int)tick, striker.Kind.Class, striker.Kind.Model, blow.Attack, blow.Part, victim.Kind.Class,
             Source(toVictim), Vector2.Normalize(Source(striker.Facing)), victim.Hull.HalfExtents.X / SourceSpace.MetresPerUnit, false));
         if (!reach.Lands) return;
         striker.Landed(blow);
         var attacker = striker.Party() with { Cycle = blow.Cycle };
-        float asked = model.Damage(new DamageCase((int)tick, victim.Party(), attacker, "weapon_arxorccleaver", null, 0x4, 0, 0, victim.Health, victim.Health, false,
-            blow.Part, Npc.Orc.Cleaver)) ?? 0;
+        float asked = model.Damage(new DamageCase((int)tick, victim.Party(), attacker, striker.Weapon.Weapon, null, 0x4, 0, 0, victim.Health, victim.Health, false,
+            blow.Part, striker.Weapon.Model)) ?? 0;
         victim.Damage(asked);
         OrcFights = OrcFights with { Landed = OrcFights.Landed + 1, Dealt = OrcFights.Dealt + asked };
         // Its reaction as to the player's blow, by the striker's facing in its frame.
@@ -1606,6 +1625,106 @@ internal sealed class LabCombat : IDisposable
     /// The player's own arrows are 1 against the orc's hit boxes.
     /// </summary>
     const float OrcArrowSize = 12;
+
+    /// <summary>
+    /// A necromancer's flame arrow in flight (#10357): where it is, its velocity, its age, its caster, and whether the
+    /// player's shield turned it (#10349): turned, it flies on at whoever it meets, the caster too.
+    /// </summary>
+    internal sealed record FlameArrow(Orc Caster, Vector3 At, Vector3 Velocity, float Age, bool Turned = false);
+    readonly List<FlameArrow> flameArrows = [];
+    /// <summary>The flame arrows in flight, for drawing.</summary>
+    internal IReadOnlyList<FlameArrow> FlameArrows => flameArrows;
+    /// <summary>The necromancer's flame arrows: let go, struck the player, turned by the shield, struck an NPC turned, and what they asked.</summary>
+    internal (int Cast, int Struck, int Turned, int StruckNpc, float Dealt) Flames { get; private set; }
+    /// <summary>The last flame arrow that struck an NPC: the NPC and what it took.</summary>
+    internal (Orc Victim, float Damage)? LastFlameOnNpc { get; private set; }
+
+    /// <summary>
+    /// The flame arrow's half-size against the player, Source units: 4. The recorded ones whose line passed the player 3
+    /// to 18 units aside struck; 25 to 37 aside, they went by.
+    /// </summary>
+    const float FlameArrowSize = 4;
+
+    /// <summary>
+    /// A flame arrow let go (#10357): from the caster's hand at <see cref="CastingData.SpeedUnits"/>, straight at the player's
+    /// eye (no lead), turned about the vertical by the cast's error.
+    /// </summary>
+    void LooseFlame(Orc caster, NpcCast cast, Vector3 eye)
+    {
+        var c = caster.Casting!;
+        var aim = eye - cast.From;
+        var turned = Vector3.Transform(aim, Quaternion.CreateFromAxisAngle(Vector3.UnitY, cast.ErrorDegrees * MathF.PI / 180));
+        flameArrows.Add(new FlameArrow(caster, cast.From, Vector3.Normalize(turned) * c.SpeedUnits * SourceSpace.MetresPerUnit, 0));
+        Flames = Flames with { Cast = Flames.Cast + 1 };
+    }
+
+    /// <summary>
+    /// A flame arrow of <paramref name="caster"/>'s flown from <paramref name="at"/> at <paramref name="velocity"/> (lab space),
+    /// turned already or not: the smoke's, since no recorded turned one came back into its caster.
+    /// </summary>
+    internal void FlyFlame(Orc caster, Vector3 at, Vector3 velocity, bool turned) => flameArrows.Add(new FlameArrow(caster, at, velocity, 0, turned));
+
+    /// <summary>
+    /// The flame arrows this step: the player's shield turns one it reaches (<see cref="TurnSpell"/>); untouched, one
+    /// strikes the player's box grown by its <see cref="FlameArrowSize"/>; turned, any live NPC's box it meets; the arena
+    /// stops it, and so do 5 s.
+    /// </summary>
+    void StepFlameArrows(ulong tick, float seconds, Vector3 feet, Vector3 eye)
+    {
+        float mpu = SourceSpace.MetresPerUnit, half = (Reaches.PlayerHalfWidth + FlameArrowSize) * mpu;
+        var (min, max) = (feet - new Vector3(half, FlameArrowSize * mpu, half), new Vector3(feet.X + half, eye.Y + (8 + FlameArrowSize) * mpu, feet.Z + half));
+        for (int i = 0; i < flameArrows.Count; i++)
+        {
+            var arrow = flameArrows[i];
+            if (!arrow.Turned && TurnSpell(CastingData.Spell, arrow.At, arrow.Velocity, feet) is { } away)
+            {
+                arrow = arrow with { Velocity = away, Turned = true };
+                Flames = Flames with { Turned = Flames.Turned + 1 };
+            }
+            var to = arrow.At + arrow.Velocity * seconds;
+            float? world = WorldRay?.Invoke(arrow.At, to) is Vector3 w ? Vector3.Distance(arrow.At, w) / MathF.Max(1e-6f, Vector3.Distance(arrow.At, to)) : null;
+            if (!arrow.Turned && SegmentEntersBox(arrow.At, to, min, max) is float t && (world is not float wt || t <= wt))
+            {
+                FlameStrikesPlayer(tick, arrow);
+                flameArrows.RemoveAt(i--);
+                continue;
+            }
+            if (arrow.Turned && Orcs.Where(o => o.Alive && !o.Following)
+                    .Select(o => (Orc: o, At: SegmentEntersBox(arrow.At, to, o.Hull.Center - o.Hull.HalfExtents - Vector3.One * FlameArrowSize * mpu, o.Hull.Center + o.Hull.HalfExtents + Vector3.One * FlameArrowSize * mpu)))
+                    .Where(x => x.At is float at && (world is not float wt2 || at <= wt2)).OrderBy(x => x.At).FirstOrDefault() is { Orc: { } victim })
+            {
+                FlameStrikesNpc(arrow, victim);
+                flameArrows.RemoveAt(i--);
+                continue;
+            }
+            if (world is not null || arrow.Age + seconds >= 5) { flameArrows.RemoveAt(i--); continue; }
+            flameArrows[i] = arrow with { At = to, Age = arrow.Age + seconds };
+        }
+    }
+
+    /// <summary>A flame arrow strikes the player: the spell's <c>effect</c> (6), as every recorded one asked.</summary>
+    void FlameStrikesPlayer(ulong tick, FlameArrow arrow)
+    {
+        float asked = model.SpellDamage(CastingData.Spell, arrow.Caster.Casting!.Effect, 0, 0, PlayerModel);
+        Flames = Flames with { Struck = Flames.Struck + 1, Dealt = Flames.Dealt + asked };
+        OrcStats = OrcStats with { Dealt = OrcStats.Dealt + asked };
+        Log?.Add(new CombatEvent(tick, false, CastingData.Clip, DefenseResult.Hit, asked, null));
+        if (!God && Health.Take(asked)) { deadSeconds = 0; OrcStats = OrcStats with { Deaths = OrcStats.Deaths + 1 }; Message = "You fall"; return; }
+        Message = FormattableString.Invariant($"The necromancer's flame arrow hits for {asked:0.##}");
+    }
+
+    /// <summary>
+    /// A turned flame arrow strikes an NPC (#10357): the spell's <c>effect</c> times its fire vulnerability (the
+    /// necromancer's <c>.qct</c>: 2). None was recorded striking one: the necromancer's went back over it.
+    /// </summary>
+    void FlameStrikesNpc(FlameArrow arrow, Orc victim)
+    {
+        float damage = model.SpellDamage(CastingData.Spell, arrow.Caster.Casting!.Effect, 0, 0, victim.Kind.Model);
+        victim.Damage(damage);
+        Flames = Flames with { StruckNpc = Flames.StruckNpc + 1 };
+        LastFlameOnNpc = (victim, damage);
+        Message = FormattableString.Invariant($"The turned flame arrow hits {(victim == arrow.Caster ? "the necromancer" : "an orc")} for {damage:0.#}");
+    }
 
     void StepOrcArrows(ulong tick, float seconds, Vector3 feet, Vector3 eye)
     {
@@ -1677,7 +1796,7 @@ internal sealed class LabCombat : IDisposable
         Vector3 toPlayer = (feet - striker.Feet) with { Y = 0 };
         // The donor's reach test, in Source units on its axes (lab X is Source Y, lab Z Source X).
         static Vector2 Source(Vector3 v) => new Vector2(v.Z, v.X) / SourceSpace.MetresPerUnit;
-        var reach = model.Reach(new ReachCase((int)tick, "npc_orc_sword", Npc.Orc.Model, blow.Attack, blow.Part, "player",
+        var reach = model.Reach(new ReachCase((int)tick, striker.Kind.Class, striker.Kind.Model, blow.Attack, blow.Part, "player",
             Source(toPlayer), Vector2.Normalize(Source(striker.Facing)), Reaches.PlayerHalfWidth, false));
         LastOrcReach = reach;
         if (!reach.Lands) return;
@@ -1771,7 +1890,7 @@ internal sealed class LabCombat : IDisposable
             }
         }
         // The orc's reach: its attacks' range plus the player's box and the sweep's half-size, here its first attack's.
-        if (Orc.Alive && model.Data.Character(Npc.Orc.Model)?.Attack("attack_Right")?.Events[0].Range is float range)
+        if (Orc.Alive && model.Data.Character(Orc.Kind.Model) is { } character && (character.Attack("attack_Right") ?? character.Attacks.Values.FirstOrDefault())?.Events[0].Range is float range)
             items.Add(OverlayItem.WireSphere(OverlayPlace.World, Orc.Feet + Vector3.UnitY,
                 (range + Reaches.PlayerHalfWidth + CombatModel.SweepHalfSize) * SourceSpace.MetresPerUnit, new Color(1, .55f, .3f, .5f), onTop: false));
         engine.Graphics.PublishOverlaySet(new OverlaySetRequest(Set, items.ToArray(), []));
@@ -1831,6 +1950,7 @@ internal sealed class LabCombat : IDisposable
     public void Dispose()
     {
         FirstPerson.Dispose();
+        foreach (var kept in firsts.Values) if (kept != Orc) kept.Dispose();
         Orc.Dispose();
         Mate?.Dispose();
         session.Dispose();

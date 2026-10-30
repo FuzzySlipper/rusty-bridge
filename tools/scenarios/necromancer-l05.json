@@ -1,0 +1,334 @@
+{
+  "description": "The necromancer in l05_a (#10357), where NPCs see the player (l01_a is on the settings' nostealth list, and the l01_a necromancer lost the player once he moved): after the 40 s intro, every skill, god, the map's NPCs removed, twelve mana potions; a necromancer with 1000 health at (-7, 4978) facing -Y, the player in front: 500 units still 15 s, strafing 12 s, backing off, still at 1000 and 1500; a new one with the player 150 off, then 60 in front (its melee); a new one with the player walking in from 500; a new one with magic reflection standing and crouched at 500, then crouched and standing at 300. Marked with echo rb_nc5.",
+  "seconds": 226,
+  "launch": [
+    "-condebug",
+    "-console",
+    "-window",
+    "-w",
+    "1280",
+    "-h",
+    "720",
+    "-novid",
+    "+map",
+    "l05_a"
+  ],
+  "setup": [
+    "sv_cheats 1",
+    "god",
+    "mm_player_skills_grosbill 1",
+    {
+      "wait": 40
+    },
+    "give weapon_arx_short_sword",
+    "use weapon_arx_short_sword",
+    {
+      "wait": 2
+    },
+    "ent_remove_all npc_template_maker",
+    "ent_remove_all npc_orc_bow",
+    "ent_remove_all npc_seagull",
+    "ent_remove_all npc_facehugger",
+    "ent_remove_all npc_spider_mini",
+    "ent_remove_all npc_crow",
+    "ent_remove_all npc_human_guard",
+    "ent_remove_all npc_wizard",
+    "ent_remove_all npc_paokai",
+    "ent_remove_all npc_Leanna",
+    "ent_remove_all npc_furniture",
+    "ent_remove_all npc_orc_chief",
+    "ent_remove_all prop_ragdoll",
+    "ent_remove_all npc_orc_sword",
+    {
+      "wait": 0.5
+    },
+    "ent_remove_all npc_necromancer",
+    {
+      "wait": 0.5
+    },
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    "give item_potion_mana",
+    {
+      "wait": 1
+    }
+  ],
+  "play": [
+    "echo rb_nc5 500 units in front, still 15 s",
+    "notarget",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4478 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc5 strafing 3 s at a time, 12 s",
+    "+moveleft",
+    {
+      "wait": 3
+    },
+    "-moveleft",
+    "+moveright",
+    {
+      "wait": 3
+    },
+    "-moveright",
+    "+moveleft",
+    {
+      "wait": 3
+    },
+    "-moveleft",
+    "+moveright",
+    {
+      "wait": 3
+    },
+    "-moveright",
+    "echo rb_nc5 backing off 5 s",
+    "+back",
+    {
+      "wait": 5
+    },
+    "-back",
+    {
+      "wait": 2
+    },
+    "echo rb_nc5 1000 units off, still 10 s",
+    "setpos -7 3978 -650",
+    "setang 0 90 0",
+    {
+      "wait": 10
+    },
+    "echo rb_nc5 1500 units off, still 12 s",
+    "setpos -7 3478 -650",
+    "setang 0 90 0",
+    {
+      "wait": 12
+    },
+    "usebelt1",
+    "usebelt2",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc5 150 units in front, still 10 s",
+    "notarget",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4828 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 10
+    },
+    "echo rb_nc5 60 units in front, still 12 s",
+    {
+      "approach": "npc_necromancer",
+      "distance": 60
+    },
+    {
+      "wait": 12
+    },
+    "echo rb_nc5 walking in from 500, 8 s",
+    "echo rb_nc5 500 units in front, walking at it",
+    "notarget",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4478 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "+forward",
+    {
+      "wait": 4
+    },
+    "-forward",
+    {
+      "wait": 6
+    },
+    "usebelt3",
+    "usebelt4",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc5 500 units in front, the shield up standing, 15 s",
+    "notarget",
+    "ent_remove_all npc_necromancer",
+    "ent_remove_all prop_ragdoll",
+    "setpos 266 1100 -1000",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "mm_npc_create npc_necromancer models/NPC/Necromancer/Npc_necromancer.mdl weapon_mm_hook",
+    {
+      "wait": 1.5
+    },
+    "ent_fire npc_necromancer addoutput \"health 1000\"",
+    "ent_fire npc_necromancer addoutput \"origin -7 4978 -905\"",
+    {
+      "wait": 1
+    },
+    "setpos -7 4478 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "notarget",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc5 the shield up crouched at 500, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 15
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "usebelt5",
+    "usebelt6",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc5 the shield up crouched at 300, 15 s",
+    "setpos -7 4678 -650",
+    "setang 0 90 0",
+    {
+      "wait": 0.5
+    },
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    "+duck",
+    {
+      "wait": 15
+    },
+    "-duck",
+    {
+      "wait": 0.5
+    },
+    "echo rb_nc5 the shield up standing at 300, 15 s",
+    "Deploy_Spell_EARTH_2",
+    {
+      "wait": 2
+    },
+    "+attack",
+    {
+      "wait": 0.1
+    },
+    "-attack",
+    {
+      "wait": 0.5
+    },
+    {
+      "wait": 15
+    },
+    "echo rb_nc5 end of play"
+  ]
+}

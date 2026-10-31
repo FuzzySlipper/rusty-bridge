@@ -1039,7 +1039,7 @@ the face, as l01_a's one ladder is climbed (`room03.ladder.02` in the barn loft,
 | On at the foot | walked into, looking toward it (`sv_ladderautomountdot` 0.4), on the rail (9 units out) the tick it reaches it, no move (2 ticks from 2 units off) | the same: on the rail the step it's in reach (0.35 m), no move |
 | Climbing | forward climbs the way the view points at 80 units/s (`mm_player_ladder_speed`) times the sine of its pitch: 13, 40 and 58 units/s at 10°, 30° and 40° up (the climbing ticks within a median 0.4 units/s of it); looking level it doesn't move; looking down, forward climbs down; back the other way | the same (`LadderRules.Intent`) |
 | Off at the top | climbing on at its top, 71 ticks (1.07 s, twice) onto the top's `info_ladder_dismount`, 41 units out from the rail | 1.07 s onto the top, 41 units out from the rail, the controls held off |
-| On from the top | walked onto from the dismount facing away from it, turned round onto the rail's top in 93 ticks (1.40 s), the view turned 180° with the body (`Player_ladder_in_updown`) | walking off its top facing away (0.4), the same 1.40 s, the view turning by the body's clip (`BodyAnimator.InTurn`) |
+| On from the top | walked onto from the dismount facing away from it, turned round onto the rail's top in 93 ticks (1.40 s), the view turned 180° with the body (`Player_ladder_in_updown`) | walking off its top facing away (0.4), the same 1.40 s, the view turning by the body's clip (`BodyAnimator.InTurn`, a Source-yaw turn, so the Engine's view turns by its negative: R10439-1), within 5° of the body throughout |
 | Off at the foot | climbing down at its foot, 8 or 9 ticks (24 twice), 19 units back | 0.12 s, 19 units back |
 | A jump | lets go, and it falls | the same |
 

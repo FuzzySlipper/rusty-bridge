@@ -126,7 +126,8 @@ internal sealed class PlayerController : IDisposable
             var at = Vector3.Lerp(move.From, move.To, eased);
             entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = at });
             entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(at));
-            if (move.Turn is float from) LookState = new LookState(from + BodyAnimator.InTurn(done) * MathF.PI / 180, LookState.PitchRadians);
+            // InTurn is a turn in Source's yaw, which turns the other way to the Engine's (R10439-1).
+            if (move.Turn is float from) LookState = new LookState(from - BodyAnimator.InTurn(done) * MathF.PI / 180, LookState.PitchRadians);
             LadderMove = done >= 1 ? null : move with { Elapsed = move.Elapsed + delta };
             if (done >= 1) Climbing = move.Then;
             lastClear = at;

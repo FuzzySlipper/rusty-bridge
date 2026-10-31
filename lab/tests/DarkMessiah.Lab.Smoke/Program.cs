@@ -1440,13 +1440,18 @@ host.Call(engine =>
         bool offAtTop = p.Climbing is null && MathF.Abs(onLoft.Y - 2.5f) < .1f && p.Motion.Grounded;
         // On from the top: walking off it facing away, turned round onto the rail in 1.40 s.
         string onFromTop = "";
-        float turnedAt = float.NaN;
+        float turnedAt = float.NaN, viewOffBody = 0, midTurn = float.NaN;
         int onTopSteps = 0;
         var west = -east;
         for (; onTopSteps < 150 && p.Climbing is null; onTopSteps++)
         {
             climber.Step(Vector2.UnitY, p.LadderMove is null ? west : p.Forward, false, false, false, false, Tick);
             if (onTopSteps == 5) (onFromTop, turnedAt) = (product.Body.Animator.Clip, product.Body.Animator.Yaw);
+            // The view turns with the body all the way round (R10439-1), both as Source measures yaw.
+            if (p.LadderMove is not null && onTopSteps > 0)
+                viewOffBody = MathF.Max(viewOffBody, MathF.Abs(BodyAnimator.Wrap(PlayerBody.Yaw(p.Forward with { Y = 0 }) - product.Body.Animator.Yaw)));
+            if (p.LadderMove is { } turning && MathF.Abs(turning.Elapsed / turning.Seconds - .3f) < Tick / turning.Seconds)
+                midTurn = MathF.Abs(BodyAnimator.Wrap(PlayerBody.Yaw(p.Forward with { Y = 0 }) - PlayerBody.Yaw(west)));
         }
         bool remounted = p.Climbing is not null;
         float viewTurned = BodyAnimator.Wrap(p.LookState.YawRadians * 180 / MathF.PI - 90);
@@ -1478,9 +1483,9 @@ host.Call(engine =>
         Check(drawnThere && stepsToMount < 60 && !movedOn && onRailOff < .02f
                 && MathF.Abs(at30 - S(30)) < 3 && MathF.Abs(level) < .5f && MathF.Abs(lookingDown + S(30)) < 3 && MathF.Abs(backing + S(30)) < 3 && MathF.Abs(at45 - S(45)) < 3
                 && Math.Abs(exitSteps - Steps(LadderRules.OffTopSeconds)) <= 2 && MathF.Abs(exitOut - LadderRules.ExitDistance) < 2 && offAtTop
-                && remounted && Math.Abs(movedSteps - Steps(LadderRules.OnTopSeconds)) <= 2 && MathF.Abs(viewTurned) < 2
+                && remounted && Math.Abs(movedSteps - Steps(LadderRules.OnTopSeconds)) <= 2 && MathF.Abs(viewTurned) < 2 && viewOffBody < 20 && MathF.Abs(midTurn - BodyAnimator.InTurn(.3f)) < 10
                 && MathF.Abs(down + S(45)) < 3 && Math.Abs(footSteps - Steps(LadderRules.OffFootSeconds)) <= 1 && MathF.Abs(footBack - LadderRules.FootExitDistance) < 1.5f && offAtFoot && jumpedOff,
-            FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): walked into, on the rail at once ({stepsToMount} steps, no move: {!movedOn}); forward climbs {at30:0.0} units/s looking 30° up ({S(30):0.0}), {level:0.0} looking level, {lookingDown:0.0} looking 30° down, {at45:0.0} 45° up ({S(45):0.0}), back {backing:0.0} looking up; off at the top in {exitSteps * Tick:0.00} s ({LadderRules.OffTopSeconds}) {exitOut:0} units out ({LadderRules.ExitDistance}); walked off its top facing away, turned onto the rail in {movedSteps * Tick:0.00} s ({LadderRules.OnTopSeconds}), the view {viewTurned:0.0}° off the ladder's way; down {down:0.0} looking down; off at its foot in {footSteps * Tick:0.00} s ({LadderRules.OffFootSeconds}) {footBack:0} units back; a jump lets go ({jumpedOff})"));
+            FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): walked into, on the rail at once ({stepsToMount} steps, no move: {!movedOn}); forward climbs {at30:0.0} units/s looking 30° up ({S(30):0.0}), {level:0.0} looking level, {lookingDown:0.0} looking 30° down, {at45:0.0} 45° up ({S(45):0.0}), back {backing:0.0} looking up; off at the top in {exitSteps * Tick:0.00} s ({LadderRules.OffTopSeconds}) {exitOut:0} units out ({LadderRules.ExitDistance}); walked off its top facing away, turned onto the rail in {movedSteps * Tick:0.00} s ({LadderRules.OnTopSeconds}), the view {viewTurned:0.0}° off the ladder's way, turned {midTurn:0}° 30% of the way ({BodyAnimator.InTurn(.3f):0}) and at most {viewOffBody:0}° off the body's; down {down:0.0} looking down; off at its foot in {footSteps * Tick:0.00} s ({LadderRules.OffFootSeconds}) {footBack:0} units back; a jump lets go ({jumpedOff})"));
         for (int i = 0; i < 90; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         // Crouched into it (R10163-3): the ladder stands the body over its feet, which never go below the floor, and it
         // climbs, crouch still held, with no recovery from a penetration.

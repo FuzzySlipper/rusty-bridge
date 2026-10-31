@@ -1028,36 +1028,34 @@ first orc an archer, as the maps' `npc_orc_bow` (l05_a, l05_b, l07_a, l09_a: `ra
 
 ### Ladders
 
-`PlayerLadder.cs` (#10163): the arena's ladders (`lab.json`'s `ladders`: a foot against a face, a top, the way a
+`PlayerLadder.cs` (#10163, #10439): the arena's ladders (`lab.json`'s `ladders`: a foot against a face, a top, the way a
 climber faces it; the loft in the north-east corner has one) are climbed on the Engine's climb rail
-(`CharacterMovementMode.Climbing`), a vertical line the body's radius plus `mm_player_ladder_offset` (9 units) out
-from the face, with server.dll's ConVar defaults (read from their registrations; measured since against l01_a's one
-ladder, below, which disagrees in places):
-- **Mounting:** walking into it, within 0.35 m of the rail and looking toward it (`sv_ladderautomountdot` 0.4); or
-  from its top, backing off the edge facing the ladder's way.
-- **Climbing:** `mm_player_ladder_speed`, 80 units/s, up with forward and down with back. Forward climbs down
-  looking more than 60° down (`mm_ladder_friction_pitch` taken so; not measured).
-- **Getting off:** at the top, onto what it leads to, `mm_dist_to_exit_ladder` (5 units) past it
-  (`sv_autoladderdismount` 1); at its foot climbing down, the same distance back; a jump lets go at once.
-- **Getting on and off takes** `mm_time_to_exit_enter_ladder`, 1 s: an eased move onto the rail or off it, the
-  controls held off meanwhile (R10163-1). The body plays the donor's `Player_ladder_*` clips by its phase ("The
-  player's body").
-- **The donor's ladder** (`room03.ladder.02` in l01_a's barn loft, a `func_useableladder` from (1797, −575, 554) to
-  (1797, −543, 822); `ladder`, `ladder-2`, `ladder-3`, docs/recording.md): from its foot it's on the rail (9 units out)
-  the tick it's walked into, no move; forward climbs the way the view points, as fast as 80 units/s times the sine of
-  its pitch (13, 40 and 60 units/s at 10°, 30° and 45° up; looking level it doesn't move, and looking down it climbs
-  down), and back the other way; at the top it's off in 1.03 s onto the loft's dismount point; from the top it's
-  walked onto facing away from the ladder, turning round to it in 1.47 s (the body's `Player_ladder_in_updown`), the
-  view with it; at the foot climbing down it's off in 8 ticks; a jump lets go and it falls. The lab's climb (80 units/s
-  whatever the pitch, down only past 60°), its second getting on from the foot and its backing on from the top differ.
+(`CharacterMovementMode.Climbing`), a vertical line the body's radius plus `mm_player_ladder_offset` (9 units) out from
+the face, as l01_a's one ladder is climbed (`room03.ladder.02` in the barn loft, a `func_useableladder` from (1797, −575,
+554) to (1797, −543, 822); `ladder`, `ladder-2`, `ladder-3`, docs/recording.md; read by `LadderCalibration`):
+
+| | The donor | The lab |
+| --- | --- | --- |
+| On at the foot | walked into, looking toward it (`sv_ladderautomountdot` 0.4), on the rail (9 units out) the tick it reaches it, no move (2 ticks from 2 units off) | the same: on the rail the step it's in reach (0.35 m), no move |
+| Climbing | forward climbs the way the view points at 80 units/s (`mm_player_ladder_speed`) times the sine of its pitch: 13, 40 and 58 units/s at 10°, 30° and 40° up (the climbing ticks within a median 0.4 units/s of it); looking level it doesn't move; looking down, forward climbs down; back the other way | the same (`LadderRules.Intent`) |
+| Off at the top | climbing on at its top, 71 ticks (1.07 s, twice) onto the top's `info_ladder_dismount`, 41 units out from the rail | 1.07 s onto the top, 41 units out from the rail, the controls held off |
+| On from the top | walked onto from the dismount facing away from it, turned round onto the rail's top in 93 ticks (1.40 s), the view turned 180° with the body (`Player_ladder_in_updown`) | walking off its top facing away (0.4), the same 1.40 s, the view turning by the body's clip (`BodyAnimator.InTurn`) |
+| Off at the foot | climbing down at its foot, 8 or 9 ticks (24 twice), 19 units back | 0.12 s, 19 units back |
+| A jump | lets go, and it falls | the same |
+
+- The donor's ladder leans (32 units in 268) and its rail stops 69 units under the loft's floor, where the lab's are
+  upright and reach their top; the dismount's 41 units out is the lab's exit.
+- **The smoke:** walked into, on the rail at once; 40 units/s looking 30° up, 0 looking level, −40 looking 30° down or
+  backing, 57 at 45°; off at the top in 1.07 s 41 units out; walked off its top facing away, turned onto the rail in
+  1.40 s, the view onto the ladder's way; down looking down; off at the foot in 0.12 s 19 units back; a jump lets go.
+  Against the recordings: the climbing ticks, the five getting off and on at the top, and the off at the foot.
 - **Standing:** the ladder stands the body (R10163-3). A crouched one walking into it rises over its feet as the move
   onto the rail begins, the rail's ends are the standing body's, and crouch does nothing on the rail.
 - **Drawn:** two side rails and a rung every 0.3 m, 0.5 m wide, against the face from its foot to its top
   (`LadderRules.Pieces`; drawn only, the climb is the rail's), so it's found where it's climbed (R10163-2).
-- **The smoke:** the drawn ladder stands 0.05 m off its face either side of the climb (the rail 0.53 m off); got on
-  walking into it in 1.02 s without climbing, 80 units/s up and down, off onto the loft in 1.02 s, on again from the
-  top, off at the foot, a jump letting go; crouched into it, it stands onto the rail with its feet never below the
-  floor and climbs with crouch held, no recovery needed.
+- **The smoke** also checks the drawn ladder stands 0.05 m off its face either side of the climb (the rail 0.53 m off),
+  and that crouched into it, it stands onto the rail with its feet never below the floor and climbs with crouch held, no
+  recovery needed.
 
 Mantling is #10329 (its trigger in server.dll's movement code, 0x223F2707, not yet reproduced) and climbing ropes
 #10330.
@@ -1257,7 +1255,7 @@ the arms, striding, crouching, kicking and jumping. How the donor does it, from 
   off` hides it.
 - **Not done:** the aim layers (`body_rot_x`, `_y`, `_z`, delta clips by `body_pitch`, `body_yaw` and `body_roll`)
   aren't played; nor are mantling and grabs (their clips are `player_basic`'s too). The ladder plays as the lab climbs,
-  which isn't quite the donor's climb ("Ladders"). Holding forward against a ladder it can't get on (looking down at its
+  now the donor's climb ("Ladders", #10439). Holding forward against a ladder it can't get on (looking down at its
   foot), the donor's body stands where the lab's walks (`ladder`'s first take, 562 ticks). The arms' kick is always `kick_medium`, where the donor's arms play `kick_low` past 50° down as the body does.
 
 ## The orc

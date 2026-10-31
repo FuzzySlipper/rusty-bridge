@@ -1382,19 +1382,21 @@ host.Call(engine =>
         }
         Check(leans >= 6 && leanNear >= leaning * 9 / 10, $"l01_a-v18-lean: {leans} leans driven from their recorded starts and releases, the lab's roll within 1° of the donor's on {leanNear} of {leaning} leaning ticks");
     }
-    // Ladders (#10163): the loft's, on the Engine's climb rail at the donor's 80 units/s; got on walking into it and off
-    // at the top onto the loft, each in mm_time_to_exit_enter_ladder's 1 s with the controls held off (R10163-1); on
-    // again backing off its top, down to its foot and off; a jump lets go. The drawn ladder stands where it's climbed
-    // (R10163-2).
+    // Ladders (#10163, #10439): the loft's, on the Engine's climb rail. As l01_a's ladder: walked into, on at once; forward
+    // climbs the way the view points at 80 units/s times its pitch's sine, back the other way; off at the top in 1.07 s
+    // onto its dismount 41 units out; walked onto from its top facing away, turned round onto the rail in 1.40 s; off at
+    // the foot in 0.12 s, 19 units back; a jump lets go. The drawn ladder stands where it's climbed (R10163-2).
     {
         var p = product.Player;
         var climber = (IReplayBody)product;
         var ladderStart = p.Position;
         float ladderYaw = p.LookState.YawRadians * 180 / MathF.PI, ladderPitch = p.LookState.PitchRadians * 180 / MathF.PI;
         float half = p.Tuning.Height / 2 + p.Config.Shape.ContactSkin;
+        float mpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
         var east = Vector3.UnitX;
+        Vector3 Pitched(Vector3 along, float upDegrees) => Vector3.Normalize(along * MathF.Cos(upDegrees * MathF.PI / 180) + Vector3.UnitY * MathF.Sin(upDegrees * MathF.PI / 180));
         var loftLadder = p.Ladders[0];
-        var (railBottom, _) = LadderRules.Rail(loftLadder, p.Tuning.Radius, half);
+        var (railBottom, railTopEnd) = LadderRules.Rail(loftLadder, p.Tuning.Radius, half);
         // The drawn ladder: its rails either side of the climb rail's line, against the face, between it and the rail.
         var pieces = LadderRules.Pieces(loftLadder);
         float across = pieces.Take(2).Select(piece => MathF.Abs(piece.Centre.Z - railBottom.Z)).Max();
@@ -1402,25 +1404,31 @@ host.Call(engine =>
         bool drawnThere = pieces.Count > 6 && MathF.Abs(across - .25f) < .01f && drawnFromFace > 0 && drawnFromFace < railFromFace
             && pieces.Max(piece => piece.Centre.Y + piece.Size.Y / 2) >= loftLadder.Top - .01f;
         p.Place(new Vector3(19, half, 21), 90);
-        // Getting on: from the first step the body moves onto the rail; for a second it neither climbs nor walks.
+        // Getting on: walked into, on the rail the step it reaches it, with no move.
         int stepsToMount = 0;
-        for (; stepsToMount < 90 && p.LadderMove is null && p.Climbing is null; stepsToMount++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
-        float mountY = p.Feet.Y;
-        string mountBody = product.Body.Animator.Clip;
-        int mountSteps = 0;
-        for (; mountSteps < 120 && p.Climbing is null; mountSteps++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
-        bool mountHeld = MathF.Abs(p.Feet.Y - mountY) < .02f;
-        for (int i = 0; i < 6; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        bool movedOn = false;
+        for (; stepsToMount < 90 && p.Climbing is null; stepsToMount++) { climber.Step(Vector2.UnitY, east, false, false, false, false, Tick); movedOn |= p.LadderMove is not null; }
+        float onRailOff = ((p.Position - railBottom) with { Y = 0 }).Length();
+        // Climbing: by the view's pitch.
+        float Climb(Vector2 keys, Vector3 look, int steps = 30)
+        {
+            for (int i = 0; i < 4; i++) climber.Step(keys, look, false, false, false, false, Tick);
+            float from = p.Feet.Y;
+            for (int i = 0; i < steps; i++) climber.Step(keys, look, false, false, false, false, Tick);
+            return (p.Feet.Y - from) / (steps * Tick) / mpu;
+        }
+        float at30 = Climb(Vector2.UnitY, Pitched(east, 30));
         // The body on it (R10394-1): climbing up it plays Player_ladder_downup at the climb over 80 units/s, facing it.
-        string bodyMounting = mountBody;
         var climbing = (product.Body.Animator.Clip, product.Body.Animator.Cycle, product.Body.Animator.Yaw);
-        float y0 = p.Feet.Y;
-        for (int i = 0; i < 30; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
-        float upSpeed = (p.Feet.Y - y0) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
-        for (int i = 0; i < 240 && p.LadderMove is null; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
-        // Getting off at the top: a second onto the loft, the controls held off (backing doesn't take it back).
+        float at45 = Climb(Vector2.UnitY, Pitched(east, 45));
+        float level = Climb(Vector2.UnitY, east);
+        float lookingDown = Climb(Vector2.UnitY, Pitched(east, -30), 15);
+        float backing = Climb(-Vector2.UnitY, Pitched(east, 30), 15);
+        for (int i = 0; i < 400 && p.LadderMove is null; i++) climber.Step(Vector2.UnitY, Pitched(east, 45), false, false, false, false, Tick);
+        // Getting off at the top: 1.07 s onto the loft, the controls held off (backing doesn't take it back).
         int exitSteps = 0;
         string exitBody = "";
+        var leftFrom = railTopEnd;
         for (; exitSteps < 120 && p.LadderMove is not null; exitSteps++)
         {
             climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
@@ -1428,36 +1436,51 @@ host.Call(engine =>
         }
         for (int i = 0; i < 30; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         var onLoft = p.Feet;
-        bool offAtTop = p.Climbing is null && onLoft.X > 20.2f && MathF.Abs(onLoft.Y - 2.5f) < .1f && p.Motion.Grounded;
-        // Back off the top, facing on: onto the rail in a second, then down at the same speed to its foot and off.
+        float exitOut = (onLoft.X - railBottom.X) / mpu;
+        bool offAtTop = p.Climbing is null && MathF.Abs(onLoft.Y - 2.5f) < .1f && p.Motion.Grounded;
+        // On from the top: walking off it facing away, turned round onto the rail in 1.40 s.
         string onFromTop = "";
         float turnedAt = float.NaN;
-        for (int i = 0; i < 150 && p.Climbing is null; i++)
+        int onTopSteps = 0;
+        var west = -east;
+        for (; onTopSteps < 150 && p.Climbing is null; onTopSteps++)
         {
-            climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
-            if (i == 5) (onFromTop, turnedAt) = (product.Body.Animator.Clip, product.Body.Animator.Yaw);
+            climber.Step(Vector2.UnitY, p.LadderMove is null ? west : p.Forward, false, false, false, false, Tick);
+            if (onTopSteps == 5) (onFromTop, turnedAt) = (product.Body.Animator.Clip, product.Body.Animator.Yaw);
         }
         bool remounted = p.Climbing is not null;
-        for (int i = 0; i < 10; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
-        float y1 = p.Feet.Y;
-        for (int i = 0; i < 30; i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        float viewTurned = BodyAnimator.Wrap(p.LookState.YawRadians * 180 / MathF.PI - 90);
+        int movedSteps = onTopSteps - 1;
+        // Down, looking down, to its foot and off.
+        float down = Climb(Vector2.UnitY, Pitched(east, -45));
         string downBody = product.Body.Animator.Clip;
-        float downSpeed = (y1 - p.Feet.Y) / (30 * Tick) / RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
-        for (int i = 0; i < 300 && (p.Climbing is not null || p.LadderMove is not null); i++) climber.Step(-Vector2.UnitY, east, false, false, false, false, Tick);
+        for (int i = 0; i < 400 && p.LadderMove is null && p.Climbing is not null; i++) climber.Step(Vector2.UnitY, Pitched(east, -45), false, false, false, false, Tick);
+        int footSteps = 0;
+        var offFrom = p.Position;
+        for (; footSteps < 120 && p.LadderMove is not null; footSteps++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
+        float footBack = ((offFrom - p.Position) with { Y = 0 }).Length() / mpu;
         for (int i = 0; i < 20; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         bool offAtFoot = p.Climbing is null && p.Feet.Y < .05f && p.Motion.Grounded;
         // On again, a jump lets go at once.
         for (int i = 0; i < 150 && p.Climbing is null; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
-        for (int i = 0; i < 20; i++) climber.Step(Vector2.UnitY, east, false, false, false, false, Tick);
+        for (int i = 0; i < 20; i++) climber.Step(Vector2.UnitY, Pitched(east, 30), false, false, false, false, Tick);
         climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
         bool jumpedOff = p.Climbing is null && p.LadderMove is null;
         for (int i = 0; i < 5; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         var letGo = (product.Body.Animator.Clip, product.Body.Animator.Layers.Count);
         float ladderFacing = PlayerBody.Yaw(loftLadder.Facing with { Y = 0 });
-        Check(bodyMounting == "Player_ladder_idle" && climbing.Clip == "Player_ladder_downup" && MathF.Abs(BodyAnimator.Wrap(climbing.Yaw - ladderFacing)) < 1
+        Check(climbing.Clip == "Player_ladder_downup" && MathF.Abs(BodyAnimator.Wrap(climbing.Yaw - ladderFacing)) < 1
                 && exitBody == "Player_ladder_out_downup" && onFromTop == "Player_ladder_in_updown" && MathF.Abs(MathF.Abs(BodyAnimator.Wrap(turnedAt - ladderFacing)) - 180) < 30
                 && downBody == "Player_ladder_updown" && letGo is ("idle_leftfoot", 0),
-            FormattableString.Invariant($"the player's body on the ladder (R10394-1): getting on {bodyMounting}, climbing {climbing.Clip} facing it ({climbing.Yaw:0}, the ladder {ladderFacing:0}), off at the top {exitBody}, on from the top {onFromTop} turned {turnedAt:0}, down {downBody}, let go {letGo.Clip} with {letGo.Count} layers"));
+            FormattableString.Invariant($"the player's body on the ladder (R10394-1): climbing {climbing.Clip} facing it ({climbing.Yaw:0}, the ladder {ladderFacing:0}), off at the top {exitBody}, on from the top {onFromTop} turned {turnedAt:0}, down {downBody}, let go {letGo.Clip} with {letGo.Count} layers"));
+        float S(float up) => 80 * MathF.Sin(up * MathF.PI / 180);
+        int Steps(float seconds) => (int)MathF.Round(seconds / Tick);
+        Check(drawnThere && stepsToMount < 60 && !movedOn && onRailOff < .02f
+                && MathF.Abs(at30 - S(30)) < 3 && MathF.Abs(level) < .5f && MathF.Abs(lookingDown + S(30)) < 3 && MathF.Abs(backing + S(30)) < 3 && MathF.Abs(at45 - S(45)) < 3
+                && Math.Abs(exitSteps - Steps(LadderRules.OffTopSeconds)) <= 2 && MathF.Abs(exitOut - LadderRules.ExitDistance) < 2 && offAtTop
+                && remounted && Math.Abs(movedSteps - Steps(LadderRules.OnTopSeconds)) <= 2 && MathF.Abs(viewTurned) < 2
+                && MathF.Abs(down + S(45)) < 3 && Math.Abs(footSteps - Steps(LadderRules.OffFootSeconds)) <= 1 && MathF.Abs(footBack - LadderRules.FootExitDistance) < 1.5f && offAtFoot && jumpedOff,
+            FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): walked into, on the rail at once ({stepsToMount} steps, no move: {!movedOn}); forward climbs {at30:0.0} units/s looking 30° up ({S(30):0.0}), {level:0.0} looking level, {lookingDown:0.0} looking 30° down, {at45:0.0} 45° up ({S(45):0.0}), back {backing:0.0} looking up; off at the top in {exitSteps * Tick:0.00} s ({LadderRules.OffTopSeconds}) {exitOut:0} units out ({LadderRules.ExitDistance}); walked off its top facing away, turned onto the rail in {movedSteps * Tick:0.00} s ({LadderRules.OnTopSeconds}), the view {viewTurned:0.0}° off the ladder's way; down {down:0.0} looking down; off at its foot in {footSteps * Tick:0.00} s ({LadderRules.OffFootSeconds}) {footBack:0} units back; a jump lets go ({jumpedOff})"));
         for (int i = 0; i < 90; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
         // Crouched into it (R10163-3): the ladder stands the body over its feet, which never go below the floor, and it
         // climbs, crouch still held, with no recovery from a penetration.
@@ -1466,7 +1489,8 @@ host.Call(engine =>
         bool crouchedFirst = p.Motion.Stance == CharacterStance.Crouched;
         uint recoveriesBefore = p.Recoveries;
         float lowestFeet = float.MaxValue;
-        void CrouchedStep() { climber.Step(Vector2.UnitY, east, false, false, true, false, Tick); lowestFeet = MathF.Min(lowestFeet, p.Feet.Y); }
+        // Looking 30° up: forward climbs at 40 units/s (#10439).
+        void CrouchedStep() { climber.Step(Vector2.UnitY, Vector3.Normalize(east * MathF.Cos(MathF.PI / 6) + Vector3.UnitY * .5f), false, false, true, false, Tick); lowestFeet = MathF.Min(lowestFeet, p.Feet.Y); }
         for (int i = 0; i < 300 && p.Climbing is null; i++) CrouchedStep();
         bool crouchedMounted = p.Climbing is not null && p.Motion.Stance == CharacterStance.Standing;
         float crouchedFrom = p.Feet.Y;
@@ -1475,13 +1499,38 @@ host.Call(engine =>
         bool crouchedClean = p.Recoveries == recoveriesBefore;
         climber.Step(Vector2.Zero, east, true, true, false, false, Tick);
         for (int i = 0; i < 120; i++) climber.Step(Vector2.Zero, east, false, false, false, false, Tick);
-        Check(crouchedFirst && crouchedMounted && lowestFeet > -.01f && crouchedRise > 30 && crouchedClean,
+        Check(crouchedFirst && crouchedMounted && lowestFeet > -.01f && crouchedRise > 15 && crouchedClean,
             FormattableString.Invariant($"crouched into the ladder (R10163-3): stood onto its rail ({crouchedMounted}), the feet never below the floor (lowest {lowestFeet:0.000} m), climbing {crouchedRise:0} units in 0.5 s with crouch held, no recovery ({crouchedClean})"));
         p.Place(ladderStart, ladderYaw, ladderPitch);
-        int second = (int)MathF.Round(LadderRules.EnterExitSeconds / Tick);
-        Check(drawnThere && mountSteps >= second - 1 && mountSteps <= second + 1 && mountHeld && exitSteps >= second - 2 && exitSteps <= second + 1
-            && MathF.Abs(upSpeed - 80) < 4 && offAtTop && remounted && MathF.Abs(downSpeed - 80) < 4 && offAtFoot && jumpedOff,
-            FormattableString.Invariant($"the loft's ladder, drawn {drawnFromFace:0.00} m off its face either side of the climb (the rail {railFromFace:0.00} m off): got on walking into it ({stepsToMount} steps) in {mountSteps * Tick:0.00} s not climbing, climbed at {upSpeed:0} units/s (the donor's 80), got off onto the loft in {exitSteps * Tick:0.00} s (feet {onLoft.X:0.00}, {onLoft.Y:0.00}); on again backing off its top ({remounted}), down at {downSpeed:0}, off at its foot ({offAtFoot}); a jump lets go ({jumpedOff})"));
+    }
+    // The lab's ladder rules against l01_a's ladder recordings (#10439, LadderCalibration): the climb's speed by the view's
+    // pitch, and its getting on and off.
+    {
+        var ladderFiles = Directory.Exists(Path.Combine(repo!, "local", "recordings", "experiments"))
+            ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings", "experiments"), "l01_a-v21-ladder*.rbrec").Order().ToList() : [];
+        if (ladderFiles.Count > 0)
+        {
+            var read = ladderFiles.Select(LadderCalibration.Read).ToList();
+            var runs = read.SelectMany(r => r.Runs).ToList();
+            var climbs = read.SelectMany(r => r.Climbs).ToList();
+            float Rule(LadderClimb c) => LadderRules.Speed * MathF.Sin(-c.Pitch * MathF.PI / 180) * c.Key;
+            var pitched = climbs.Where(c => MathF.Abs(c.Pitch) > 5).Select(c => MathF.Abs(c.Speed - Rule(c))).Order().ToList();
+            var levelled = climbs.Where(c => MathF.Abs(c.Pitch) < 2).Select(c => MathF.Abs(c.Speed)).Order().ToList();
+            float Median(List<float> x) => x.Count == 0 ? float.NaN : x[x.Count / 2];
+            // The recordings' ticks, 15 ms.
+            int Ticks(float seconds) => (int)MathF.Round(seconds / .015f);
+            var offTop = runs.Where(r => r.Phase == "OffAtTop" && r.Ticks > 20).ToList();
+            var onTop = runs.Where(r => r.Phase == "OnFromTop" && r.Ticks > 20).ToList();
+            var offFoot = runs.Where(r => r.Phase == "OffAtFoot").ToList();
+            float exitMiss = offTop.Count > 0 ? offTop.Max(r => new Vector2(r.To.Y - LadderCalibration.ExitY, r.To.Z - LadderCalibration.ExitZ).Length()) : float.NaN;
+            float exitOut = offTop.Count > 0 ? offTop.Average(r => r.To.Y - LadderCalibration.RailY(r.To.Z)) : float.NaN;
+            float footBack = offFoot.Count > 0 ? Median(offFoot.Select(r => r.From.Y - r.To.Y).Order().ToList()) : float.NaN;
+            int footTicks = offFoot.Count > 0 ? offFoot.Select(r => r.Ticks).Order().ElementAt(offFoot.Count / 2) : 0;
+            Check(Median(pitched) < 5 && Median(levelled) < .5f && offTop.Count > 0 && offTop.All(r => Math.Abs(r.Ticks - Ticks(LadderRules.OffTopSeconds)) <= 2) && exitMiss < 1.5f
+                    && MathF.Abs(exitOut - LadderRules.ExitDistance) < 1.5f && onTop.Count > 0 && onTop.All(r => Math.Abs(r.Ticks - Ticks(LadderRules.OnTopSeconds)) <= 3 && MathF.Abs(MathF.Abs(BodyAnimator.Wrap(r.ToYaw - r.FromYaw)) - 180) < 3)
+                    && Math.Abs(footTicks - Ticks(LadderRules.OffFootSeconds)) <= 1 && MathF.Abs(footBack - LadderRules.FootExitDistance) < 1.5f,
+                FormattableString.Invariant($"against {ladderFiles.Count} ladder recordings: {pitched.Count} climbing ticks looking up or down within a median {Median(pitched):0.0} units/s of 80 × the pitch's sine × the key, {levelled.Count} looking level at {Median(levelled):0.0}; off at the top {string.Join(", ", offTop.Select(r => r.Ticks))} ticks ({Ticks(LadderRules.OffTopSeconds)}), {exitOut:0.0} units out ({LadderRules.ExitDistance}), on the dismount within {exitMiss:0.0}; on from the top {string.Join(", ", onTop.Select(r => r.Ticks))} ticks ({Ticks(LadderRules.OnTopSeconds)}), turned {string.Join(", ", onTop.Select(r => MathF.Abs(BodyAnimator.Wrap(r.ToYaw - r.FromYaw)).ToString("0", System.Globalization.CultureInfo.InvariantCulture)))}°; off at the foot a median {footTicks} ticks ({Ticks(LadderRules.OffFootSeconds)}) and {footBack:0.0} units back ({LadderRules.FootExitDistance})"));
+        }
     }
     // Falls (R10159-1): the donor's landings from l01_a-v18-fall-1 and -2 took none under 300 units and Source's fall
     // damage above, 10 after 316 units, 24 after 371, 51 after 517 and 61 after 575.

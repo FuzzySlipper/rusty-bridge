@@ -116,32 +116,38 @@ internal sealed class PlayerController : IDisposable
             jumpDelayLeft = 0;
             jumpPressed = before.Grounded;
         }
-        // Getting on or off a ladder (R10163-1): mm_time_to_exit_enter_ladder's second onto or off the rail, eased, the
-        // controls held off meanwhile.
+        // Getting on from the top or off a ladder (#10439): a move onto or off the rail, eased, the controls held off
+        // meanwhile; on from the top the view turns round with the body.
         if (LadderMove is { } move)
         {
             fallTop = null;
-            float done = Math.Min(1, (move.Elapsed + delta) / LadderRules.EnterExitSeconds);
+            float done = Math.Min(1, (move.Elapsed + delta) / move.Seconds);
             float eased = done * done * (3 - 2 * done);
             var at = Vector3.Lerp(move.From, move.To, eased);
             entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = at });
             entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(at));
+            if (move.Turn is float from) LookState = new LookState(from + BodyAnimator.InTurn(done) * MathF.PI / 180, LookState.PitchRadians);
             LadderMove = done >= 1 ? null : move with { Elapsed = move.Elapsed + delta };
             if (done >= 1) Climbing = move.Then;
             lastClear = at;
             return BodyEvent.None;
         }
-        // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it; jump lets go.
+        // A ladder (#10163): mount it moving forward within reach of its rail, looking toward it, on the rail at once
+        // (#10439: the donor's was there the tick it walked into it); jump lets go.
         if (Climbing is null && input.Movement.Y > 0 && !jumpPressed && LadderInReach() is { } reached)
         {
             var (bottom, top) = LadderRules.Rail(reached, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
-            StartLadderMove(bottom with { Y = Math.Clamp(StandingY, bottom.Y, top.Y) }, reached);
+            var on = bottom with { Y = Math.Clamp(StandingY, bottom.Y, top.Y) };
+            entities.Set(entity, EngineComponentTypes.Transform, entities.Get(entity, EngineComponentTypes.Transform) with { Translation = on });
+            entities.Set(entity, EngineComponentTypes.CharacterMotion, AtRest(on));
+            Climbing = lastLadder = reached;
+            lastClear = on;
             return BodyEvent.None;
         }
-        // Or from its top: at the edge, facing the ladder's way, backing off steps onto the rail's top (the exit's reverse).
-        if (Climbing is null && input.Movement.Y < 0 && !jumpPressed && LadderBehind() is var (fromTop, railTop))
+        // Or from its top (#10439): at its dismount, walking off it facing away, it turns round onto the rail's top.
+        if (Climbing is null && input.Movement.Y > 0 && !jumpPressed && LadderBehind() is var (fromTop, railTop))
         {
-            StartLadderMove(railTop, fromTop);
+            StartLadderMove(railTop, fromTop, LadderRules.OnTopSeconds, LookState.YawRadians);
             return BodyEvent.None;
         }
         if (Climbing is not null && jumpPressed) Climbing = null;
@@ -178,12 +184,12 @@ internal sealed class PlayerController : IDisposable
             if (climb.ClimbAtTop && climbIntent > 0)
             {
                 Climbing = null;
-                StartLadderMove(receipt.Transform.Translation + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres), null);
+                StartLadderMove(receipt.Transform.Translation + facing * LadderRules.ExitMetres, null, LadderRules.OffTopSeconds);
             }
             else if (climb.ClimbAtBottom && climbIntent < 0)
             {
                 Climbing = null;
-                StartLadderMove(receipt.Transform.Translation - facing * LadderRules.ExitMetres, null);
+                StartLadderMove(receipt.Transform.Translation - facing * LadderRules.FootExitMetres, null, LadderRules.OffFootSeconds);
             }
             else if (!climb.ClimbAttached) Climbing = null;
         }
@@ -334,14 +340,17 @@ internal sealed class PlayerController : IDisposable
     /// <summary>The ladder the player is on, or null.</summary>
     internal Ladder? Climbing { get; private set; }
 
-    /// <summary>Getting on or off a ladder (R10163-1): from, to, the time so far, and the ladder climbed after (null: off).</summary>
-    internal (Vector3 From, Vector3 To, float Elapsed, Ladder? Then)? LadderMove { get; private set; }
+    /// <summary>
+    /// Getting on from the top or off a ladder (#10439): from, to, the time so far and the move's whole time, the ladder
+    /// climbed after (null: off), and the view's yaw it turns round from (on from the top), radians.
+    /// </summary>
+    internal (Vector3 From, Vector3 To, float Elapsed, Ladder? Then, float Seconds, float? Turn)? LadderMove { get; private set; }
 
     // The ladder stands the body (R10163-3): a crouched one rises from where its feet are, so the move starts from the
     // standing centre over them and the rail's ends are the standing body's.
-    private void StartLadderMove(Vector3 to, Ladder? then)
+    private void StartLadderMove(Vector3 to, Ladder? then, float seconds, float? turnFrom = null)
     {
-        LadderMove = (Feet + Vector3.UnitY * (Tuning.Height / 2), to, 0, then);
+        LadderMove = (Feet + Vector3.UnitY * (Tuning.Height / 2), to, 0, then, seconds, turnFrom);
         lastLadder = then ?? Climbing ?? lastLadder;
     }
 
@@ -383,8 +392,8 @@ internal sealed class PlayerController : IDisposable
     }
 
     /// <summary>
-    /// A ladder whose top the body stands at, facing the ladder's way, within reach of where its exit leaves the body:
-    /// the ladder and the rail's top to step onto.
+    /// A ladder whose top the body stands at, facing away from it (#10439: the donor walked onto it so), within reach of
+    /// its dismount: the ladder and the rail's top to step onto.
     /// </summary>
     private (Ladder Ladder, Vector3 RailTop)? LadderBehind()
     {
@@ -395,9 +404,9 @@ internal sealed class PlayerController : IDisposable
         {
             var (_, top) = LadderRules.Rail(ladder, Tuning.Radius, Tuning.Height / 2 + walking.Shape.ContactSkin);
             var facing = Vector3.Normalize(ladder.Facing with { Y = 0 });
-            var exit = top + facing * (2 * Tuning.Radius + LadderRules.OffsetMetres + LadderRules.ExitMetres);
+            var exit = top + facing * LadderRules.ExitMetres;
             if (((Position - exit) with { Y = 0 }).Length() <= LadderRules.Reach + .3f && MathF.Abs(StandingY - top.Y) < .15f
-                && Vector3.Dot(look, facing) >= LadderRules.MountDot)
+                && Vector3.Dot(look, -facing) >= LadderRules.MountDot)
                 return (ladder, top with { Y = top.Y - .03f });
         }
         return null;

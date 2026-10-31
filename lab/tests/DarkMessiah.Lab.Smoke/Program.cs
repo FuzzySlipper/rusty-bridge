@@ -1270,6 +1270,7 @@ host.Call(engine =>
         $"the lab plays build.json: every skill at 0 gives the combat skill's level-0 modules, as a new donor game has ({own})");
     var file = combat.BuildFile!;
     if (Environment.GetEnvironmentVariable("RB_NECRO") == "1") { NecromancerFights(); return; }
+    if (Environment.GetEnvironmentVariable("RB_GRAB") == "1") { GrabFights(); return; }
     string? Refused(BuildFile f) { try { combat.BuildFrom(f); return null; } catch (InvalidOperationException e) { return e.Message; } }
     BuildFile WithSkill(string name, int level) => file with { Skills = new Dictionary<string, int>(file.Skills) { [name] = level } };
     Check(Refused(WithSkill("swordplay", 1)) is string unknown && unknown.Contains("isn't a skill"), "a skill mm_skills_infos.txt lacks is refused");
@@ -2380,6 +2381,109 @@ host.Call(engine =>
         ((IReplayBody)product).Begin();
     }
     NecromancerFights();
+    GrabFights();
+    // The orc's grab (#10185; docs/lab.md, "The orc's grab"): the orc keeps the times of the player's blows it parries or
+    // blocks, the newest 4, and at its attack choice grabs when the oldest is under 10 s old (server.dll's swordsmen;
+    // NbHitBlockedToGrab, HitsBlockedToGrabDelay), within 90 units and the player's shield not in hand. At the grab's event
+    // (0.25 s in) the hands go; the player is drawn in and held 20 units in front and 22 up, thrown 300 units on at 2.5 s,
+    // and the weapon comes back with the quick draw 6.65 s after the taking (the recorded 6.9 after the grab began).
+    // Against every recorded orc attack and grab. RB_GRAB=1 runs this alone and stops.
+    void GrabFights()
+    {
+        float gpu = RustyBridge.Wire.Donor.SourceSpace.MetresPerUnit;
+        var grFile = combat.BuildFile!;
+        bool grWasGod = combat.God, grWasHeld = combat.Orc.Hold;
+        var grWasForced = combat.Orc.Defending.Forced;
+        var (grRay, grSurface) = (combat.WorldRay, combat.WorldSurface);
+        (combat.WorldRay, combat.WorldSurface) = (null, null);
+        combat.Reset();
+        combat.God = true;
+        var grOrc = combat.Orc;
+        var grFeet = new Vector3(0, 0, 0);
+        var grEye = grFeet + Vector3.UnitY * 1.6f;
+        var grForward = Vector3.UnitZ;
+        // The orc 50 units in front, parrying every blow; the player's taps until it has parried the given number.
+        (int Parried, float GrabbedAt, float TakenAt, float LeftAt, float DrawnAt, List<(float T, Vector3 Feet)> Carry, float StillScale, string DrawClip, LabCombat.PlayerGrab? Grab) Fight(int parries, float seconds = 9)
+        {
+            combat.Reset();
+            grOrc.Spawn();
+            grOrc.PlaceAt(grFeet + grForward * 50 * gpu);
+            grOrc.Face(-grForward);
+            grOrc.Defending.Forced = DarkMessiah.Lab.Npc.Defence.Parry;
+            grOrc.Hold = true;
+            for (int swing = 0; swing < 30 && grOrc.BlockedTowardGrab < parries; swing++)
+            {
+                for (int i = 0; i < 3; i++) combat.Step(Tick, step++, true, false, false, grEye, grForward, grFeet);
+                for (int i = 0; i < 90 && combat.Sword.Move != SwordMove.Ready; i++) combat.Step(Tick, step++, false, false, false, grEye, grForward, grFeet);
+            }
+            int got = grOrc.BlockedTowardGrab;
+            grOrc.Defending.Forced = DarkMessiah.Lab.Npc.Defence.None;
+            grOrc.Hold = false;
+            float grabbedAt = float.NaN, takenAt = float.NaN, leftAt = float.NaN, drawnAt = float.NaN, still = 1;
+            string drawClip = "";
+            var carry = new List<(float, Vector3)>();
+            LabCombat.PlayerGrab? taken = null;
+            for (int i = 0; i < (int)(seconds / Tick); i++)
+            {
+                float t = (i + 1) * Tick;
+                var feet = combat.CarriedFeet ?? grFeet;
+                combat.Step(Tick, step++, false, false, false, feet + Vector3.UnitY * 1.6f, grForward, feet);
+                if (float.IsNaN(grabbedAt) && grOrc.Clip == DarkMessiah.Lab.Npc.GrabData.Clip) grabbedAt = t;
+                if (float.IsNaN(takenAt) && combat.Grabbed is not null) { takenAt = t; still = combat.MovementScale; taken = combat.Grabbed; }
+                if (!float.IsNaN(grabbedAt) && float.IsNaN(leftAt) && grOrc.Clip != DarkMessiah.Lab.Npc.GrabData.Clip) leftAt = t;
+                if (combat.CarriedFeet is Vector3 carried) carry.Add((t - takenAt, carried));
+                if (!float.IsNaN(takenAt) && float.IsNaN(drawnAt) && combat.Grabbed is null) { drawnAt = t; drawClip = combat.Sword.Clip.Clip; }
+            }
+            return (got, grabbedAt, takenAt, leftAt, drawnAt, carry, still, drawClip, taken);
+        }
+        var grabbed = Fight(4);
+        // In the orc's frame as it took the player: forward and up, Source units.
+        var orcAt = grabbed.Grab?.OrcFeet ?? Vector3.Zero;
+        var orcForward = grabbed.Grab is { } tg ? Vector3.Normalize(tg.OrcFacing) : grForward;
+        Vector3 Rel(Vector3 p) => new(Vector3.Dot(p - orcAt, orcForward) / gpu, 0, (p.Y - orcAt.Y) / gpu);
+        var held = grabbed.Carry.Where(c => c.T is > 1.2f and < 2.4f).Select(c => Rel(c.Feet)).ToList();
+        float thrown = grabbed.Carry.Count > 0 ? Rel(grabbed.Carry[^1].Feet).X : float.NaN;
+        float clipSeconds = grOrc.BodyModel.Clip(DarkMessiah.Lab.Npc.GrabData.Clip).Seconds;
+        Check(grabbed.Parried == 4 && !float.IsNaN(grabbed.GrabbedAt) && MathF.Abs(grabbed.TakenAt - grabbed.GrabbedAt - .067f * clipSeconds) <= 2 * Tick
+                && grabbed.StillScale == 0 && MathF.Abs(grabbed.LeftAt - grabbed.GrabbedAt - .95f * clipSeconds) <= 2 * Tick
+                && held.Count > 0 && held.All(h => MathF.Abs(h.X - 20) < 1 && MathF.Abs(h.Z - 22) < 1) && MathF.Abs(thrown - 305) < 10
+                && MathF.Abs(grabbed.DrawnAt - grabbed.TakenAt - LabCombat.GrabQuickDraw) <= 2 * Tick && grabbed.DrawClip.EndsWith("_quickdraw", StringComparison.Ordinal),
+            FormattableString.Invariant($"four of the player's blows parried, the orc grabs at its next attack choice ({grabbed.GrabbedAt:0.00} s), takes the hands {grabbed.TakenAt - grabbed.GrabbedAt:0.00} s in (the donor's 0.24 to 0.27; movement {grabbed.StillScale}), holds the player {held.FirstOrDefault().X:0} units in front and {held.FirstOrDefault().Z:0} up, throws it {thrown:0} on, leaves the grab {grabbed.LeftAt - grabbed.GrabbedAt:0.00} s in (3.60), and the weapon comes back with {grabbed.DrawClip} {grabbed.DrawnAt - grabbed.TakenAt:0.00} s after the taking (the donor's 6.63 to 6.99 after the grab began)"));
+        var three = Fight(3, 5);
+        Check(three.Parried == 3 && float.IsNaN(three.GrabbedAt),
+            $"three parried, it doesn't grab (it grabbed {(float.IsNaN(three.GrabbedAt) ? "never" : "at " + three.GrabbedAt)} in 5 s)");
+        combat.Rebuild(WithSkill("combat", 2) with { OffHand = SmallShield });
+        var shieldedFight = Fight(4, 5);
+        combat.Rebuild(grFile);
+        Check(shieldedFight.Parried == 4 && float.IsNaN(shieldedFight.GrabbedAt),
+            "with the player's shield in hand, four parried and it doesn't grab (as in the recorded shield fight)");
+        // Against the recordings (GrabCalibration).
+        var grRecordings = Directory.Exists(Path.Combine(repo!, "local", "recordings"))
+            ? Directory.EnumerateFiles(Path.Combine(repo!, "local", "recordings"), "*.rbrec", SearchOption.AllDirectories).Order().ToList() : [];
+        if (grRecordings.Count > 0)
+        {
+            var read = grRecordings.Select(GrabCalibration.Read).ToList();
+            var attacks = read.SelectMany(r => r.Attacks).Where(a => !a.AfterContest).ToList();
+            var grabs = read.SelectMany(r => r.Grabs).ToList();
+            var armedIn = attacks.Where(a => a.Armed && !a.Shielded && a.Units <= 90).ToList();
+            int armedGrabbed = armedIn.Count(a => a.Clip == DarkMessiah.Lab.Npc.GrabData.Clip);
+            int beyond = attacks.Count(a => a.Armed && a.Units > 90 && a.Clip == DarkMessiah.Lab.Npc.GrabData.Clip);
+            int unarmedGrabs = attacks.Count(a => !a.Armed && a.Clip == DarkMessiah.Lab.Npc.GrabData.Clip), unarmed = attacks.Count(a => !a.Armed);
+            int shieldGrabs = attacks.Count(a => a.Shielded && a.Clip == DarkMessiah.Lab.Npc.GrabData.Clip);
+            var gone = grabs.Where(g => g.HandsGone is not null).Select(g => g.HandsGone!.Value).ToList();
+            var drawn = grabs.Where(g => g.QuickDraw is not null).Select(g => g.QuickDraw!.Value).Order().ToList();
+            float labDrawn = .067f * clipSeconds + LabCombat.GrabQuickDraw;
+            Check(armedGrabbed >= .75f * armedIn.Count && beyond == 0 && unarmedGrabs <= 1 && shieldGrabs == 0
+                    && gone.All(x => MathF.Abs(x - .067f * clipSeconds) <= .04f) && drawn.Count > 0 && MathF.Abs(drawn[drawn.Count / 2] - labDrawn) <= .1f,
+                FormattableString.Invariant($"against {grRecordings.Count} recordings: of {armedIn.Count} attacks begun armed within 90 units without a shield, {armedGrabbed} grabs; none armed beyond ({beyond}); {unarmedGrabs} of {unarmed} unarmed attacks a grab; none with a shield ({shieldGrabs}); of {grabs.Count} grabs ({grabs.Count(g => g.AfterContest)} after a sword contest) the hands gone {gone.Min():0.00} to {gone.Max():0.00} s in on {gone.Count} (the lab's {.067f * clipSeconds:0.00}), the quick draw a median {drawn[drawn.Count / 2]:0.00} s after the grab began on {drawn.Count} (the lab's {labDrawn:0.00}), carried up to {grabs.Max(g => g.Carried):0} units"));
+        }
+        (combat.WorldRay, combat.WorldSurface) = (grRay, grSurface);
+        combat.Reset();
+        combat.God = grWasGod;
+        grOrc.Hold = grWasHeld;
+        grOrc.Defending.Forced = grWasForced;
+        ((IReplayBody)product).Begin();
+    }
     // The necromancer (#10357; docs/lab.md, "The necromancer"): combat.json's orc.necromancer makes the first NPC one, with
     // its model, its .qct and its hook. Aware and 200 to 1000 units off, it stands and casts spell_flamearrow every 1.68 s,
     // the flame arrow leaving its hand at the clip's event (1.02 s in) at 520 units/s at the player's eye, off to one side

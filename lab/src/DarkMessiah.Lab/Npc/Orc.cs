@@ -446,6 +446,7 @@ internal sealed partial class Orc : IDisposable
         Spotted = false;
         Loosed.Clear();
         Cast.Clear();
+        GrabbedNow = false;
         var blows = new List<OrcBlow>();
         // A spell's blow that would have killed it left it at 1: it dies once its fire or the shock has run (#10166).
         if (dyingLeft > 0 && (dyingLeft -= seconds) <= 0 && Alive) Damage(Health);
@@ -526,7 +527,8 @@ internal sealed partial class Orc : IDisposable
                 if (walkingAnswer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (walkingAnswer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
                 // It walks in to its green zone, or until an attack it may make lands from here.
-                else if (units <= data.Green || !Hold && mind.Ready && mind.Choose(units, Landings, WeakenedFor > 0) is not null) Play(OrcState.Ready, "combatidle");
+                // Its grab armed (#10185), it stops to make it.
+                else if (units <= data.Green || !Hold && mind.Ready && (GrabArmed(units) || mind.Choose(units, Landings, WeakenedFor > 0) is not null)) Play(OrcState.Ready, "combatidle");
                 break;
             case OrcState.Ready:
                 // A swing it saw while busy it answers now, if it hasn't yet and the swing is still coming.
@@ -534,6 +536,8 @@ internal sealed partial class Orc : IDisposable
                 if (swing != IncomingSwing.None) answeredSwing = swingId;
                 if (answer == Defence.Parry) { Parry(); stamina.Spend(stamina.Data.Parry); }
                 else if (answer == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); }
+                // Four of the player's blows blocked in 10 s (#10185): its attack choice is the grab.
+                else if (!Hold && mind.Ready && GrabArmed(units)) StartGrab();
                 else if (!Hold && mind.Ready && mind.Choose(units, Landings, WeakenedFor > 0) is { } attack)
                 {
                     Play(OrcState.Attack, attack.Clip);
@@ -552,11 +556,12 @@ internal sealed partial class Orc : IDisposable
                 // Its dodge test doesn't ask whether it attacks, as its parry does (R10151-1: server.dll's defence skips
                 // an NPC flagged attacking, +0x2A897C; its dodge test, +0x2ACB30, doesn't): a power attack or a kick
                 // coming it may dodge out of its own attack. The donor's dodged 13% of power attacks attacking, as ready.
-                if (swing is IncomingSwing.BreaksParry or IncomingSwing.Kick && swingId != answeredSwing)
+                if (swing is IncomingSwing.BreaksParry or IncomingSwing.Kick && swingId != answeredSwing && !Clip.Equals(GrabData.Clip, StringComparison.OrdinalIgnoreCase))
                 {
                     answeredSwing = swingId;
                     if (defence.Decide(swing, clock, Wounded) == Defence.Dodge) { Dodge(); stamina.Spend(stamina.Data.Dodge); break; }
                 }
+                if (StepGrab(before)) break;
                 var clip = body.Model.Clip(Clip);
                 for (int part = 0; part < PartEvents.Length; part++)
                     foreach (float at in clip.At(PartEvents[part]))
@@ -1264,6 +1269,7 @@ internal sealed partial class Orc : IDisposable
         (onFire, fatalFall, pushRoot, burnLeft, dieLeft, fallSpeed) = (false, false, false, 0, 0, 0);
         ResetArchery();
         ResetCasting();
+        ResetGrab();
         holdsShield = OwnShield;
         ResetShrink();
         Layer = null;
@@ -1470,7 +1476,8 @@ internal sealed partial class Orc : IDisposable
     {
         var clip = body.Model.Clip(Clip);
         // The cleaver's speed_attack; an archer's kick with the bow at its own (#10169).
-        float rate = State == OrcState.Attack && !HoldsBow ? AttackSpeed : 1;
+        // Not the grab (#10185): its hands, not the cleaver, at the clip's own rate (the recorded grabs left at 3.60 s).
+        float rate = State == OrcState.Attack && !HoldsBow && !Clip.Equals(GrabData.Clip, StringComparison.OrdinalIgnoreCase) ? AttackSpeed : 1;
         Cycle += clip.Seconds > 0 ? seconds * rate / clip.Seconds : 1;
         if (Looping(Clip) && Cycle >= 1) Cycle -= MathF.Floor(Cycle);
         else Cycle = MathF.Min(Cycle, 1);

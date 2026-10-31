@@ -43,6 +43,8 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
     private readonly Appearance fireballLook;
     private readonly List<EntityId> fireballIds = [];
     private readonly List<EntityId> flameIds = [];
+    // The body was carried by an orc's grab last step (#10185).
+    private bool carriedLast;
     private readonly List<EntityId> boltIds = [];
     // The arrows in flight (#10168): a thin box each, along its flight.
     private readonly Appearance arrowLook;
@@ -219,6 +221,13 @@ public sealed class LabProduct : IEngineProduct, IDebugCommandModuleSource, IRep
                 move: frame.Movement, grounded: player.Motion.Grounded, sprinting: sprintAsked,
                 crouched: player.Motion.Stance == CharacterStance.Crouched, lean: player.Lean.Value, zoomHeld: zoomHeld);
             player.Zoom = (combat.Zoom, Ranged.BowRules.ZoomedDegrees);
+            // Held and thrown by an orc's grab (#10185): the body goes where the grab has it, and lands where it fits.
+            if (combat.CarriedFeet is Vector3 carried) { player.CarryTo(carried); carriedLast = true; }
+            else if (carriedLast)
+            {
+                carriedLast = false;
+                player.PlaceClear(player.Feet, player.LookState.YawRadians * 180 / MathF.PI, player.LookState.PitchRadians * 180 / MathF.PI, bodies);
+            }
             kickPending = attackPending = blockPending = false;
             StepBody(delta, frame.Movement, sprintAsked && combat.Stamina.Admits(sprintAsked), !kicking && combat.Sword.Move == SwordMove.Kick);
             // The first person draws from above the eye, turned by the head (#10161).

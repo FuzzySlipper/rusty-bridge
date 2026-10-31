@@ -257,6 +257,13 @@ internal sealed class PlayerController : IDisposable
         return clear - Vector3.UnitY * half;
     }
 
+    /// <summary>Its body carried to stand at <paramref name="feet"/> (an orc's grab, #10185), the view kept.</summary>
+    internal void CarryTo(Vector3 feet)
+    {
+        var look = LookState;
+        Place(feet + Vector3.UnitY * (Tuning.Height / 2 + walking.Shape.ContactSkin), look.YawRadians * 180 / MathF.PI, look.PitchRadians * 180 / MathF.PI);
+    }
+
     /// <summary>Looks along a yaw and pitch, radians (a replay's recorded view).</summary>
     internal void Face(float yawRadians, float pitchRadians) => LookState = new LookState(yawRadians, pitchRadians);
 

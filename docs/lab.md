@@ -220,7 +220,7 @@ The scenario fights (`rbwire scenario weapon-*`, recordings `l01_a-v17-weapon-*.
   6.6 s after each of the orc's `attack_grab`s in the long-sword run (4 of 4). Replays follow it (R10148-1): where
   the donor's view model empties in a stretch that ends in a quick draw, the lab's sword is away
   (`PlayerSword.TakeHands`: no input counts, nothing is drawn), and its quick draw begins as the donor's does, 4 of 4.
-  The lab's own orc doesn't grab yet (#10185), so in a live fight nothing takes the hands.
+  In a live fight the lab's orc's grab takes them (#10185, "The orc's grab").
 - **Held to the end of a fast attack, the daggers go to the power attack's hold** through their transition
   (`layer_transition_daggers_A`, 0.33 s at the clip's rate), not their recovery: in the goblin fight (`daggers-goblin`) an A
   started from its recovery and held, 6 of 6. The lab does this for every letter of the daggers' chain; only A's is
@@ -810,6 +810,29 @@ records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
   the stomp's 2 at 25.8 units, the kick's kill, and one small for 129 s. The smoke's spell, bow and telekinesis checks
   count what the orc's blows took (`Orc.Taken`), its regeneration aside.
 
+### The orc's grab
+
+`Npc/OrcGrab.cs`, `LabCombat.StepGrab` (#10185; every recorded fight, `GrabCalibration`). The orc plays `attack_grab`
+(3.79 s, events 2137, 2111 and 2138) and throws the player.
+
+| | The donor | The lab |
+| --- | --- | --- |
+| When | server.dll's swordsmen (`CMM_Npc_BaseSwordman`) keep the times of the player's blows they parry or block, the newest `NbHitBlockedToGrab` (4) of them (+0x2E0310), and at their attack choice (vtable slot 903, +0x2AFF10) grab before any other choice when the oldest is under `HitsBlockedToGrabDelay` (10) s old, the list cleared (+0x2AFF6B). Recorded: 12 of the 14 attacks begun so armed within 90 units were grabs (from 33 to 89 units), none of 5 farther; 1 of 1357 attacks begun unarmed; none with the player's shield in hand (the shield fight: armed three times within reach). Six more came 0.48 s after the orc won a sword contest (`versus_right_out_win`; the `.qct`'s `perc_grab_after_wVSw` 0.9) | the same list and rule at its attack choice (and walking in, it stops to grab), within 90 units, not with the player's shield in hand (the attack choice read doesn't show that; its caller may); no sword contest in the lab |
+| The taking | at the grab's event 2137 (cycle 0.067): the hands empty 0.24 to 0.27 s in (16 of 18; two were cut short then, 38 and 39 units off: why isn't read) | at the event, within its reach: `Sword.TakeHands`, the head's `player_grabed` |
+| The carry | drawn in and held about 20 units in front of the orc and 22 up (0.5 to 2.5 s), thrown forward at about 380 units/s from 2.75 s, landing about 300 on (79 to 328 carried: the arena's walls stop it), knocked down; no damage from the grab | drawn in over 1 s to 20 in front and 22 up, held to 2.5 s after the taking, thrown 0.75 s at 380 units/s, short of a wall; its movement held until the weapon is back |
+| The orc | leaves the grab at 3.60 s (cycle 0.95), at the clip's own rate | the same (not at the cleaver's `speed_attack`) |
+| The weapon back | the quick draw (`*_quickdraw`) 6.63 to 6.99 s after the grab began, a median 6.90 (12; the club and daggers show none) | 6.65 s after the taking (6.90 after the grab began) |
+
+- **Replays** follow the donor's hands (R10148-1: the view model empty, then the quick draw where the donor's began, 4
+  of 4) and its followed orc's `attack_grab`; the lab's own grab and carry are off there.
+- **Not in the lab:** the sword contest, so its grab; the swing aside at 2.5 s (the player swung 14 units to the side);
+  the grab's camera move (`mm_player_grab_camera_move_dist` 20).
+- **The smoke:** four of the player's blows parried, the orc grabs at its next attack choice, takes the hands 0.27 s
+  in, holds the player 20 in front and 22 up, throws it 305 on, leaves at 3.57 s, and the quick draw comes 6.63 s after
+  the taking; three parried, no grab; with the player's shield, no grab. Against the recordings: the 12 of 14, none
+  beyond reach, 1 of 1357 unarmed, none shielded, the hands 0.24 to 0.27 s in, the quick draw's median 6.90. `RB_GRAB=1`
+  runs these alone.
+
 ### Magic reflection
 
 `Magic/MagicReflection.cs` (#10349; `l01_a-v19-reflect-probe-2`, `-3`, docs/recording.md). l01_a has no caster, so
@@ -1070,7 +1093,7 @@ The camera the donor draws with (Wire v9's client view, its `CViewSetup`) agains
   orc's sequence, HitPow from the damage), since when the lab's orc lands them is the fight's comparison.
 - **Grabbed:** when an orc's grab takes the hands, the head plays `player_grabed` (40.2° down at its height, as
   recorded), cut at 2.35 s where the donor's is back at the view, then `player_knocked_down` 3.12 s after the grab
-  began, as the player is thrown (the three recorded grabs; the grab itself is #10185).
+  began, as the player is thrown (the three recorded grabs; the grab itself: "The orc's grab", #10185).
 - **Leaning** (Z and X, the donor's `config.cfg` binds; `PlayerLean`; `l01_a-v18-lean`): `+leanleft` and `+leanright`
   put nothing in the user command; the client rolls the view 15° (`cl_leanangle`) and moves the eye 25 units to that
   side (`cl_leanmove`, the view offset itself), easing at `cl_leanspeed` (10 a second: 70% of the way in 0.12 s, in
@@ -1262,7 +1285,7 @@ The lab's own orc fights by its `.qct` (#10150; `Npc/OrcMind.cs`), against the d
   donor's orcs attacked out of) and fights on: 1.4 s from contact to its next attack (R10150-1; its wait runs from its last attack's end). Every clip but the
   walk moves it by its root motion, as the donor's entity moves.
 - **Not chosen:** the turn strikes (a replay's followed orc makes them), the dodge strikes, the wounded attacks, the
-  grab (#10185), the block's counter, and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
+  block's counter (the grab has its own rule: "The orc's grab"), and `attack_down_1`, a downward strike recorded from 63 to 334 units off.
 - **Against the donor** (the smoke; fifteen minutes of a scripted fight, the player swinging when it is near at the
   recorded players' gaps between swings with an orc near, drawn at random from 794 of them, median 1.5 s, 46% over
   2 s, and backing off 4 m every 8 s; `OrcCalibration.PlayerSwingGaps`, R10151-5): every attack the lab made at
@@ -1841,7 +1864,7 @@ The lab started as a copy of rusty-fptester at `61f58a9` (Den #10124, its mainta
 ## Not done yet
 
 - **Orc AI:** its rhythm, zones, walk, attack choice, parries and dodges are the donor's (see "The orc" and "The
-  orc's defence"); its reactions are one hit and one push clip (#10153), and it doesn't grab (#10185).
+  orc's defence"); its reactions are one hit and one push clip (#10153), and it grabs ("The orc's grab", #10185).
 - **Pose timing** (#10098): NPC poses between streamed states.
 - **Physics:**
   - a kick that throws the orc into walls;

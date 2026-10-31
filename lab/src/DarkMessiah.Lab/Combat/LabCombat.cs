@@ -912,7 +912,7 @@ internal sealed class LabCombat : IDisposable
     internal (int Swings, int Hits, int Parried, int Blocked, int Missed, float Dealt) Player { get; private set; }
     internal (int Blows, int Reached, int Parried, int Broken, float Dealt, int Deaths) OrcStats { get; private set; }
     /// <summary>How much of the movement input moves the body now.</summary>
-    internal float MovementScale => Sword.Busy ? Tuning.AttackMovementScale : 1;
+    internal float MovementScale => Grabbed is not null ? 0 : Sword.Busy ? Tuning.AttackMovementScale : 1;
 
     /// <summary>
     /// The first orc's squad-mate (R10154-1; <c>combat.json</c> <c>orc.squadMate</c>), or none: an orc that sees the
@@ -1046,6 +1046,9 @@ internal sealed class LabCombat : IDisposable
         var mateFoe = Mate is { } m && orcPose is null ? Foe(m) : null;
         var mateBlows = Mate is { } mate && orcPose is null ? StepOrc(mate, mateFoe, seconds, feet, gait) : [];
         Squad();
+        // An orc's grab (#10185): taken at its event, carried and thrown, the hands back with the quick draw. A replay's
+        // hands follow the donor's view model instead (InputTimeline).
+        if (orcPose is null) StepGrab(seconds, feet);
         // In a replay, the player's sweep meets the followed orc as the donor's blow this tick found it (#10205).
         if (orcPose?.Arrived is { } arrived) Orc.PoseAsArrived(arrived);
         if (Sword.Move == SwordMove.Whirlwind && Sword.SwingStarted) Whirl(tick, eye, feet);
@@ -1119,6 +1122,8 @@ internal sealed class LabCombat : IDisposable
         // The swing plays on: the donor's sword doesn't bounce off an orc's parry or shield (none of 23 recorded did).
         if (verdict is DefenseResult.Parry or DefenseResult.Shield or DefenseResult.NoEffect)
         {
+            // Parried or blocked, it counts toward its grab (#10185); dodged, it doesn't.
+            if (verdict is DefenseResult.Parry or DefenseResult.Shield) hitOrc.BlockedPlayer();
             Player = verdict == DefenseResult.Parry ? Player with { Parried = Player.Parried + 1 }
                 : verdict == DefenseResult.Shield ? Player with { Blocked = Player.Blocked + 1 } : Player with { Missed = Player.Missed + 1 };
             Record(new SwingTrace(Sword.Swing, player.Layers[0], player.Cycle, start, end, c.Point, $"{verdict} ({what})"), blow: true);
@@ -1539,6 +1544,7 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     List<OrcBlow> StepOrc(Orc orc, Orc? foe, float seconds, Vector3 feet, PlayerGait gait)
     {
+        orc.PlayerShielded = Shield is not null;
         if (foe is null) return orc.Step(seconds, feet, Incoming(), Sword.Swing, gait, clearShot: orc.Archery is null || ClearShot(orc, eyeAt));
         bool clear = orc.Archery is null || foe == orc || ClearShot(orc, foe.Hull.Center);
         bool held = orc.Hold;
@@ -1628,6 +1634,69 @@ internal sealed class LabCombat : IDisposable
     /// The player's own arrows are 1 against the orc's hit boxes.
     /// </summary>
     const float OrcArrowSize = 12;
+
+    /// <summary>
+    /// The player in an orc's grab (#10185): who took it, how long ago (from the grab's taking, 0.25 s into
+    /// <c>attack_grab</c>), and where the player and the orc stood then.
+    /// </summary>
+    internal sealed record PlayerGrab(Orc By, float Seconds, Vector3 From, Vector3 OrcFeet, Vector3 OrcFacing);
+    /// <summary>The grab the player is in, or null.</summary>
+    internal PlayerGrab? Grabbed { get; private set; }
+    /// <summary>Where the grab has the player's feet this step, while it holds and throws it; null otherwise.</summary>
+    internal Vector3? CarriedFeet { get; private set; }
+    /// <summary>The grabs that took the player, and the quick draws that ended them.</summary>
+    internal (int Taken, int QuickDraws) Grabs { get; private set; }
+
+    /// <summary>
+    /// After the grab's taking, the quick draw: 6.65 s (the recorded quick draws 6.63 to 6.99 s after the grab began,
+    /// a median 6.90, the taking 0.25 s in).
+    /// </summary>
+    internal const float GrabQuickDraw = 6.65f;
+    /// <summary>
+    /// The carry, Source units in the orc's frame where the grab took the player (#10185; `attack_grab`'s recorded
+    /// carries): drawn in over 1 s to <see cref="GrabHold"/> in front and up, held there to 2.5 s, then thrown forward at
+    /// <see cref="ThrowUnits"/> for 0.75 s (to about 300 units, as far as nothing stops it) and let go, knocked down.
+    /// </summary>
+    internal static readonly Vector2 GrabHold = new(20, 22);
+    internal const float GrabDrawIn = 1, GrabThrowAt = 2.5f, GrabThrowFor = .75f, ThrowUnits = 380;
+
+    void StepGrab(float seconds, Vector3 feet)
+    {
+        CarriedFeet = null;
+        foreach (var orc in Orcs)
+            if (orc.GrabbedNow && Grabbed is null && Alive(orc) && Vector2.Distance(new(feet.X, feet.Z), new(orc.Feet.X, orc.Feet.Z)) / SourceSpace.MetresPerUnit <= orc.Grab!.Reach)
+            {
+                Grabbed = new PlayerGrab(orc, 0, feet, orc.Feet, orc.Facing with { Y = 0 });
+                Sword.TakeHands();
+                Grabs = Grabs with { Taken = Grabs.Taken + 1 };
+                Message = "The orc grabs you";
+            }
+        if (Grabbed is not { } g) return;
+        Grabbed = g = g with { Seconds = g.Seconds + seconds };
+        if (g.Seconds >= GrabQuickDraw)
+        {
+            Grabbed = null;
+            Sword.QuickDraw();
+            Grabs = Grabs with { QuickDraws = Grabs.QuickDraws + 1 };
+            return;
+        }
+        if (g.Seconds >= GrabThrowAt + GrabThrowFor) return;
+        float mpu = SourceSpace.MetresPerUnit;
+        var forward = g.OrcFacing.LengthSquared() > 1e-6f ? Vector3.Normalize(g.OrcFacing) : Vector3.UnitZ;
+        var hold = g.OrcFeet + forward * GrabHold.X * mpu + Vector3.UnitY * GrabHold.Y * mpu;
+        if (g.Seconds < GrabDrawIn) { CarriedFeet = Vector3.Lerp(g.From, hold, g.Seconds / GrabDrawIn); return; }
+        if (g.Seconds < GrabThrowAt) { CarriedFeet = hold; return; }
+        // Thrown: along its facing, coming down to the ground it was taken on, short of whatever's in the way.
+        float s = (g.Seconds - GrabThrowAt) / GrabThrowFor;
+        var landing = g.OrcFeet + forward * (GrabHold.X + ThrowUnits * GrabThrowFor) * mpu;
+        var chest = Vector3.UnitY * 40 * mpu;
+        if (WorldRay?.Invoke(hold + chest, landing + chest) is Vector3 wall)
+            landing = wall - chest - forward * Reaches.PlayerHalfWidth * mpu;
+        var along = Vector3.Lerp(hold with { Y = g.OrcFeet.Y }, landing with { Y = g.OrcFeet.Y }, s);
+        CarriedFeet = along + Vector3.UnitY * (GrabHold.Y * (1 - s) + 30 * MathF.Sin(MathF.PI * s)) * mpu;
+    }
+
+    static bool Alive(Orc orc) => orc.Alive && !orc.Following;
 
     /// <summary>
     /// A necromancer's flame arrow in flight (#10357): where it is, its velocity, its age, its caster, and whether the
@@ -1930,6 +1999,10 @@ internal sealed class LabCombat : IDisposable
         OrcFights = default;
         orcArrows.Clear();
         OrcArchery = default;
+        // No grab carries on into the next fight (#10185).
+        if (Grabbed is not null && Sword.Move == SwordMove.Away) Sword.QuickDraw();
+        Grabbed = null;
+        CarriedFeet = null;
         // The necromancer's flame arrows (R10357-2): none left in flight, nothing of the last fight's counted.
         flameArrows.Clear();
         Flames = default;

@@ -315,6 +315,7 @@ internal sealed class LabCombat : IDisposable
     /// <summary>Puts <paramref name="spell"/> in hand, or back to the weapon if it's there already (a belt key, #10165).</summary>
     internal void ToggleSpell(string spell)
     {
+        if (HandsTaken()) return;
         if (SpellInHand is { } inHand && inHand.Equals(spell, StringComparison.OrdinalIgnoreCase)) { SpellInHand = null; EndSpell(); Message = "Weapon in hand"; return; }
         if (Build is { } build && !build.Spells.Contains(spell, StringComparer.OrdinalIgnoreCase)) { Message = $"{spell} isn't known"; return; }
         if (!Played.TryGetValue(spell, out var name)) { Message = $"{spell} isn't played yet"; return; }
@@ -583,6 +584,7 @@ internal sealed class LabCombat : IDisposable
     /// <summary>Puts the bow <paramref name="model"/> in hand, or the weapon back if it's there already (a belt key, #10168).</summary>
     internal void ToggleBow(string model)
     {
+        if (HandsTaken()) return;
         if (Bow is { } held && held.Rules.Model == VpkIndex.Normalize(model)) { Bow = null; Message = "Weapon in hand"; return; }
         SpellInHand = null;
         Bow = new LabBow(BowRules.Of(donor, model), FirstPerson.ClipSeconds);
@@ -885,7 +887,7 @@ internal sealed class LabCombat : IDisposable
     /// </summary>
     internal void UseBelt(int slot)
     {
-        if (PlayerHealth <= 0) return;
+        if (PlayerHealth <= 0 || HandsTaken()) return;
         // A spell's slot puts it in hand, or the weapon back (#10165).
         if (Belt.SpellAt(slot) is { } spell) { ToggleSpell(spell); return; }
         if (Belt.BowAt(slot) is { } bow) { ToggleBow(bow); return; }
@@ -1003,6 +1005,8 @@ internal sealed class LabCombat : IDisposable
         FatalityLanded = false;
         int swingsBefore = Sword.Swing;
         Stamina.Step(seconds, sprinting);
+        // Grabbed, the hands are the orc's (R10185-1): nothing attacks, parries, kicks or zooms.
+        if (Grabbed is not null) attackHeld = blockHeld = kickHeld = zoomHeld = false;
         // A spell in hand takes attack: a press casts it (#10165), and the sword doesn't swing.
         if (SpellInHand is not null)
         {
@@ -1667,6 +1671,12 @@ internal sealed class LabCombat : IDisposable
             if (orc.GrabbedNow && Grabbed is null && Alive(orc) && Vector2.Distance(new(feet.X, feet.Z), new(orc.Feet.X, orc.Feet.Z)) / SourceSpace.MetresPerUnit <= orc.Grab!.Reach)
             {
                 Grabbed = new PlayerGrab(orc, 0, feet, orc.Feet, orc.Facing with { Y = 0 });
+                // A spell or the bow in hand goes with the weapon (R10185-1), so the weapon's quick draw ends the grab.
+                SpellInHand = null;
+                EndSpell();
+                spellAttackHeld = false;
+                Bow = null;
+                Zoom = 0;
                 Sword.TakeHands();
                 Grabs = Grabs with { Taken = Grabs.Taken + 1 };
                 Message = "The orc grabs you";
@@ -1697,6 +1707,14 @@ internal sealed class LabCombat : IDisposable
     }
 
     static bool Alive(Orc orc) => orc.Alive && !orc.Following;
+
+    /// <summary>The grab has the hands (R10185-1): the belt neither puts a spell or the bow in hand nor uses an item.</summary>
+    bool HandsTaken()
+    {
+        if (Grabbed is null) return false;
+        Message = "The orc has your hands";
+        return true;
+    }
 
     /// <summary>
     /// A necromancer's flame arrow in flight (#10357): where it is, its velocity, its age, its caster, and whether the

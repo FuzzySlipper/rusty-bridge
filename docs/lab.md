@@ -818,7 +818,7 @@ records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
 | | The donor | The lab |
 | --- | --- | --- |
 | When | server.dll's swordsmen (`CMM_Npc_BaseSwordman`) keep the times of the player's blows they parry or block, the newest `NbHitBlockedToGrab` (4) of them (+0x2E0310), and at their attack choice (vtable slot 903, +0x2AFF10) grab before any other choice when the oldest is under `HitsBlockedToGrabDelay` (10) s old, the list cleared (+0x2AFF6B). Recorded: 12 of the 14 attacks begun so armed within 90 units were grabs (from 33 to 89 units), none of 5 farther; 1 of 1357 attacks begun unarmed; none with the player's shield in hand (the shield fight: armed three times within reach). Six more came 0.48 s after the orc won a sword contest (`versus_right_out_win`; the `.qct`'s `perc_grab_after_wVSw` 0.9) | the same list and rule at its attack choice (and walking in, it stops to grab), within 90 units, not with the player's shield in hand (the attack choice read doesn't show that; its caller may); no sword contest in the lab |
-| The taking | at the grab's event 2137 (cycle 0.067): the hands empty 0.24 to 0.27 s in (16 of 18; two were cut short then, 38 and 39 units off: why isn't read) | at the event, within its reach: `Sword.TakeHands`, the head's `player_grabed` |
+| The taking | at the grab's event 2137 (cycle 0.067): the hands empty 0.24 to 0.27 s in (16 of 18; two were cut short then, 38 and 39 units off: why isn't read) | at the event, within its reach: `Sword.TakeHands`, the head's `player_grabed`; a spell or the bow in hand goes with the weapon, and until the weapon is back nothing attacks, parries, kicks or zooms and the belt does nothing (R10185-1; the donor's belt under a grab isn't recorded) |
 | The carry | drawn in and held about 20 units in front of the orc and 22 up (0.5 to 2.5 s), thrown forward at about 380 units/s from 2.75 s, landing about 300 on (79 to 328 carried: the arena's walls stop it), knocked down; no damage from the grab | drawn in over 1 s to 20 in front and 22 up, held to 2.5 s after the taking, thrown 0.75 s at 380 units/s, short of a wall; its movement held until the weapon is back |
 | The orc | leaves the grab at 3.60 s (cycle 0.95), at the clip's own rate | the same (not at the cleaver's `speed_attack`) |
 | The weapon back | the quick draw (`*_quickdraw`) 6.63 to 6.99 s after the grab began, a median 6.90 (12; the club and daggers show none) | 6.65 s after the taking (6.90 after the grab began) |
@@ -829,7 +829,8 @@ records the orc's size (`m_fMMSize`) and shrink (`m_iShrinked`).
   the grab's camera move (`mm_player_grab_camera_move_dist` 20).
 - **The smoke:** four of the player's blows parried, the orc grabs at its next attack choice, takes the hands 0.27 s
   in, holds the player 20 in front and 22 up, throws it 305 on, leaves at 3.57 s, and the quick draw comes 6.63 s after
-  the taking; three parried, no grab; with the player's shield, no grab. Against the recordings: the 12 of 14, none
+  the taking; with the fireball in hand, it goes at the taking, attack held and its belt key pressed cast nothing, and
+  the quick draw plays on bare arms (R10185-1); three parried, no grab; with the player's shield, no grab. Against the recordings: the 12 of 14, none
   beyond reach, 1 of 1357 unarmed, none shielded, the hands 0.24 to 0.27 s in, the quick draw's median 6.90. `RB_GRAB=1`
   runs these alone.
 

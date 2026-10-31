@@ -2457,7 +2457,9 @@ host.Call(engine =>
         var grEye = grFeet + Vector3.UnitY * 1.6f;
         var grForward = Vector3.UnitZ;
         // The orc 50 units in front, parrying every blow; the player's taps until it has parried the given number.
-        (int Parried, float GrabbedAt, float TakenAt, float LeftAt, float DrawnAt, List<(float T, Vector3 Feet)> Carry, float StillScale, string DrawClip, LabCombat.PlayerGrab? Grab) Fight(int parries, float seconds = 9)
+        // With the fireball put in hand before the grab (R10185-1), attack is held and its belt key pressed while it holds.
+        (int Parried, float GrabbedAt, float TakenAt, float LeftAt, float DrawnAt, List<(float T, Vector3 Feet)> Carry, float StillScale, string DrawClip, LabCombat.PlayerGrab? Grab,
+            bool SpellBefore, bool SpellHeld, int CastsHeld, bool ArmsFree) Fight(int parries, float seconds = 9, bool spell = false)
         {
             combat.Reset();
             grOrc.Spawn();
@@ -2477,18 +2479,29 @@ host.Call(engine =>
             string drawClip = "";
             var carry = new List<(float, Vector3)>();
             LabCombat.PlayerGrab? taken = null;
+            bool spellBefore = false, spellHeld = false, armsFree = false;
+            int castsAtTaking = 0, castsHeld = 0;
+            if (spell) { combat.Mana.Fill(); combat.UseBelt(2); spellBefore = combat.SpellInHand is not null; }
             for (int i = 0; i < (int)(seconds / Tick); i++)
             {
                 float t = (i + 1) * Tick;
                 var feet = combat.CarriedFeet ?? grFeet;
-                combat.Step(Tick, step++, false, false, false, feet + Vector3.UnitY * 1.6f, grForward, feet);
+                bool holding = spell && combat.Grabbed is not null;
+                if (holding && (i % 40 == 0)) combat.UseBelt(2);
+                combat.Step(Tick, step++, holding && i % 20 < 10, false, false, feet + Vector3.UnitY * 1.6f, grForward, feet);
+                if (spell && combat.Grabbed is not null) { spellHeld |= combat.SpellInHand is not null || combat.Bow is not null; castsHeld = combat.Fireballs.Count - castsAtTaking; }
+                else if (spell && float.IsNaN(takenAt)) castsAtTaking = combat.Fireballs.Count;
                 if (float.IsNaN(grabbedAt) && grOrc.Clip == DarkMessiah.Lab.Npc.GrabData.Clip) grabbedAt = t;
                 if (float.IsNaN(takenAt) && combat.Grabbed is not null) { takenAt = t; still = combat.MovementScale; taken = combat.Grabbed; }
                 if (!float.IsNaN(grabbedAt) && float.IsNaN(leftAt) && grOrc.Clip != DarkMessiah.Lab.Npc.GrabData.Clip) leftAt = t;
                 if (combat.CarriedFeet is Vector3 carried) carry.Add((t - takenAt, carried));
-                if (!float.IsNaN(takenAt) && float.IsNaN(drawnAt) && combat.Grabbed is null) { drawnAt = t; drawClip = combat.Sword.Clip.Clip; }
+                if (!float.IsNaN(takenAt) && float.IsNaN(drawnAt) && combat.Grabbed is null)
+                {
+                    (drawnAt, drawClip) = (t, combat.Sword.Clip.Clip);
+                    armsFree = combat.FirstPerson.Spell is null && combat.FirstPerson.Bow is null;
+                }
             }
-            return (got, grabbedAt, takenAt, leftAt, drawnAt, carry, still, drawClip, taken);
+            return (got, grabbedAt, takenAt, leftAt, drawnAt, carry, still, drawClip, taken, spellBefore, spellHeld, castsHeld, armsFree);
         }
         var grabbed = Fight(4);
         // In the orc's frame as it took the player: forward and up, Source units.
@@ -2503,6 +2516,9 @@ host.Call(engine =>
                 && held.Count > 0 && held.All(h => MathF.Abs(h.X - 20) < 1 && MathF.Abs(h.Z - 22) < 1) && MathF.Abs(thrown - 305) < 10
                 && MathF.Abs(grabbed.DrawnAt - grabbed.TakenAt - LabCombat.GrabQuickDraw) <= 2 * Tick && grabbed.DrawClip.EndsWith("_quickdraw", StringComparison.Ordinal),
             FormattableString.Invariant($"four of the player's blows parried, the orc grabs at its next attack choice ({grabbed.GrabbedAt:0.00} s), takes the hands {grabbed.TakenAt - grabbed.GrabbedAt:0.00} s in (the donor's 0.24 to 0.27; movement {grabbed.StillScale}), holds the player {held.FirstOrDefault().X:0} units in front and {held.FirstOrDefault().Z:0} up, throws it {thrown:0} on, leaves the grab {grabbed.LeftAt - grabbed.GrabbedAt:0.00} s in (3.60), and the weapon comes back with {grabbed.DrawClip} {grabbed.DrawnAt - grabbed.TakenAt:0.00} s after the taking (the donor's 6.63 to 6.99 after the grab began)"));
+        var withSpell = Fight(4, spell: true);
+        Check(withSpell.SpellBefore && !float.IsNaN(withSpell.TakenAt) && !withSpell.SpellHeld && withSpell.CastsHeld == 0 && withSpell.ArmsFree && withSpell.DrawClip.EndsWith("_quickdraw", StringComparison.Ordinal),
+            FormattableString.Invariant($"the fireball in hand ({withSpell.SpellBefore}) when the orc grabs (R10185-1): it goes with the weapon (in hand while grabbed: {withSpell.SpellHeld}), attack held and its belt key pressed cast nothing ({withSpell.CastsHeld}), and the weapon comes back with {withSpell.DrawClip}, nothing else on the arms ({withSpell.ArmsFree})"));
         var three = Fight(3, 5);
         Check(three.Parried == 3 && float.IsNaN(three.GrabbedAt),
             $"three parried, it doesn't grab (it grabbed {(float.IsNaN(three.GrabbedAt) ? "never" : "at " + three.GrabbedAt)} in 5 s)");
